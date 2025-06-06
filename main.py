@@ -1,80 +1,101 @@
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="deep_sort_realtime.embedder.embedder_pytorch")
+
 import cv2
 from ultralytics import YOLO
 from deep_sort_realtime.deepsort_tracker import DeepSort
 
-# Load the YOLO model with the specified weights file
-model = YOLO("yolo12m.pt")
+model = YOLO("yolov8n.pt")
+capture = cv2.VideoCapture("videos/crowd.mp4")
 
-# Open the video file for processing
-# capture = cv2.VideoCapture("videos/crowd2.mp4")
-capture = cv2.VideoCapture("videos/soccer.mp4")
-
-# Initialize the DeepSort tracker with a maximum age for tracks
 tracker = DeepSort(
     max_age=30,
     n_init=4,
     max_iou_distance=0.4,
     nn_budget=400,
-    embedder="mobilenet")
+    embedder="mobilenet"
+)
 
-# Initialize frame counter
-frame_num = 0
+left_roi = ((40, 200), (400, 300))  # (x1, y1), (x2, y2)
+left_line_y = left_roi[1][1]
 
-# Check if the video capture is opened successfully, and read frame from the video
-# Break the loop if no frame is returned (end of video)
+track_positions = {}
+
+counts = {"in": 0, "out": 0}
+
 while capture.isOpened():
     ret, frame = capture.read()
     if not ret:
         break
 
-    # Perform object detection using the YOLO model
-    results = model(frame, conf=0.4, iou=0.3)[0]
+    height, width, _ = frame.shape
 
-    # List to store detections for tracking
+    cv2.rectangle(frame, left_roi[0], left_roi[1], (255, 0, 0), 2)
+    cv2.line(frame, (left_roi[0][0], left_line_y), 
+             (left_roi[1][0], left_line_y), (255, 255, 0), 1)
+
+    results = model(frame, conf=0.4, iou=0.3)[0]
     detections = []
 
-    # Process each detected bounding box, and iterate through the bounding boxes
-    # Save the class index of the detected object, confidence score, and bounding box coordinates
-    for i, box in enumerate(results.boxes):
+    for box in results.boxes:
         cls = int(box.cls[0])
         conf = float(box.conf[0])
         x1, y1, x2, y2 = map(int, box.xyxy[0])
+        w, h = x2 - x1, y2 - y1
+        cx, cy = (x1 + x2) // 2, y2
 
-        w = x2 - x1
-        h = y2 - y1
+        in_roi = left_roi[0][0] <= cx <= left_roi[1][0] and left_roi[0][1] <= cy <= left_roi[1][1]
 
-        # Filter detections for 'person' class
-        if model.names[cls] == 'person':
+        if model.names[cls] == 'person' and in_roi:
             detections.append(([x1, y1, w, h], conf, model.names[cls]))
 
-    # Update tracker with the current frame and detections
     tracks = tracker.update_tracks(detections, frame=frame)
 
-    # Iterate through each track returned by the tracker
     for track in tracks:
-
-        # Check if the track is confirmed before processing
         if not track.is_confirmed():
             continue
 
-        # Save the track unique id, bounding box coordinates, and map the coordinates to integers
         track_id = track.track_id
         x1, y1, x2, y2 = map(int, track.to_ltrb())
+        cx, cy = (x1 + x2) // 2, y2
 
-        # Draw bounding box and label for the tracked object
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 3)
-        label = f'Person ID: {track_id}'
-        cv2.putText(frame, label, (x1, max(y1 - 10, 0)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3)
+        prev_pos = track_positions.get(track_id, (cx, cy))
+        prev_cx, prev_cy = prev_pos
+        track_positions[track_id] = (cx, cy)
 
-    # Display the processed frame in a window
-    cv2.namedWindow("People Detection", cv2.WINDOW_AUTOSIZE)
+        movement_vector_y = cy - prev_cy
+
+        cv2.circle(frame, (cx, cy), 4, (0, 255, 255), -1)
+        cv2.arrowedLine(frame, (prev_cx, prev_cy), (cx, cy), (255, 0, 255), 2)
+
+        roi_x1, roi_y1 = left_roi[0]
+        roi_x2, roi_y2 = left_roi[1]
+        
+        prev_in = (roi_x1 <= prev_cx <= roi_x2) and (roi_y1 <= prev_cy <= roi_y2)
+        current_in = (roi_x1 <= cx <= roi_x2) and (roi_y1 <= cy <= roi_y2)
+
+        if prev_in and not current_in:
+            if cx < roi_x1:
+                counts["out"] += 1
+            elif cx > roi_x2:
+                counts["in"] += 1
+            elif cy < roi_y1:
+                counts["in"] += 1
+            elif cy > roi_y2:
+                counts["out"] += 1
+
+        # Draw box and label
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.putText(frame, f'ID: {track_id}', (x1, max(y1 - 10, 0)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+    # Display counts
+    cv2.putText(frame, f"IN: {counts['in']}  OUT: {counts['out']}", (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
+
     cv2.imshow('People Detection', frame)
-
-    # Exit the loop if the 'q' key is pressed
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
-# Release the video capture and close all OpenCV windows
 capture.release()
 cv2.destroyAllWindows()
