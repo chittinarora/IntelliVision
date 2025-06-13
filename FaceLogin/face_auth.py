@@ -5,7 +5,7 @@ from utils import capture_face, match_face
 
 COLLECTION_NAME = "face_encodings"
 
-def register_user(name):
+def register_user(name, encoding):
     encoding, image_path = capture_face()
     if encoding is None:
         return "❌ No face detected. Try again."
@@ -38,7 +38,7 @@ def register_user(name):
 
     return f"✅ Registered {name} successfully!"
 
-def login_user():
+def login_user(encoding):
     encoding, _ = capture_face()
     if encoding is None:
         return "❌ No face detected. Try again."
