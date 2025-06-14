@@ -3,6 +3,30 @@ import cv2
 from ultralytics import YOLO
 from deep_sort_realtime.deepsort_tracker import DeepSort
 import os
+import subprocess
+
+
+def convert_to_web_mp4(input_file, output_file):
+    """
+    Converts input_file to a browser-friendly mp4 (H.264, yuv420p, faststart)
+    """
+    command = [
+        "ffmpeg",
+        "-y",  # Overwrite output if exists
+        "-i", input_file,
+        "-c:v", "libx264",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        output_file
+    ]
+    try:
+        subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        print(f"Converted {input_file} → {output_file} (web compatible)")
+        return True
+    except subprocess.CalledProcessError as e:
+        print("ffmpeg error:", e.stderr.decode())
+        return False
+
 
 def tracking_video(input_path, output_path):
     print("=== process_video CALLED ===")
@@ -84,5 +108,13 @@ def tracking_video(input_path, output_path):
 
         out.write(frame)
 
+    out.release()
     capture.release()
     cv2.destroyAllWindows()
+
+    fixed_output_path = output_path.replace(".mp4", "_fixed.mp4")
+    conversion_success = convert_to_web_mp4(output_path, fixed_output_path)
+
+    # Optionally, replace the original with the fixed one (careful if you want to keep the original)
+    if conversion_success:
+        os.replace(fixed_output_path, output_path)

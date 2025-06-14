@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+from corsheaders.defaults import default_headers
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -28,7 +29,7 @@ DEBUG = True
 ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
-    "e1ab-2401-4900-1c5a-112d-800f-d40e-e369-324d.ngrok-free.app",
+    ".ngrok-free.app"
 ]
 
 # Application definition
@@ -41,10 +42,12 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
-    'tracker'
+    'tracker',
+    'corsheaders'
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -112,7 +115,7 @@ REST_FRAMEWORK = {
         'rest_framework.authentication.BasicAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.IsAuthenticated',
+        'rest_framework.permissions.AllowAny',
     )
 }
 
@@ -143,6 +146,11 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-INSTALLED_APPS += ['corsheaders']
-MIDDLEWARE = ['corsheaders.middleware.CorsMiddleware'] + MIDDLEWARE
 CORS_ALLOW_ALL_ORIGINS = True  # For dev; restrict in prod!
+
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    "ngrok-skip-browser-warning",
+]
+
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
