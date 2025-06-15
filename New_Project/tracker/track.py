@@ -5,14 +5,14 @@ from deep_sort_realtime.deepsort_tracker import DeepSort
 import os
 import subprocess
 
-
+# The convert_to_web_mp4 function remains the same.
 def convert_to_web_mp4(input_file, output_file):
     """
     Converts input_file to a browser-friendly mp4 (H.264, yuv420p, faststart)
     """
     command = [
         "ffmpeg",
-        "-y",  # Overwrite output if exists
+        "-y",
         "-i", input_file,
         "-c:v", "libx264",
         "-pix_fmt", "yuv420p",
@@ -29,17 +29,14 @@ def convert_to_web_mp4(input_file, output_file):
 
 
 def tracking_video(input_path, output_path):
-    print("=== process_video CALLED ===")
-    print("Input path:", input_path)
-    print("Output path:", output_path)
-
+    # --- Function setup remains identical to your original code ---
     warnings.filterwarnings("ignore", category=UserWarning, module="deep_sort_realtime.embedder.embedder_pytorch")
 
-    # Get the path to the project root
+    # NOTE: You might want to pass these paths as arguments for better integration
     PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     MODEL_PATH = os.path.join(PROJECT_ROOT, "yolo12m.pt")
+    EMBEDDER_WTS_PATH = "/Users/adidubbs/.cache/torch/checkpoints/osnet_x1_0_msmt17.pth" # Be sure this path is accessible by the Celery worker
 
-    # Load model
     model = YOLO(MODEL_PATH)
     capture = cv2.VideoCapture(input_path)
 
@@ -58,7 +55,7 @@ def tracking_video(input_path, output_path):
         nn_budget=1000,
         embedder="torchreid",
         embedder_model_name="osnet_x1_0",
-        embedder_wts="/Users/adidubbs/.cache/torch/checkpoints/osnet_x1_0_msmt17.pth",
+        embedder_wts=EMBEDDER_WTS_PATH,
     )
 
     track_positions = {}
@@ -89,19 +86,12 @@ def tracking_video(input_path, output_path):
                 continue
 
             track_id = track.track_id
-
             if track_id not in compact_id_map:
                 compact_id_map[track_id] = next_compact_id
                 next_compact_id += 1
             display_id = compact_id_map[track_id]
 
             x1, y1, x2, y2 = map(int, track.to_ltrb())
-            cx, cy = (x1 + x2) // 2, y2
-
-            prev_pos = track_positions.get(track_id, (cx, cy))
-            prev_cx, prev_cy = prev_pos
-            track_positions[track_id] = (cx, cy)
-
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
             cv2.putText(frame, f'ID: {display_id}', (x1, max(y1 - 10, 0)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
@@ -114,7 +104,13 @@ def tracking_video(input_path, output_path):
 
     fixed_output_path = output_path.replace(".mp4", "_fixed.mp4")
     conversion_success = convert_to_web_mp4(output_path, fixed_output_path)
-
-    # Optionally, replace the original with the fixed one (careful if you want to keep the original)
     if conversion_success:
         os.replace(fixed_output_path, output_path)
+
+    # *** NEW: Calculate and return the total unique person count ***
+    person_count = next_compact_id - 1
+    print(f"=== process_video FINISHED ===")
+    print(f"Total unique persons tracked: {person_count}")
+
+    # The return value of a Celery task
+    return {'person_count': person_count, 'output_path': output_path}
