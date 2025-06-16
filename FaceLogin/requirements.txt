@@ -1,0 +1,2 @@
+python3 -m venv venv
+pip install opencv-python face_recognition deepface pymongo bcrypt tenseal flask streamlit qdrant_client python-dotenv
