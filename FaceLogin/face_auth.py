@@ -1,12 +1,20 @@
+import os
 import uuid
-from db import db, qdrant
+import numpy as np
+from db import db, qdrant, COLLECTION_NAME
 from cloudinary_utils import upload_face_image as upload_image
-from utils import capture_face, match_face
+from utils import match_face
 
-COLLECTION_NAME = "face_encodings"
+def face_exists(new_encoding, tolerance=0.5):
+    response = qdrant.search(
+        collection_name=COLLECTION_NAME,
+        query_vector=new_encoding.tolist(),
+        limit=1,
+        score_threshold=tolerance
+    )
+    return len(response) > 0
 
-def register_user(name, encoding):
-    encoding, image_path = capture_face()
+def register_user(name, encoding, image_path):
     if encoding is None:
         return "❌ No face detected. Try again."
 
@@ -31,15 +39,20 @@ def register_user(name, encoding):
 
     # ➕ Add to MongoDB
     db.users.insert_one({
-        "_id": point_id,  # Same as Qdrant point ID
+        "_id": point_id,
         "name": name,
         "image": image_url
     })
 
+    # (Optional cleanup)
+    if os.path.exists(image_path):
+        os.remove(image_path)
+
     return f"✅ Registered {name} successfully!"
 
+
+
 def login_user(encoding):
-    encoding, _ = capture_face()
     if encoding is None:
         return "❌ No face detected. Try again."
 
