@@ -5,6 +5,7 @@ from deep_sort_realtime.deepsort_tracker import DeepSort
 import os
 import subprocess
 
+
 # The convert_to_web_mp4 function remains the same.
 def convert_to_web_mp4(input_file, output_file):
     """
@@ -35,7 +36,7 @@ def tracking_video(input_path, output_path):
     # NOTE: You might want to pass these paths as arguments for better integration
     PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     MODEL_PATH = os.path.join(PROJECT_ROOT, "yolo12m.pt")
-    EMBEDDER_WTS_PATH = "/Users/adidubbs/.cache/torch/checkpoints/osnet_x1_0_msmt17.pth" # Be sure this path is accessible by the Celery worker
+    EMBEDDER_WTS_PATH = "/Users/adidubbs/.cache/torch/checkpoints/osnet_x1_0_msmt17.pth"  # Be sure this path is accessible by the Celery worker
 
     model = YOLO(MODEL_PATH)
     capture = cv2.VideoCapture(input_path)

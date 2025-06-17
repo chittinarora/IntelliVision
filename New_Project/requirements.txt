@@ -1,0 +1,26 @@
+# Django and DRF
+django>=5.2.3
+djangorestframework
+
+# Celery + Redis (as Celery broker)
+celery
+redis
+
+# MongoDB + Qdrant + Cloudinary
+pymongo
+qdrant-client
+cloudinary
+
+# Face recognition stack
+face_recognition
+opencv-python
+numpy
+
+# Environment management
+python-dotenv
+
+# CORS headers (if using django-cors-headers)
+django-cors-headers
+
+# For development only (optional, helps with wheel builds)
+cmake
