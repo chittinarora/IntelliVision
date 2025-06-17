@@ -1,3 +1,5 @@
+# THIS IS TO CCHECK THE 128-D VECTORS BEING CREATED
+
 import face_recognition
 import cv2
 import numpy as np

@@ -27,7 +27,7 @@ def register_user(name, encoding, image_path):
 
     image_url = upload_image(image_path)
 
-    # ➕ Add to Qdrant
+    # Add to Qdrant
     qdrant.upsert(
         collection_name=COLLECTION_NAME,
         points=[{
@@ -37,14 +37,14 @@ def register_user(name, encoding, image_path):
         }]
     )
 
-    # ➕ Add to MongoDB
+    # Add to MongoDB
     db.users.insert_one({
         "_id": point_id,
         "name": name,
         "image": image_url
     })
 
-    # (Optional cleanup)
+    # cleanup
     if os.path.exists(image_path):
         os.remove(image_path)
 
