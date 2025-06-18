@@ -20,13 +20,14 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.http import HttpResponse
 
+
 def root(request):
     return HttpResponse("Welcome to the People Tracker API! Go to /api/jobs/ or /admin/")
 
-urlpatterns = [
-    path('', root),
-    path('admin/', admin.site.urls),
-    path('api/', include('tracker.urls')),
-    path('api/faceauth/', include('faceauth.urls')),   # <--- Add this line!
-] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
+urlpatterns = [
+                  path('', root),
+                  path('admin/', admin.site.urls),
+                  path('api/', include('tracker.urls')),
+                  path('api/faceauth/', include('faceauth.urls')),  # <--- Add this line!
+              ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

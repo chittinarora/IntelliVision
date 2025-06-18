@@ -38,8 +38,9 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'rest_framework.authtoken',
     'tracker',
-    'faceauth',   # Don’t forget to add your new app!
+    'faceauth',  # Don’t forget to add your new app!
     'corsheaders',
 ]
 
@@ -107,18 +108,22 @@ CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
 # === Django REST Framework ===
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework.authentication.SessionAuthentication',
-        'rest_framework.authentication.BasicAuthentication',
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.AllowAny',
+        'rest_framework.permissions.IsAuthenticated',
     )
 }
 
 # === CORS Headers ===
-CORS_ALLOW_ALL_ORIGINS = True  # For dev; restrict in prod!
+CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = list(default_headers) + [
     "ngrok-skip-browser-warning",
+]
+CORS_ALLOWED_ORIGINS = [
+    "https://9ca0-2405-201-4003-8065-ff-cc50-d2a7-a126.ngrok-free.app",  # backend
+    "https://85f98c37-4bf0-4ce3-b49c-12f3aa8a42b9.lovableproject.com",   # frontend
+    "https://id-preview--85f98c37-4bf0-4ce3-b49c-12f3aa8a42b9.lovable.app"
 ]
 
 # === Security Headers ===
