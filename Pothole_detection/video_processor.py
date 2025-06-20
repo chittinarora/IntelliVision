@@ -28,6 +28,7 @@ def run_pothole_detection(input_path, output_path):
     FRAME_SKIP = 5
     frame_idx = 0
     processed_frames = 0
+    total_potholes = 0
 
     while cap.isOpened():
         ret, frame = cap.read()
@@ -47,17 +48,22 @@ def run_pothole_detection(input_path, output_path):
             result = CLIENT.infer(temp_input, model_id="pothole-voxrl/1")
             print("🧠 Prediction received:", result)
             predictions = result.get("predictions", [])
+            total_potholes += len(predictions)
 
             for pred in predictions:
                 if pred.get('confidence', 0) < 0.1:
-                    continue  # skip low-confidence detections
-                
+                    continue
+
                 x, y, w, h = int(pred['x']), int(pred['y']), int(pred['width']), int(pred['height'])
                 top_left = (x - w // 2, y - h // 2)
                 bottom_right = (x + w // 2, y + h // 2)
-                cv2.rectangle(frame, top_left, bottom_right, (0, 255, 0), 2)
-                cv2.putText(frame, pred['class'], (top_left[0], top_left[1] - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+                cv2.rectangle(frame, top_left, bottom_right, (0, 255, 0), 1)
+                cv2.putText(frame, pred['class'], (top_left[0], top_left[1] - 5),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
+
+            # 🔥 Show total potholes count on video frame
+            cv2.putText(frame, f"Total Potholes: {total_potholes}", (10, 25),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
             out.write(frame)
 
@@ -90,9 +96,13 @@ def run_pothole_image_detection(input_path, output_path):
             x, y, w, h = int(pred['x']), int(pred['y']), int(pred['width']), int(pred['height'])
             top_left = (x - w // 2, y - h // 2)
             bottom_right = (x + w // 2, y + h // 2)
-            cv2.rectangle(frame, top_left, bottom_right, (0, 255, 0), 2)
-            cv2.putText(frame, pred['class'], (top_left[0], top_left[1] - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+            cv2.rectangle(frame, top_left, bottom_right, (0, 255, 0), 1)
+            cv2.putText(frame, pred['class'], (top_left[0], top_left[1] - 5),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
+
+        # 🔥 Show total pothole count on image
+        cv2.putText(frame, f"Total Potholes: {len(predictions)}", (10, 25),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
         cv2.imwrite(output_path, frame)
         print("✅ Image saved with predictions.")
