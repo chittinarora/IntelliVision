@@ -1,0 +1,8 @@
+ultralytics==8.2.21
+torch>=1.13.0
+opencv-python
+easyocr
+matplotlib
+numpy
+Pillow
+PyQt6
