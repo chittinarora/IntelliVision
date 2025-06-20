@@ -22,6 +22,25 @@ class VideoJobViewSet(viewsets.ModelViewSet):
         """
         Save the job with the current user, and kick off processing in the background.
         """
+        data = self.request.data
+        job_type = data.get("job_type", "emergency_count")
+
+        # ROI validation only for emergency_count jobs
+        if job_type == "emergency_count":
+            try:
+                roi_x = float(data['roi_x'])
+                roi_y = float(data['roi_y'])
+                roi_width = float(data['roi_width'])
+                roi_height = float(data['roi_height'])
+            except (KeyError, ValueError):
+                raise serializers.ValidationError(
+                    "ROI fields are required and must be valid floats for emergency_count jobs.")
+
+            if not (0 <= roi_x <= 1 and 0 <= roi_y <= 1 and 0 < roi_width <= 1 and 0 < roi_height <= 1):
+                raise serializers.ValidationError("ROI values must be in [0, 1] and greater than zero.")
+            if roi_width * roi_height < 0.05 * 0.05:
+                raise serializers.ValidationError("ROI too small. Minimum size is 5% x 5% of the frame.")
+
         User = get_user_model()
         user = self.request.user if self.request.user.is_authenticated else User.objects.first()
         instance = serializer.save(user=user, status='pending')

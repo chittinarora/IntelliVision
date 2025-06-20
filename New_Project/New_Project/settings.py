@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 from corsheaders.defaults import default_headers
+from datetime import timedelta
 
 # === Path & Environment Setup ===
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -15,10 +16,17 @@ load_dotenv(BASE_DIR / '.env')  # Loads .env from project root
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-aq_x8cykh&3r_q9df@b%n(p(dv5&3gt$=17m#u-ir$kzl-(mjm')
 DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True'
 
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=2),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+}
+
 ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
-    ".ngrok-free.app"
+    ".ngrok-free.app",
+    ".trycloudflare.com",
 ]
 
 # === Third-Party Service Credentials ===

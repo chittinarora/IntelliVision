@@ -27,9 +27,9 @@ def setup_models_and_tracker(model_path: str, embedder_wts_path: str) -> Tuple[Y
     # Tracker parameters are now hardcoded here
     tracker = DeepSort(
         max_age=60,
-        n_init=6,
-        max_iou_distance=0.05,
-        nn_budget=1000,
+        n_init=4,
+        max_iou_distance=0.4,
+        nn_budget=1500,
         embedder="torchreid",
         embedder_model_name="osnet_x1_0",
         embedder_wts=embedder_wts_path,
@@ -49,7 +49,7 @@ def run_tracking_loop(capture: cv2.VideoCapture, writer: cv2.VideoWriter, model:
 
     # Processing parameters are now hardcoded here
     frame_width, frame_height = 1280, 720
-    yolo_conf, yolo_iou = 0.4, 0.7
+    yolo_conf, yolo_iou = 0.6, 0.4
     target_class = 'person'
 
     while capture.isOpened():
@@ -143,5 +143,7 @@ def tracking_video(input_path: str, output_path: str) -> Dict[str, Any]:
 
     print(f"=== process_video FINISHED ===")
     print(f"Total unique persons tracked: {person_count}")
+
+    print(person_count)
 
     return {'person_count': person_count, 'output_path': output_path}
