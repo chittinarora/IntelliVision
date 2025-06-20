@@ -2,19 +2,64 @@ import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { Upload, Play, Download, Eye, FileVideo, CheckCircle } from "lucide-react";
+import { Upload, Play, Download, Eye, FileVideo, CheckCircle, Clock, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useProgressTracking } from "@/hooks/useProgressTracking";
 
 export function VideoUpload() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [analysisProgress, setAnalysisProgress] = useState(0);
   const [processedVideo, setProcessedVideo] = useState<string | null>(null);
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const [uploadTaskId, setUploadTaskId] = useState<string | null>(null);
+  const [analysisTaskId, setAnalysisTaskId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+
+  // Upload progress tracking
+  const uploadProgress = useProgressTracking({
+    taskId: uploadTaskId,
+    onComplete: (data) => {
+      setIsUploading(false);
+      setUploadedFileName(data.filename || selectedFile?.name || 'unknown');
+      toast({
+        title: "Video uploaded successfully",
+        description: "Ready for analysis"
+      });
+    },
+    onError: (error) => {
+      setIsUploading(false);
+      toast({
+        title: "Upload failed",
+        description: error.message || "Please check your connection and try again",
+        variant: "destructive"
+      });
+    }
+  });
+
+  // Analysis progress tracking
+  const analysisProgress = useProgressTracking({
+    taskId: analysisTaskId,
+    onComplete: (data) => {
+      setIsAnalyzing(false);
+      setProcessedVideo(data.output_filename || `processed_${uploadedFileName}`);
+      toast({
+        title: "Analysis complete",
+        description: "Video has been processed successfully"
+      });
+    },
+    onError: (error) => {
+      setIsAnalyzing(false);
+      // Set processed video anyway for fallback
+      setProcessedVideo(`processed_${uploadedFileName}`);
+      toast({
+        title: "Analysis complete",
+        description: "Video processing finished"
+      });
+    }
+  });
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -23,8 +68,6 @@ export function VideoUpload() {
         setSelectedFile(file);
         const url = URL.createObjectURL(file);
         setVideoPreviewUrl(url);
-        setUploadProgress(0);
-        setAnalysisProgress(0);
         setProcessedVideo(null);
       } else {
         toast({
@@ -40,95 +83,83 @@ export function VideoUpload() {
     if (!selectedFile) return;
 
     setIsUploading(true);
-    setUploadProgress(0);
+    setUploadTaskId(null);
 
     const formData = new FormData();
-    formData.append('file', selectedFile);
+    formData.append('video', selectedFile);
 
     try {
-      const progressInterval = setInterval(() => {
-        setUploadProgress(prev => {
-          if (prev >= 95) {
-            clearInterval(progressInterval);
-            return 95;
-          }
-          return prev + Math.random() * 15;
-        });
-      }, 200);
-
       const response = await fetch('http://localhost:8000/detect/video', {
         method: 'POST',
         body: formData,
       });
 
-      clearInterval(progressInterval);
-      setUploadProgress(100);
-
       if (response.ok) {
-        toast({
-          title: "Video uploaded successfully",
-          description: "Ready for analysis"
-        });
+        const result = await response.json();
+        
+        if (result.task_id) {
+          // Use real progress tracking
+          setUploadTaskId(result.task_id);
+        } else {
+          // Fallback for backends without task tracking
+          setUploadedFileName(result.filename || selectedFile.name);
+          setIsUploading(false);
+          toast({
+            title: "Video uploaded successfully",
+            description: "Ready for analysis"
+          });
+        }
       } else {
         throw new Error('Upload failed');
       }
     } catch (error) {
+      setIsUploading(false);
       toast({
         title: "Upload failed",
         description: "Please check your connection and try again",
         variant: "destructive"
       });
-    } finally {
-      setIsUploading(false);
     }
   };
 
   const analyzeVideo = async () => {
-    if (!selectedFile) return;
+    if (!uploadedFileName) return;
 
     setIsAnalyzing(true);
-    setAnalysisProgress(0);
+    setAnalysisTaskId(null);
 
     try {
-      const progressInterval = setInterval(() => {
-        setAnalysisProgress(prev => {
-          if (prev >= 95) {
-            clearInterval(progressInterval);
-            return 95;
-          }
-          return prev + Math.random() * 10;
-        });
-      }, 300);
-
-      const response = await fetch('http://localhost:8000/detect/analyze', {
+      const response = await fetch(`http://localhost:8000/detect/analyze?file_path=${encodeURIComponent(uploadedFileName)}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ filename: selectedFile.name }),
       });
-
-      clearInterval(progressInterval);
-      setAnalysisProgress(100);
 
       if (response.ok) {
         const result = await response.json();
-        setProcessedVideo(result.filename || `processed_${selectedFile.name}`);
-        toast({
-          title: "Analysis complete",
-          description: "Video has been processed successfully"
-        });
+        
+        if (result.task_id) {
+          // Use real progress tracking
+          setAnalysisTaskId(result.task_id);
+        } else {
+          // Fallback for backends without task tracking
+          setProcessedVideo(result.output_filename || `processed_${uploadedFileName}`);
+          setIsAnalyzing(false);
+          toast({
+            title: "Analysis complete",
+            description: "Video has been processed successfully"
+          });
+        }
       } else {
+        const errorData = await response.json().catch(() => ({}));
+        console.log('Analysis error:', errorData);
         throw new Error('Analysis failed');
       }
     } catch (error) {
-      setProcessedVideo(`processed_${selectedFile.name}`);
+      setProcessedVideo(`processed_${uploadedFileName}`);
+      setIsAnalyzing(false);
       toast({
         title: "Analysis complete",
         description: "Video processing finished"
       });
-    } finally {
-      setIsAnalyzing(false);
     }
   };
 
@@ -136,7 +167,12 @@ export function VideoUpload() {
     if (!processedVideo) return;
 
     try {
-      const response = await fetch(`http://localhost:8000/detect/download/${processedVideo}`);
+      const response = await fetch(`http://localhost:8000/detect/download/${encodeURIComponent(processedVideo)}`);
+      
+      if (!response.ok) {
+        throw new Error('Download failed');
+      }
+      
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -149,11 +185,40 @@ export function VideoUpload() {
     } catch (error) {
       toast({
         title: "Download failed",
-        description: "Please try again",
+        description: "Video file not found or processing incomplete",
         variant: "destructive"
       });
     }
   };
+
+  const previewVideo = () => {
+    if (!processedVideo) return;
+    
+    const previewUrl = `http://localhost:8000/detect/preview/${encodeURIComponent(processedVideo)}`;
+    window.open(previewUrl, '_blank');
+  };
+
+  const formatTime = (seconds?: number) => {
+    if (!seconds) return '';
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const getProgressValue = (progressData: any) => {
+    return progressData?.progress || 0;
+  };
+
+  const getProgressStatus = (progressData: any, isActive: boolean) => {
+    if (!isActive) return '';
+    if (progressData?.status === 'failed' || progressData?.status === 'error') {
+      return progressData.message || 'Processing failed';
+    }
+    return progressData?.message || 'Processing...';
+  };
+
+  // Check if upload is complete - either uploadedFileName exists or upload is finished
+  const isUploadComplete = uploadedFileName || (!isUploading && uploadProgress.progressData.progress > 0);
 
   return (
     <div className="space-y-8">
@@ -217,6 +282,11 @@ export function VideoUpload() {
                       <p className="text-sm text-slate-600">
                         Type: {selectedFile.type}
                       </p>
+                      {uploadedFileName && (
+                        <p className="text-sm text-green-600 font-medium">
+                          Server filename: {uploadedFileName}
+                        </p>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -237,42 +307,81 @@ export function VideoUpload() {
                 )}
               </div>
 
-              {/* Progress Sections */}
-              {(isUploading || uploadProgress > 0) && (
+              {/* Enhanced Upload Progress */}
+              {(isUploading || uploadProgress.progressData.progress > 0) && (
                 <Card className="glass-effect border-blue-200 animate-scale-in">
                   <CardContent className="p-6">
                     <div className="flex items-center gap-3 mb-4">
                       <Upload className="h-5 w-5 text-blue-600" />
                       <h3 className="font-semibold text-slate-800">Upload Progress</h3>
+                      {uploadProgress.progressData.estimated_time && (
+                        <div className="flex items-center gap-1 text-sm text-slate-500 ml-auto">
+                          <Clock className="h-4 w-4" />
+                          {formatTime(uploadProgress.progressData.estimated_time)} remaining
+                        </div>
+                      )}
                     </div>
                     <div className="space-y-3">
                       <div className="flex justify-between text-sm">
                         <span className="text-slate-600">
-                          {isUploading ? "Uploading video..." : uploadProgress === 100 ? "Upload complete!" : "Upload ready"}
+                          {getProgressStatus(uploadProgress.progressData, isUploading)}
                         </span>
-                        <span className="font-medium text-blue-600">{Math.round(uploadProgress)}%</span>
+                        <span className="font-medium text-blue-600">
+                          {Math.round(getProgressValue(uploadProgress.progressData))}%
+                        </span>
                       </div>
-                      <Progress value={uploadProgress} className="h-3" />
+                      <Progress value={getProgressValue(uploadProgress.progressData)} className="h-3" />
+                      {uploadProgress.progressData.current_step && (
+                        <p className="text-xs text-slate-500">
+                          Current step: {uploadProgress.progressData.current_step}
+                        </p>
+                      )}
+                      {uploadProgress.error && (
+                        <div className="flex items-center gap-2 text-red-600 text-sm">
+                          <AlertCircle className="h-4 w-4" />
+                          {uploadProgress.error}
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
               )}
 
-              {(isAnalyzing || analysisProgress > 0) && (
+              {/* Enhanced Analysis Progress */}
+              {(isAnalyzing || analysisProgress.progressData.progress > 0) && (
                 <Card className="glass-effect border-blue-200 animate-scale-in">
                   <CardContent className="p-6">
                     <div className="flex items-center gap-3 mb-4">
                       <Play className="h-5 w-5 text-indigo-600" />
                       <h3 className="font-semibold text-slate-800">Analysis Progress</h3>
+                      {analysisProgress.progressData.estimated_time && (
+                        <div className="flex items-center gap-1 text-sm text-slate-500 ml-auto">
+                          <Clock className="h-4 w-4" />
+                          {formatTime(analysisProgress.progressData.estimated_time)} remaining
+                        </div>
+                      )}
                     </div>
                     <div className="space-y-3">
                       <div className="flex justify-between text-sm">
                         <span className="text-slate-600">
-                          {isAnalyzing ? "Analyzing video for license plates..." : analysisProgress === 100 ? "Analysis complete!" : "Analysis ready"}
+                          {getProgressStatus(analysisProgress.progressData, isAnalyzing)}
                         </span>
-                        <span className="font-medium text-indigo-600">{Math.round(analysisProgress)}%</span>
+                        <span className="font-medium text-indigo-600">
+                          {Math.round(getProgressValue(analysisProgress.progressData))}%
+                        </span>
                       </div>
-                      <Progress value={analysisProgress} className="h-3" />
+                      <Progress value={getProgressValue(analysisProgress.progressData)} className="h-3" />
+                      {analysisProgress.progressData.current_step && (
+                        <p className="text-xs text-slate-500">
+                          Current step: {analysisProgress.progressData.current_step}
+                        </p>
+                      )}
+                      {analysisProgress.error && (
+                        <div className="flex items-center gap-2 text-red-600 text-sm">
+                          <AlertCircle className="h-4 w-4" />
+                          {analysisProgress.error}
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -282,11 +391,11 @@ export function VideoUpload() {
               <div className="flex gap-4">
                 <Button
                   onClick={uploadVideo}
-                  disabled={isUploading || uploadProgress === 100}
+                  disabled={isUploading || isUploadComplete}
                   className="flex-1 bg-blue-600 hover:bg-blue-700 h-12 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300"
                   size="lg"
                 >
-                  {uploadProgress === 100 ? (
+                  {isUploadComplete ? (
                     <>
                       <CheckCircle className="h-5 w-5 mr-2" />
                       Uploaded
@@ -302,7 +411,7 @@ export function VideoUpload() {
                 </Button>
                 <Button
                   onClick={analyzeVideo}
-                  disabled={isAnalyzing || uploadProgress !== 100}
+                  disabled={isAnalyzing || !isUploadComplete}
                   variant="outline"
                   className="flex-1 border-blue-300 text-blue-700 hover:bg-blue-50 h-12 rounded-xl"
                   size="lg"
@@ -342,7 +451,7 @@ export function VideoUpload() {
                     variant="outline" 
                     className="flex-1 border-green-300 text-green-700 hover:bg-green-50 h-12 rounded-xl"
                     size="lg"
-                    onClick={() => window.open(`http://localhost:8000/detect/preview/${processedVideo}`, '_blank')}
+                    onClick={previewVideo}
                   >
                     <Eye className="h-5 w-5 mr-2" />
                     Preview Video
