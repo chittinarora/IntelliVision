@@ -2,7 +2,15 @@ from django.db import models
 from django.contrib.auth.models import User
 
 
+"""
+Database models for the tracker app. Defines the VideoJob model and its fields.
+"""
+
+
 class VideoJob(models.Model):
+    """
+    Model representing a video processing job, including user, status, input/output videos, job type, results, and ROI.
+    """
     STATUS_CHOICES = [
         ('pending', 'Pending'),
         ('processing', 'Processing'),

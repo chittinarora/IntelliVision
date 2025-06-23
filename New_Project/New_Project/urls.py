@@ -29,5 +29,6 @@ urlpatterns = [
                   path('', root),
                   path('admin/', admin.site.urls),
                   path('api/', include('tracker.urls')),
-                  path('api/faceauth/', include('faceauth.urls')),  # <--- Add this line!
+                  path('api/faceauth/', include('faceauth.urls')),
+                  path('api/tracker/', include('tracker.urls')),
               ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

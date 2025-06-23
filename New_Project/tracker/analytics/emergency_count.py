@@ -14,6 +14,11 @@ except ImportError:
     print("The output video will not be web-optimized, and the temp file will be renamed.")
 
 
+"""
+Analytics module for emergency in/out people counting using YOLO and DeepSORT.
+Provides tracking and counting logic for emergency_count jobs.
+"""
+
 # --- 1. SETUP WITH IMPROVED PARAMETERS ---
 def setup_models_and_tracker(model_path: str, embedder_wts_path: str) -> Tuple[YOLO, DeepSort]:
     """
@@ -49,6 +54,7 @@ def run_in_out_tracking(
     and writes annotated output video.
     Returns: {'in': int, 'out': int}
     """
+    # ROI coordinates
     (x1, y1), (x2, y2) = roi
 
     track_states = {}

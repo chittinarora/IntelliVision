@@ -11,6 +11,12 @@ from ultralytics import YOLO
 from ..convert import convert_to_web_mp4
 
 
+"""
+Analytics module for people counting using YOLO and DeepSORT.
+Provides tracking and counting logic for people_count jobs.
+"""
+
+
 # --- Utility Functions ---
 
 
@@ -44,6 +50,7 @@ def run_tracking_loop(capture: cv2.VideoCapture, writer: cv2.VideoWriter, model:
     Returns:
         int: The total count of unique persons tracked.
     """
+    # Map for compact display IDs
     compact_id_map = {}
     next_compact_id = 1
 

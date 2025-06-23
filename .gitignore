@@ -7,3 +7,14 @@ venv/
 p_venv/
 New_Project/media/
 db.sqlite3
+.env
+dump.rdb
+tracker/analytics/.env
+tracker/models/
+yolo12l.pt
+yolo12m.pt
+data.html
+dump.rdb
+samples/
+videos/
+Miniconda3-latest-MacOSX-arm64.sh
