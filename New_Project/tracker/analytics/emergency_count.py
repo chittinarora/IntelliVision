@@ -63,7 +63,7 @@ def run_in_out_tracking(
     next_compact_id = 1
 
     frame_width, frame_height = 1280, 720
-    yolo_conf, yolo_iou = 0.3, 0.5
+    yolo_conf, yolo_iou = 0.7, 0.5
     target_class = 'person'
 
     while capture.isOpened():
