@@ -63,11 +63,11 @@ def login_user(encoding):
 
     match = match_face(qdrant, encoding)
 
-    if match.score >= 0.6:
-        return "😔 Match too weak. Try again."
-
     if not match:
         return "😔 No match found."
+    
+    if match.score >= 0.6:
+        return "😔 Match too weak. Try again."
 
     user_id = match.id
     user = db.users.find_one({"_id": user_id})

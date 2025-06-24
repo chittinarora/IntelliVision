@@ -2,7 +2,6 @@ import cv2
 import face_recognition
 import numpy as np
 import tempfile
-from . import normalize
 
 def capture_face():
     cap = cv2.VideoCapture(0)

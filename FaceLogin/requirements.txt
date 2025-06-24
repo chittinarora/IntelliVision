@@ -11,3 +11,4 @@ flask
 streamlit
 qdrant_client
 python-dotenv
+cloudinary
