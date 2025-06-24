@@ -4,47 +4,71 @@ import pandas as pd
 import re
 from datetime import datetime
 from collections import defaultdict
+from pathlib import Path
+from fastapi import HTTPException
 from pymongo import MongoClient
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import JSONResponse
+from dotenv import load_dotenv
+import cloudinary
+import cloudinary.uploader
+
+# External model and OCR imports
 from anpr.detector import LicensePlateDetector
 from anpr.tracker import VehicleTracker
 from anpr.ocr import PlateOCR
 
+# Load environment variables from .env
+load_dotenv()
+
 class ANPRProcessor:
-    def __init__(self, plate_model_path, car_model_path):
+    def __init__(self, plate_model_path: str, car_model_path: str):
+        # Configure Cloudinary using environment variables
+        cloudinary.config(
+            cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+            api_key=os.getenv("CLOUDINARY_API_KEY"),
+            api_secret=os.getenv("CLOUDINARY_API_SECRET"),
+            secure=True
+        )
+
+        # Initialize detectors, OCR, and tracker
         self.plate_detector = LicensePlateDetector(plate_model_path)
         self.car_detector = LicensePlateDetector(car_model_path)
         self.ocr = PlateOCR()
         self.tracker = VehicleTracker()
 
-        # Track OCR history and timestamps
-        self.plate_history = defaultdict(lambda: defaultdict(int))   # {box_key: {text: count}}
-        self.plate_timestamps = {}                                   # {box_key: {text: timestamp}}
+        # OCR history per detected plate bbox
+        self.plate_history = defaultdict(lambda: defaultdict(int))  # {bbox_key: {text: count}}
+        self.plate_timestamps = {}  # {bbox_key: {text: first_detected_datetime}}
 
-        # Initialize MongoDB
-        self.mongo_client = MongoClient("mongodb://localhost:27017")
+        # Connect to MongoDB Atlas or local
+        mongodb_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017/anpr")
+        self.mongo_client = MongoClient(mongodb_uri)
         self.db = self.mongo_client["anpr"]
         self.collection = self.db["detections"]
 
     def is_valid_indian_plate(self, text: str) -> bool:
+        # Simplistic regex for Indian plate formatting
         cleaned = text.replace(" ", "").upper()
         return bool(re.match(r'^[A-Z]{2}[0-9]{2}[A-Z]{1,2}[0-9]{4}$', cleaned))
 
-    def process_video(self, video_path):
+    def process_video(self, video_path: str):
+        # Open video
         cap = cv2.VideoCapture(video_path)
         filename = os.path.basename(video_path)
-        name_no_ext = os.path.splitext(filename)[0]
+        base, _ = os.path.splitext(filename)
 
-        output_path = os.path.join("data/output", f"annotated_{filename}")
-        os.makedirs("data/output", exist_ok=True)
+        # Prepare output paths
+        output_dir = Path("data/output")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        annotated_video = output_dir / f"annotated_{filename}"
 
+        # Video writer setup
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = cap.get(cv2.CAP_PROP_FPS)
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        out = cv2.VideoWriter(str(annotated_video), fourcc, fps, (width, height))
 
+        # Reset tracker state
         self.tracker.reset()
 
         while cap.isOpened():
@@ -52,39 +76,36 @@ class ANPRProcessor:
             if not ret:
                 break
 
-            plate_detections = self.plate_detector.detect_plates(frame)
+            # Plate and car detections
+            plates = self.plate_detector.detect_plates(frame)
+            cars = self.car_detector.detect_plates(frame, classes=[2])
+            # Append dummy class_id for tracking
+            car_dets = [(x1, y1, x2, y2, conf, 2) for x1, y1, x2, y2, conf in cars]
+            tracks = self.tracker.update(car_dets, frame)
 
-            # PATCH: Add dummy class_id (e.g., 2 for car) to each car detection tuple
-            raw_car_detections = self.car_detector.detect_plates(frame)
-            car_detections = [
-                (x1, y1, x2, y2, conf, 2)
-                for (x1, y1, x2, y2, conf) in raw_car_detections
-            ]
-
-            tracks = self.tracker.update(car_detections, frame)
-
-            for (x1, y1, x2, y2, conf) in plate_detections:
-                plate_img = frame[y1:y2, x1:x2]
-                text, text_conf = self.ocr.read_plate(plate_img)
-                box_key = f"{x1}_{y1}_{x2}_{y2}"
-
+            # OCR on each plate bbox
+            for x1, y1, x2, y2, _ in plates:
+                crop = frame[y1:y2, x1:x2]
+                text, score = self.ocr.read_plate(crop)
+                key = f"{x1}_{y1}_{x2}_{y2}"
                 if text and self.is_valid_indian_plate(text):
-                    self.plate_history[box_key][text] += 1
-                    if box_key not in self.plate_timestamps:
-                        self.plate_timestamps[box_key] = {}
-                    if text not in self.plate_timestamps[box_key]:
-                        self.plate_timestamps[box_key][text] = datetime.now()
-
-                label = f"{text} ({text_conf:.2f})" if text else "Plate"
+                    self.plate_history[key][text] += 1
+                    self.plate_timestamps.setdefault(key, {})
+                    # record first timestamp per text
+                    if text not in self.plate_timestamps[key]:
+                        self.plate_timestamps[key][text] = datetime.now()
+                # Annotate frame
+                label = f"{text} ({score:.2f})" if text else "Plate"
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
                 cv2.putText(frame, label, (x1, max(y1 - 10, 0)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
-            for track in tracks:
-                x1, y1, x2, y2 = track['bbox']
-                track_id = track['track_id']
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                cv2.putText(frame, f"Car {track_id}", (x1, max(y1 - 10, 0)),
+            # Draw car tracking boxes
+            for tr in tracks:
+                bx1, by1, bx2, by2 = tr['bbox']
+                tid = tr['track_id']
+                cv2.rectangle(frame, (bx1, by1), (bx2, by2), (0, 255, 0), 2)
+                cv2.putText(frame, f"Car {tid}", (bx1, max(by1 - 10, 0)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
             out.write(frame)
@@ -92,19 +113,16 @@ class ANPRProcessor:
         cap.release()
         out.release()
 
-        # Build final table with best OCR text + timestamp + count
-        csv_rows = []
-        for box_key, text_dict in self.plate_history.items():
-            if not text_dict:
-                continue
-            best_text, count = max(text_dict.items(), key=lambda x: x[1])
-            first_time = self.plate_timestamps[box_key][best_text]
-            csv_rows.append({
+        # Build detection summary
+        rows = []
+        for key, texts in self.plate_history.items():
+            best_text, count = max(texts.items(), key=lambda x: x[1])
+            first_time = self.plate_timestamps[key][best_text]
+            rows.append({
                 "Plate Number": best_text,
                 "Detected At": first_time.strftime("%Y-%m-%d %H:%M:%S"),
                 "OCR Count": count
             })
-
             # Log to MongoDB
             self.collection.insert_one({
                 "plate_number": best_text,
@@ -113,25 +131,19 @@ class ANPRProcessor:
                 "video_file": filename
             })
 
-        df = pd.DataFrame(csv_rows)
-        csv_name = f"annotated_{name_no_ext}.csv"
-        xlsx_name = f"annotated_{name_no_ext}.xlsx"
-        csv_path = os.path.join("data/output", csv_name)
-        xlsx_path = os.path.join("data/output", xlsx_name)
-        df.to_csv(csv_path, index=False)
-        df.to_excel(xlsx_path, index=False)
+        df = pd.DataFrame(rows)
+        csv_name = f"annotated_{base}.csv"
+        xlsx_name = f"annotated_{base}.xlsx"
+        df.to_csv(output_dir / csv_name, index=False)
+        df.to_excel(output_dir / xlsx_name, index=False)
 
-        # Safe summary with column existence checks
-        if "Plate Number" in df.columns and "Detected At" in df.columns:
-            plate_detection_times = dict(zip(df["Plate Number"], df["Detected At"]))
-        else:
-            plate_detection_times = {}
-
-        plates_detected = list(df["Plate Number"]) if "Plate Number" in df.columns else []
+        # Safe summary assembly
+        plates_list = df["Plate Number"].tolist() if "Plate Number" in df.columns else []
+        times = dict(zip(df["Plate Number"], df["Detected At"])) if "Plate Number" in df.columns and "Detected At" in df.columns else {}
 
         summary = {
-            "plates_detected": plates_detected,
-            "plate_detection_times": plate_detection_times,
+            "plates_detected": plates_list,
+            "plate_detection_times": times,
             "plate_count": len(df),
             "vehicle_count": self.tracker.get_total_unique_ids(),
             "processed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -143,8 +155,7 @@ class ANPRProcessor:
 
     def get_all_detections(self):
         try:
-            records = list(self.collection.find({}, {"_id": 0}))
-            return records
+            return list(self.collection.find({}, {"_id": 0}))
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"MongoDB error: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
 

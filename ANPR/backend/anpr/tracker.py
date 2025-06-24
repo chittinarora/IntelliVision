@@ -36,6 +36,6 @@ class VehicleTracker:
 
     def reset(self):
         """Reset tracker state for a new video."""
-        self.tracker = DeepSort(max_age=30, n_init=3, nms_max_overlap=1.0)
+        self.tracker = DeepSort(max_age=40, n_init=3, nms_max_overlap=0.7)
         self.unique_ids.clear()
 

@@ -1,8 +1,8 @@
+import os
+import cv2
 import torch
 import torch.serialization
 from ultralytics import YOLO
-import os
-import cv2
 
 class LicensePlateDetector:
     def __init__(self, model_path):
@@ -12,12 +12,28 @@ class LicensePlateDetector:
         # Allow loading full model with class definitions (required for PyTorch 2.6+)
         torch.serialization.add_safe_globals(['ultralytics.nn.tasks.DetectionModel'])
 
+        # Load the YOLO model
         self.model = YOLO(model_path, task='detect')
 
-    def detect_plates(self, frame):
-        results = self.model(frame)[0]
-        boxes = []
+    def detect_plates(self, frame, classes=None):
+        """
+        Run inference on a single frame and return bounding boxes with confidences.
+        
+        Args:
+            frame:      OpenCV BGR image
+            classes:    Optional list of COCO class IDs to keep (e.g. [2] for cars)
+        Returns:
+            List of (x1, y1, x2, y2, confidence) tuples.
+        """
+        # Run the model, possibly filtering by classes
+        results = self.model(
+            frame,
+            conf=0.4,
+            iou=0.45,
+            classes=classes    # pass [2] here to only detect cars
+        )[0]
 
+        boxes = []
         if results and results.boxes is not None:
             for box in results.boxes:
                 if box.xyxy is not None and box.conf is not None:
@@ -27,20 +43,16 @@ class LicensePlateDetector:
 
         return boxes
 
+
 if __name__ == "__main__":
-    detector = LicensePlateDetector("models/best.pt")
+    # Example usage for license plates (no class filter)
+    plate_detector = LicensePlateDetector("models/best.pt")
     image = cv2.imread("data/samples/car1.jpg")
+    detections = plate_detector.detect_plates(image)
+    print("Plate detections:", detections)
 
-    if image is None:
-        raise FileNotFoundError("Input image not found or unreadable")
-
-    detections = detector.detect_plates(image)
-
-    for (x1, y1, x2, y2, conf) in detections:
-        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        cv2.putText(image, f"{conf:.2f}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-
-    cv2.imshow("Detected Plates", image)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    # Example usage for cars only (class 2)
+    car_detector = LicensePlateDetector("models/yolo11m.pt")
+    car_boxes = car_detector.detect_plates(image, classes=[2])
+    print("Car detections:", car_boxes)
 
