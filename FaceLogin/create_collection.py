@@ -9,7 +9,7 @@ def create_face_collection():
         collection_name=collection_name,
         vectors_config=VectorParams(
             size=128,              # Set to 512 if using FaceNet
-            distance=Distance.COSINE  # COSINE is best for face similarity
+            distance=Distance.EUCLID
         )
     )
     print(f"✅ Collection '{collection_name}' created successfully.")

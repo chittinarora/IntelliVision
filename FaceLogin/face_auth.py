@@ -3,12 +3,13 @@ import uuid
 import numpy as np
 from db import db, qdrant, COLLECTION_NAME
 from cloudinary_utils import upload_face_image as upload_image
-from utils import match_face
+from utils import match_face, normalize
 
 def face_exists(new_encoding, tolerance=0.5):
+    encoding = normalize(new_encoding)
     response = qdrant.search(
         collection_name=COLLECTION_NAME,
-        query_vector=new_encoding.tolist(),
+        query_vector=encoding.tolist(),
         limit=1,
         score_threshold=tolerance
     )
@@ -26,6 +27,8 @@ def register_user(name, encoding, image_path):
         return f"⚠️ User {name} is already registered."
 
     image_url = upload_image(image_path)
+
+    encoding = normalize(encoding)
 
     # Add to Qdrant
     qdrant.upsert(
@@ -55,8 +58,14 @@ def register_user(name, encoding, image_path):
 def login_user(encoding):
     if encoding is None:
         return "❌ No face detected. Try again."
+    
+    encoding = normalize(encoding)
 
     match = match_face(qdrant, encoding)
+
+    if match.score >= 0.6:
+        return "😔 Match too weak. Try again."
+
     if not match:
         return "😔 No match found."
 
