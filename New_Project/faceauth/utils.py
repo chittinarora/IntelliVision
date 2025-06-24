@@ -23,10 +23,15 @@ def capture_face():
 
 
 def match_face(qdrant, encoding):
+    encoding = normalize(encoding)
     results = qdrant.search(
         collection_name="face_encodings",
         query_vector=encoding.tolist(),
         limit=1,
-        score_threshold=0.85
+        score_threshold=0.6
     )
     return results[0] if results else None
+
+def normalize(vec):
+    norm = np.linalg.norm(vec)
+    return vec if norm == 0 else vec / norm

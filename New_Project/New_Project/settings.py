@@ -131,7 +131,7 @@ CORS_ALLOW_HEADERS = list(default_headers) + [
 CORS_ALLOWED_ORIGINS = [
     "https://9ca0-2405-201-4003-8065-ff-cc50-d2a7-a126.ngrok-free.app",  # backend
     "https://85f98c37-4bf0-4ce3-b49c-12f3aa8a42b9.lovableproject.com",   # frontend
-    "https://id-preview--85f98c37-4bf0-4ce3-b49c-12f3aa8a42b9.lovable.app"
+    "https://id-preview--85f98c37-4bf0-4ce3-b49c-12f3aa8a42b9.lovable.app",
 ]
 
 # === Security Headers ===
