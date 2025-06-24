@@ -1,0 +1,21 @@
+# Ignore Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Ignore Python cache
+__pycache__/
+*.pyc
+
+# Ignore large model files and data
+*.pt
+*.pth
+*.h5
+*.onnx
+*.csv
+*.db
+
+# Ignore system files
+.DS_Store
+Thumbs.db
+
+# Optional: ignore .env for secrets
+.env
