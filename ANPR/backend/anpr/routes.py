@@ -34,7 +34,7 @@ processor = ANPRProcessor(
 )
 
 # MongoDB client for live logging & final plates
-mongo_client           = MongoClient(os.getenv("mongodb+srv://PDkPsssBV2iZkEU5:Abhi%401801@aionos.jkvscg5.mongodb.net/anpr?retryWrites=true&w=majority&appName=Aionos", "mongodb://localhost:27017/anpr"))
+mongo_client           = MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017/anpr"))
 db                     = mongo_client["anpr"]
 live_collection        = db["live_ocr_stream"]
 final_plate_collection = db["final_plate_output"]
