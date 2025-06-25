@@ -23,12 +23,12 @@ load_dotenv(BASE_DIR / '.env')
 
 # Configure Cloudinary & MongoDB
 cloudinary.config(
-    cloud_name=os.getenv('drjtjlwxf'),
-    api_key=os.getenv('992566355472494'),
-    api_secret=os.getenv('Qo7oW6VbEB-2GwtOxIRBZrJlXBs'),
+    cloud_name=os.getenv('CLOUDINARY_CLOUD_NAME'),
+    api_key=os.getenv('CLOUDINARY_API_KEY'),
+    api_secret=os.getenv('CLOUDINARY_API_SECRET'),
     secure=True
 )
-mongo_uri = os.getenv('mongodb+srv://PDkPsssBV2iZkEU5:Abhi%401801@aionos.jkvscg5.mongodb.net/anpr?retryWrites=true&w=majority&appName=Aionos', 'mongodb://localhost:27017/anpr')
+mongo_uri = os.getenv('MONGODB_URI', 'mongodb://localhost:27017/anpr')
 mongo_client = MongoClient(mongo_uri)
 db = mongo_client['anpr']
 parking_log = db['parking_log']
