@@ -1,5 +1,5 @@
-ultralytics==8.2.21
-torch>=1.13.0
+ultralytics
+torch
 opencv-python
 easyocr
 matplotlib
