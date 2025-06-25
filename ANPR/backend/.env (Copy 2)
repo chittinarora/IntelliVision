@@ -1,0 +1,5 @@
+MONGODB_URI="mongodb+srv://PDkPsssBV2iZkEU5:Abhi%401801@aionos.jkvscg5.mongodb.net/anpr?retryWrites=true&w=majority&appName=Aionos"
+CLOUDINARY_CLOUD_NAME=drjtjlwxf
+CLOUDINARY_API_KEY=992566355472494
+CLOUDINARY_API_SECRET=Qo7oW6VbEB-2GwtOxIRBZrJlXBs
+
