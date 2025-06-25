@@ -13,3 +13,4 @@ python-dotenv
 levisthein
 streamlit
 python-multipart
+openpyxl
