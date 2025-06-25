@@ -6,3 +6,10 @@ matplotlib
 numpy
 Pillow
 PyQt6
+pymongo
+cloudinary
+loguru
+python-dotenv
+levisthein
+streamlit
+python-multipart
