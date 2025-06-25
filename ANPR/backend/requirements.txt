@@ -10,7 +10,9 @@ pymongo
 cloudinary
 loguru
 python-dotenv
-levisthein
+levensthein
 streamlit
 python-multipart
 openpyxl
+fastapi
+deep-sort-realtime
