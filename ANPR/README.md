@@ -2,7 +2,7 @@ Setup Instructions
 
 Clone the repository:
 
-    git clone https://github.com/your-username/anpr-parking-system.git
+    git clone https://github.com/your-username/anpr-parking-system.git](https://github.com/chittinarora/IntelliVision/tree/master/ANPR)
     cd anpr-parking-system/backend
 
 Create and activate virtual environment:
