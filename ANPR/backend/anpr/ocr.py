@@ -1,82 +1,132 @@
+# anpr/ocr.py
+
 import cv2
 import numpy as np
+import pytesseract
+from pytesseract import Output
 import easyocr
 import re
+import warnings
+from collections import deque, Counter
+
+# suppress unwanted PIL/NumPy warnings
+warnings.filterwarnings("ignore", category=UserWarning)
 
 class PlateOCR:
     """
-    A more robust EasyOCR wrapper for license plates:
-    - grayscale → bilateral filter → Otsu threshold → Closing
-    - upscale ×2 → invert if needed
-    - whitelist to A–Z,0–9 only
-    - return only the most confident text
+    OCR engine for license plates using a hybrid Tesseract+EasyOCR pipeline.
+    Features:
+      - Processes only the single highest-confidence crop per frame (selection in processor). 
+      - Confidence-based variant selection for Tesseract.
+      - Frame buffering for stable output: returns majority from last N reads.
+      - EasyOCR fallback.
     """
-    def __init__(self, gpu: bool = False):
-        # Initialize EasyOCR reader with English and alphanumeric only
-        self.reader = easyocr.Reader(['en'], gpu=gpu)
-        # Allowed characters
-        self.allowed_chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-        # compile a regex to strip anything else
-        self._cleanup = re.compile(f'[^{self.allowed_chars}]')
+    def __init__(self,
+                 tesseract_cmd: str = None,
+                 whitelist: str = None,
+                 tesseract_conf_thresh: float = 0.7,
+                 lang_list: list = ['en'],
+                 buffer_size: int = 5):
+        # configure tesseract binary
+        if tesseract_cmd:
+            pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+        self.whitelist = whitelist or "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        self.tesseract_conf_thresh = tesseract_conf_thresh
+        self.reader = easyocr.Reader(lang_list, gpu=False, verbose=False)
+        # buffer for smoothing
+        self.buffer = deque(maxlen=buffer_size)
+        self.buffer_size = buffer_size
 
-    def _preprocess(self, img: np.ndarray) -> np.ndarray:
-        # to gray
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        # denoise
-        gray = cv2.bilateralFilter(gray, 11, 17, 17)
-        # Otsu threshold
-        _, thresh = cv2.threshold(gray, 0, 255,
-                                  cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        # closing to fill gaps
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
-        closed = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=1)
-        # upscale for better OCR
-        h, w = closed.shape
-        closed = cv2.resize(closed, (w*2, h*2),
-                            interpolation=cv2.INTER_CUBIC)
-        # if background is light, invert
-        if np.mean(closed) > 127:
-            closed = cv2.bitwise_not(closed)
-        return closed
+    def _gamma_correction(self, image: np.ndarray, gamma: float) -> np.ndarray:
+        inv = 1.0 / gamma
+        table = np.array([((i / 255.0) ** inv) * 255 for i in range(256)], dtype='uint8')
+        return cv2.LUT(image, table)
+
+    def _unsharp_mask(self, image: np.ndarray) -> np.ndarray:
+        blur = cv2.GaussianBlur(image, (0, 0), sigmaX=3)
+        return cv2.addWeighted(image, 1.5, blur, -0.5, 0)
+
+    def _generate_variants(self, img: np.ndarray) -> list:
+        gray = img if img.ndim == 2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        base = cv2.bilateralFilter(gray, 9, 75, 75)
+        variants = [base]
+        for g in (1.2, 1.5, 2.0):
+            variants.append(self._gamma_correction(base, g))
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        variants.append(clahe.apply(base))
+        variants.append(self._unsharp_mask(base))
+        _, otsu = cv2.threshold(variants[-1], 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        variants.extend([otsu, cv2.bitwise_not(otsu)])
+        h, w = base.shape
+        up = cv2.resize(base, (w*2, h*2), interpolation=cv2.INTER_CUBIC)
+        variants.extend([up])
+        adapt = cv2.adaptiveThreshold(
+            up, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 25, 3
+        )
+        variants.extend([adapt, cv2.bitwise_not(adapt)])
+        # dedupe
+        seen = set(); unique = []
+        for v in variants:
+            key = (v.shape, int(v.sum()))
+            if key not in seen:
+                seen.add(key); unique.append(v)
+        return unique
+
+    def _tesseract_read(self, img: np.ndarray) -> (str, float):
+        best_text, best_conf = "", 0.0
+        config = f"--psm 8 --oem 3 -c tessedit_char_whitelist={self.whitelist}"
+        data = pytesseract.image_to_data(img, output_type=Output.DICT, config=config)
+        for i, txt in enumerate(data['text']):
+            raw = txt.strip()
+            if not raw: continue
+            try:
+                conf = float(data['conf'][i]) / 100.0
+            except: continue
+            if conf > best_conf:
+                clean = re.sub(r'[^A-Za-z0-9]', '', raw).upper()
+                if clean:
+                    best_conf = conf; best_text = clean
+        return best_text, best_conf
+
+    def _easyocr_read(self, img: np.ndarray) -> (str, float):
+        results = self.reader.readtext(img, detail=1, paragraph=False)
+        if not results: return "", 0.0
+        best = max(results, key=lambda x: x[2])
+        text = re.sub(r'[^A-Za-z0-9]', '', best[1]).upper()
+        return text, float(best[2])
 
     def read_plate(self, img: np.ndarray) -> (str, float):
-        """
-        Run OCR on a cropped plate image and return cleaned text + confidence.
-
-        Args:
-            img: BGR image of the plate region
-        Returns:
-            (text, confidence) or ("", 0.0) if nothing reliable detected
-        """
         if img is None or img.size == 0:
             return "", 0.0
+        # Tesseract on variants
+        t_best, t_conf = "", 0.0
+        for var in self._generate_variants(img):
+            txt, conf = self._tesseract_read(var)
+            if conf > t_conf:
+                t_best, t_conf = txt, conf
+        # Decide final
+        if t_conf >= self.tesseract_conf_thresh:
+            final, fconf = t_best, t_conf
+        else:
+            e_best, e_conf = self._easyocr_read(img)
+            final, fconf = (e_best, e_conf) if e_conf > t_conf else (t_best, t_conf)
+        # Buffer smoothing
+        self.buffer.append(final)
+        if len(self.buffer) == self.buffer_size:
+            most = Counter(self.buffer).most_common(1)[0][0]
+            return most, fconf
+        return final, fconf
 
-        proc = self._preprocess(img)
-        # run reader, restrict to allowed chars
-        try:
-            results = self.reader.readtext(
-                proc,
-                allowlist=self.allowed_chars,
-                detail=1,
-                paragraph=False
-            )
-        except Exception:
-            return "", 0.0
+    def read_plate_from_path(self, path: str) -> (str, float):
+        img = cv2.imread(path)
+        if img is None:
+            raise FileNotFoundError(f"Cannot load image: {path}")
+        return self.read_plate(img)
 
-        if not results:
-            return "", 0.0
-
-        # collect all hypotheses
-        candidates = []
-        for bbox, text, conf in results:
-            cleaned = self._cleanup.sub('', text.upper())
-            if len(cleaned) >= 4:  # heuristic: plates are minimum length
-                candidates.append((cleaned, float(conf)))
-
-        if not candidates:
-            return "", 0.0
-
-        # pick the best confidence
-        best_text, best_conf = max(candidates, key=lambda x: x[1])
-        return best_text, best_conf
+if __name__ == '__main__':
+    import sys
+    ocr = PlateOCR()
+    for p in sys.argv[1:]:
+        txt, conf = ocr.read_plate_from_path(p)
+        print(p, "->", txt, f"(conf={conf:.2f})")
 

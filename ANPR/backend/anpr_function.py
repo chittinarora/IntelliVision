@@ -6,16 +6,14 @@ from datetime import datetime
 from pathlib import Path
 from collections import defaultdict
 from threading import Thread
-
 from pymongo import MongoClient
 import cloudinary
 import cloudinary.uploader
-
 from dotenv import load_dotenv
 from anpr.detector import LicensePlateDetector
 from anpr.tracker import VehicleTracker
 from anpr.ocr import PlateOCR
-from anpr.processor import ANPRProcessor
+from anpr.processor import ANPRProcessor, ParkingProcessor
 
 # Load environment
 BASE_DIR = Path(__file__).resolve().parent
@@ -31,33 +29,36 @@ cloudinary.config(
 mongo_uri = os.getenv('MONGODB_URI', 'mongodb://localhost:27017/anpr')
 mongo_client = MongoClient(mongo_uri)
 db = mongo_client['anpr']
-parking_log = db['parking_log']
 
-# Initialize processor
+# Initialize processors
 plate_model = BASE_DIR / 'models' / 'best.pt'
 car_model   = BASE_DIR / 'models' / 'yolo11m.pt'
-processor   = ANPRProcessor(str(plate_model), str(car_model))
-
-# State for parking logic
-track_centroids = defaultdict(list)
-car_entries = set()
-car_exits   = set()
-entry_line_y = 200
-exit_line_y  = 400
+anpr_processor = ANPRProcessor(str(plate_model), str(car_model))
+parking_processor = ParkingProcessor(str(plate_model), str(car_model), total_slots=50)
 
 # === Modular functions ===
 
 def upload_video_file(local_path: str, filename: str) -> dict:
     """
     Copy an uploaded video from local_path to data/input and start async processing.
+    Returns job ID and status.
     """
-    input_dir = BASE_DIR / 'data' / 'input'
-    input_dir.mkdir(parents=True, exist_ok=True)
-    dest = input_dir / filename
-    shutil.copy(local_path, dest)
-    # kick off async task
-    Thread(target=processor.process_video, args=(str(dest),), daemon=True).start()
-    return {'status': 'started', 'path': str(dest)}
+    try:
+        input_dir = BASE_DIR / 'data' / 'input'
+        input_dir.mkdir(parents=True, exist_ok=True)
+        dest = input_dir / filename
+        shutil.copy(local_path, dest)
+        
+        # Start processing in background thread
+        Thread(target=anpr_processor.process_video, args=(str(dest),), daemon=True).start()
+        
+        return {
+            'status': 'started',
+            'message': 'Processing started in background',
+            'file_path': str(dest)
+        }
+    except Exception as e:
+        return {'status': 'error', 'message': str(e)}
 
 
 def analyze_video_file(file_path: str) -> dict:
@@ -65,9 +66,17 @@ def analyze_video_file(file_path: str) -> dict:
     Synchronously process a local video file. Returns summary.
     """
     if not os.path.exists(file_path):
-        raise FileNotFoundError(f"File not found: {file_path}")
-    out_filename, summary = processor.process_video(file_path)
-    return {'output': out_filename, 'summary': summary}
+        return {'status': 'error', 'message': f"File not found: {file_path}"}
+    
+    try:
+        out_filename, summary = anpr_processor.process_video(file_path)
+        return {
+            'status': 'completed',
+            'output': out_filename,
+            'summary': summary
+        }
+    except Exception as e:
+        return {'status': 'error', 'message': str(e)}
 
 
 def get_preview_path(filename: str) -> str:
@@ -86,83 +95,109 @@ def get_download_path(filename: str) -> str:
     """
     output_dir = BASE_DIR / 'data' / 'output'
     candidate = output_dir / filename
-    if not candidate.exists() and candidate.suffix == '':
-        for ext in ('.mp4', '.csv', '.xlsx'):
+    
+    # Check for common extensions if no extension provided
+    if not candidate.exists() and not candidate.suffix:
+        for ext in ('.mp4', '.csv', '.xlsx', '.jpg', '.png'):
             alt = output_dir / f"{filename}{ext}"
             if alt.exists():
-                candidate = alt
-                break
-    if not candidate.exists():
-        raise FileNotFoundError(f"Download not found: {filename}")
-    return str(candidate)
+                return str(alt)
+    
+    if candidate.exists():
+        return str(candidate)
+    
+    raise FileNotFoundError(f"Download not found: {filename}")
 
 
-def get_detection_history() -> list:
+def get_detection_history(limit: int = 100) -> list:
     """
-    Fetch all final plate detections from MongoDB.
+    Fetch plate detection history from MongoDB.
     """
-    records = list(db['final_plate_output'].find({}, {'_id': 0}))
-    return records
+    try:
+        records = list(db.detections.find({}, {'_id': 0}).sort("detected_at", -1).limit(limit))
+        return records
+    except Exception as e:
+        return []
 
 
-def start_live_camera(entry_y: int = 200, exit_y: int = 400):
+def start_parking_system(entry_cam: int = 0, exit_cam: int = 1):
     """
-    Begin live camera loop on default device and log entry/exit.
+    Start the parking system with configured cameras
     """
-    def loop():
-        cap = cv2.VideoCapture(0)
-        while True:
-            ret, frame = cap.read()
-            if not ret: break
-            cars = processor.car_detector.detect_plates(frame, classes=[2])
-            car_dets = [(x1,y1,x2,y2,conf,2) for x1,y1,x2,y2,conf in cars]
-            tracks = processor.tracker.update(car_dets, frame)
-            for tr in tracks:
-                tid = tr['track_id']
-                bx1,by1,bx2,by2 = tr['bbox']
-                cy = (by1+by2)//2
-                track_centroids[tid].append(cy)
-                if len(track_centroids[tid])>1:
-                    prev, curr = track_centroids[tid][-2:]
-                    if prev<entry_y<=curr and tid not in car_entries:
-                        car_entries.add(tid)
-                        parking_log.insert_one({'track_id':tid,'event':'entry','time':datetime.now()})
-                    if prev>exit_y>=curr and tid not in car_exits:
-                        car_exits.add(tid)
-                        parking_log.insert_one({'track_id':tid,'event':'exit','time':datetime.now()})
-    Thread(target=loop, daemon=True).start()
-    return {'status':'camera_started'}
+    try:
+        # Configure and start
+        parking_processor.configure_cameras(entry_cam_id=entry_cam, exit_cam_id=exit_cam)
+        parking_processor.start_processing()
+        return {'status': 'success', 'message': 'Parking system started'}
+    except Exception as e:
+        return {'status': 'error', 'message': str(e)}
 
 
-def set_parking_lines(entry_y: int, exit_y: int):
-    global entry_line_y, exit_line_y
-    entry_line_y, exit_line_y = entry_y, exit_y
-    return {'entry_line': entry_line_y, 'exit_line': exit_line_y}
+def stop_parking_system():
+    """Stop the parking system"""
+    try:
+        parking_processor.stop_processing()
+        return {'status': 'success', 'message': 'Parking system stopped'}
+    except Exception as e:
+        return {'status': 'error', 'message': str(e)}
 
 
-def get_parking_stats(total_slots: int = None) -> dict:
+def get_parking_status() -> dict:
+    """Get current parking status"""
+    try:
+        return parking_processor.get_parking_status()
+    except Exception as e:
+        return {
+            'total_slots': 0,
+            'available': 0,
+            'occupied': 0,
+            'updated_at': datetime.utcnow().isoformat()
+        }
+
+
+def get_parking_events(limit: int = 100) -> list:
+    """Get recent parking events"""
+    try:
+        return list(db.parking_events.find({}, {'_id': 0}).sort("timestamp", -1).limit(limit))
+    except Exception as e:
+        return []
+
+
+def manual_parking_action(plate: str, action: str) -> dict:
     """
-    Compute current parking occupancy.
+    Perform manual parking action (entry or exit)
     """
-    slots = total_slots if total_slots is not None else 50
-    occupied = len(car_entries) - len(car_exits)
-    available = max(slots - occupied, 0)
-    return {'total': slots, 'occupied': occupied, 'available': available, 'timestamp': datetime.now().isoformat()}
-
-
-def get_parking_dashboard() -> list:
-    """
-    Return raw parking events log.
-    """
-    return list(parking_log.find({}, {'_id':0}))
+    plate = plate.upper().strip()
+    try:
+        if action == 'entry':
+            slot_id = parking_processor.assign_slot(plate)
+            if slot_id:
+                return {'status': 'success', 'slot_id': slot_id}
+            return {'status': 'error', 'message': 'No available slots'}
+        
+        elif action == 'exit':
+            if parking_processor.release_slot(plate):
+                return {'status': 'success'}
+            return {'status': 'error', 'message': 'Vehicle not found'}
+        
+        return {'status': 'error', 'message': 'Invalid action'}
+    except Exception as e:
+        return {'status': 'error', 'message': str(e)}
 
 
 def export_parking_logs() -> str:
     """
-    Write parking log to CSV and return file path.
+    Export parking logs to CSV and return file path
     """
-    logs = list(parking_log.find({}, {'_id':0}))
-    df = pd.DataFrame(logs)
-    out = BASE_DIR / 'data' / 'output' / f"parking_{datetime.now():%Y%m%d%H%M%S}.csv"
-    df.to_csv(out, index=False)
-    return str(out)
+    try:
+        logs = list(db.parking_events.find({}, {'_id': 0}))
+        if not logs:
+            return ""
+            
+        df = pd.DataFrame(logs)
+        filename = f"parking_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        out_path = BASE_DIR / 'data' / 'output' / filename
+        df.to_csv(out_path, index=False)
+        return str(out_path)
+    except Exception as e:
+        return ""
