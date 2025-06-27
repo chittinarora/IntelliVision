@@ -1,20 +1,40 @@
+# Python artifacts
 __pycache__/
 *.pyc
 *.pyo
+
+# macOS
 .DS_Store
+
+# IDE
 .idea/
+
+# Virtual environments
 venv/
 p_venv/
-New_Project/media/
-db.sqlite3
+
+# Environment files
 .env
-dump.rdb
 tracker/analytics/.env
-tracker/models/
-yolo12l.pt
-yolo12m.pt
-data.html
+
+# SQLite and Redis
+db.sqlite3
 dump.rdb
+
+# Old installer scripts
+Miniconda3-latest-MacOSX-arm64.sh
+
+# Unneeded data
+data.html
 samples/
 videos/
-Miniconda3-latest-MacOSX-arm64.sh
+
+# Ignore ALL media outputs and uploads
+media/*
+
+# Model files
+*.pt
+
+# IntelliVision paths
+intelli-vision
+

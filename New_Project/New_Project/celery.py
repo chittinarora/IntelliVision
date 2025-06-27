@@ -1,9 +1,0 @@
-import multiprocessing as mp
-import os
-from celery import Celery
-
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'New_Project.settings')
-
-app = Celery('New_Project')
-app.config_from_object('django.conf:settings', namespace='CELERY')
-app.autodiscover_tasks()
