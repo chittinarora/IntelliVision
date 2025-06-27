@@ -1,33 +1,21 @@
 Setup Instructions
 
-    Clone the repository:
+Clone the repository:
 
-'''
+    git clone https://github.com/your-username/anpr-parking-system.git
+    cd anpr-parking-system/backend
 
-git clone https://github.com/your-username/anpr-parking-system.git
-cd anpr-parking-system/backend
-'''bash
+Create and activate virtual environment:
 
-    Create and activate virtual environment:
+    python -m venv venv
+    source venv/bin/activate  # Linux/Mac
+    venv\Scripts\activate    # Windows
 
-'''
+Install dependencies:
 
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-venv\Scripts\activate    # Windows
-'''bash
-
-    Install dependencies:
-
-'''
-
-pip install -r requirements.txt
-'''bash
+    pip install -r requirements.txt
 
 
-    Run the application:
+Run the application:
 
-'''
-
-PYTHONPATH=. uvicorn main:app --reload --host 0.0.0.0 --port 8000
-'''bash
+    PYTHONPATH=. uvicorn main:app --reload --host 0.0.0.0 --port 8000
