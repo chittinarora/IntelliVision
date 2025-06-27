@@ -1,11 +1,8 @@
-# Core Dependencies
 fastapi
 uvicorn
 python-multipart
 python-dotenv
 loguru
-
-# Computer Vision
 opencv-python
 numpy
 pandas
@@ -14,13 +11,9 @@ ultralytics
 deep-sort-realtime
 easyocr
 pytesseract
-
-# Database & Cloud
 pymongo
 dnspython
 cloudinary
-
-# Utilities
 requests
 python-dateutil
 pyyaml
