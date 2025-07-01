@@ -3,17 +3,15 @@ import cv2
 import numpy as np
 import pandas as pd
 import re
+import logging
 import threading
 from datetime import datetime
 from pathlib import Path
 from collections import defaultdict
-from fastapi import HTTPException
 from pymongo import MongoClient
 from dotenv import load_dotenv
 import cloudinary
 import cloudinary.uploader
-import logging
-import urllib.parse
 
 # Load environment variables
 load_dotenv()
@@ -22,23 +20,14 @@ load_dotenv()
 logger = logging.getLogger("anpr.processor")
 logger.setLevel(logging.INFO)
 handler = logging.StreamHandler()
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+formatter = logging.Formatter('%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d - %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-# Define absolute output directory from environment
+# Define output directory
 OUTPUT_DIR = Path(os.getenv("ANPR_OUTPUT_DIR", Path(__file__).parent.parent / "data" / "output"))
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 logger.info(f"All output will be saved to: {OUTPUT_DIR}")
-
-# MongoDB setup
-mongo_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017/anpr")
-parking_db_client = MongoClient(mongo_uri)
-parking_db = parking_db_client['anpr']
-
-# Initialize parking collections
-parking_events = parking_db['parking_events']
-parking_slots = parking_db['parking_slots']
 
 # Relative imports
 from .detector import LicensePlateDetector
@@ -48,10 +37,11 @@ from .ocr import PlateOCR
 class ANPRProcessor:
     """
     ANPRProcessor handles video/image plate detection with:
-    - Output saved to configurable directory
-    - Automatic state reset between processing jobs
-    - Robust file path handling
-    - Enhanced file existence verification
+    - Enhanced debugging capabilities
+    - Real-time visual feedback
+    - Robust error handling
+    - Comprehensive logging
+    - Video processing diagnostics
     """
 
     # Detection thresholds & smoothing
@@ -68,14 +58,6 @@ class ANPRProcessor:
         if not Path(car_model_path).exists():
             raise FileNotFoundError(f"Car model not found: {car_model_path}")
             
-        # Cloudinary configuration
-        cloudinary.config(
-            cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
-            api_key=os.getenv("CLOUDINARY_API_KEY"),
-            api_secret=os.getenv("CLOUDINARY_API_SECRET"),
-            secure=True
-        )
-
         # Initialize detectors, OCR, and tracker
         self.plate_detector = LicensePlateDetector(plate_model_path, freeze_conf=self.LOCK_CONF_THRESHOLD)
         self.car_detector = LicensePlateDetector(car_model_path, freeze_conf=self.LOCK_CONF_THRESHOLD)
@@ -83,68 +65,6 @@ class ANPRProcessor:
         
         # Initialize with empty state
         self.reset()
-
-        # MongoDB connection with improved handling
-        self.setup_mongodb()
-
-    def setup_mongodb(self):
-        """Configure MongoDB connection with robust error handling"""
-        raw_uri = os.getenv("MONGODB_URI")
-        if not raw_uri:
-            logger.error("MONGODB_URI environment variable not set")
-            # Create dummy collection to prevent crashes
-            self.create_dummy_collection()
-            return
-
-        try:
-            # Sanitize and parse URI
-            raw_uri = raw_uri.strip().strip('"').strip("'")
-            
-            # Handle MongoDB Atlas connection strings
-            if "mongodb+srv://" in raw_uri:
-                # For Atlas, we don't need to modify the URI
-                logger.info("Using MongoDB Atlas connection")
-            else:
-                # Add directConnection option for replica set issues
-                parsed_uri = urllib.parse.urlparse(raw_uri)
-                if "directConnection" not in parsed_uri.query:
-                    connector = "&" if parsed_uri.query else "?"
-                    raw_uri += f"{connector}directConnection=false"
-            
-            # Create client with appropriate options
-            self.mongo_client = MongoClient(
-                raw_uri,
-                serverSelectionTimeoutMS=15000,  # 15 seconds
-                connectTimeoutMS=10000,          # 10 seconds
-                socketTimeoutMS=30000            # 30 seconds
-            )
-            
-            # Verify connection
-            self.mongo_client.admin.command('ping')
-            logger.info("MongoDB connection established")
-            
-            db_name = os.getenv("MONGODB_DB", "anpr")
-            self.db = self.mongo_client[db_name]
-            self.collection = self.db["detections"]
-            
-        except Exception as e:
-            logger.error(f"MongoDB connection failed: {str(e)}")
-            # Fallback to dummy client to prevent crashes
-            self.create_dummy_collection()
-
-    def create_dummy_collection(self):
-        """Create a dummy collection to prevent crashes when MongoDB is unavailable"""
-        logger.warning("Using dummy MongoDB collection")
-        class DummyCollection:
-            def insert_one(self, *args, **kwargs): 
-                logger.debug("DummyCollection.insert_one called")
-            def find(self, *args, **kwargs): 
-                logger.debug("DummyCollection.find called")
-                return []
-            def __getattr__(self, name):
-                return lambda *args, **kwargs: None
-                
-        self.collection = DummyCollection()
 
     def reset(self):
         """Reset all stateful variables for a new processing job"""
@@ -177,20 +97,21 @@ class ANPRProcessor:
         return x1, y1, x2, y2
 
     def process_video(self, video_path: str):
-        """Process a video file with output saved to output directory"""
+        """Process a video file with enhanced debugging and diagnostics"""
         # Reset state for new video
         self.reset()
         
         # Verify input file exists
         video_path = Path(video_path)
         if not video_path.exists():
-            raise FileNotFoundError(f"Input video not found: {video_path}")
+            logger.error(f"Input video not found: {video_path}")
+            return None, {"error": "Input video not found", "path": str(video_path)}
             
         filename = video_path.name
         base, ext = os.path.splitext(filename)
         logger.info(f"Starting video processing: {filename}")
 
-        # Create annotated filename with prefix
+        # Create annotated filename
         annotated_filename = f"annotated_{filename}"
         annotated_video = OUTPUT_DIR / annotated_filename
         
@@ -204,12 +125,16 @@ class ANPRProcessor:
 
         # Open video capture
         try:
+            logger.debug(f"Opening video: {video_path}")
             cap = cv2.VideoCapture(str(video_path))
             if not cap.isOpened():
-                raise RuntimeError(f"Could not open video: {video_path}")
+                error_msg = f"Could not open video: {video_path}"
+                logger.error(error_msg)
+                return None, {"error": error_msg}
         except Exception as e:
-            logger.error(f"Video open failed: {str(e)}")
-            raise HTTPException(status_code=500, detail="Cannot open video file")
+            error_msg = f"Video open failed: {str(e)}"
+            logger.error(error_msg)
+            return None, {"error": error_msg}
 
         # Get video properties
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -219,47 +144,100 @@ class ANPRProcessor:
         
         logger.info(f"Video properties: {width}x{height} @ {fps:.1f}FPS, {frame_count} frames")
         
-        # Create video writer
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        writer = cv2.VideoWriter(str(annotated_video), fourcc, fps, (width, height))
-        if not writer.isOpened():
+        # Create video writer with fallback codecs
+        writer = None
+        codecs = ["mp4v", "avc1", "MJPG", "XVID", "H264", "VP80"]
+        for codec in codecs:
+            fourcc = cv2.VideoWriter_fourcc(*codec)
+            writer = cv2.VideoWriter(str(annotated_video), fourcc, fps, (width, height))
+            if writer.isOpened():
+                logger.info(f"Video writer initialized with codec: {codec}")
+                break
+            else:
+                logger.warning(f"Codec {codec} failed, trying next option")
+        
+        if not writer or not writer.isOpened():
             cap.release()
-            raise RuntimeError(f"Could not create output video: {annotated_video}")
+            error_msg = f"Could not create output video: {annotated_video}"
+            logger.error(error_msg)
+            return None, {"error": error_msg}
 
         frame_idx = 0
         processing_error = False
+        error_details = ""
+        
+        # Debug visualization setup
+        debug_mode = os.getenv("DEBUG_VIDEO", "false").lower() == "true"
+        debug_window_name = f"Processing: {filename}"
+        
+        if debug_mode:
+            cv2.namedWindow(debug_window_name, cv2.WINDOW_NORMAL)
+            cv2.resizeWindow(debug_window_name, 800, 600)
         
         try:
             while True:
                 ret, frame = cap.read()
                 if not ret:
+                    logger.info("Reached end of video")
                     break
                     
                 frame_idx += 1
-                if frame_idx % 100 == 0:
+                if frame_idx % 10 == 0:  # Log every 10 frames
                     logger.info(f"Processing frame {frame_idx}/{frame_count}")
+
+                # Create debug frame if needed
+                debug_frame = frame.copy() if debug_mode else None
 
                 # Detect and track cars
                 car_dets = self.car_detector.detect_plates(frame,
                                                           conf=self.CAR_DET_CONF,
                                                           iou=self.DET_IOU,
                                                           classes=[2])
-                tracks = self.tracker.update([(x1,y1,x2,y2,conf,2) for x1,y1,x2,y2,conf in car_dets], frame)
+                
+                # DEBUG: Show raw detections
+                if debug_mode:
+                    for (x1, y1, x2, y2, conf) in car_dets:
+                        cv2.rectangle(debug_frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 0, 255), 2)
+                        cv2.putText(debug_frame, f"Car: {conf:.2f}", (int(x1), int(y1-10)), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                
+                logger.debug(f"Frame {frame_idx}: Found {len(car_dets)} car detections")
+                
+                # Convert detections to tracker format: [x, y, w, h]
+                tracker_input = []
+                for (x1, y1, x2, y2, conf) in car_dets:
+                    w = x2 - x1
+                    h = y2 - y1
+                    # Only include valid detections
+                    if w > 0 and h > 0:
+                        tracker_input.append(([x1, y1, w, h], conf, 0))
+                
+                tracks = self.tracker.update(tracker_input, frame)
+                
+                logger.debug(f"Frame {frame_idx}: Tracking {len(tracks)} vehicles")
 
                 # For each tracked car, detect plates and run OCR
                 for tr in tracks:
                     tid = tr['track_id']
                     x1,y1,x2,y2 = tr['bbox']
                     
+                    # DEBUG: Draw tracking box
+                    if debug_mode:
+                        cv2.rectangle(debug_frame, (int(x1), int(y1)), (int(x2), int(y2)), (0,255,0), 2)
+                        cv2.putText(debug_frame, f"Track {tid}", (int(x1), int(max(y1-10,0))), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,0), 2)
+                    
                     # Clamp and validate bounding box
                     x1, y1, x2, y2 = self.clamp_bbox(x1, y1, x2, y2, width, height)
                     if (x2 - x1) < self.MIN_ROI_SIZE or (y2 - y1) < self.MIN_ROI_SIZE:
+                        logger.debug(f"Track {tid}: Skipping small ROI")
                         continue
                         
-                    roi = frame[y1:y2, x1:x2]
+                    roi = frame[int(y1):int(y2), int(x1):int(x2)]
                     
                     # Skip invalid ROIs
                     if not self.validate_roi(roi, (x1,y1,x2,y2)):
+                        logger.debug(f"Track {tid}: Invalid ROI")
                         continue
                         
                     try:
@@ -268,6 +246,7 @@ class ANPRProcessor:
                             conf=self.PLATE_DET_CONF,
                             iou=self.DET_IOU
                         )
+                        logger.debug(f"Track {tid}: Found {len(plates)} plates")
                     except Exception as e:
                         logger.error(f"Plate detection failed for track {tid}: {str(e)}")
                         continue
@@ -279,67 +258,93 @@ class ANPRProcessor:
                         # Clamp plate coordinates
                         rx1, ry1, rx2, ry2 = self.clamp_bbox(rx1, ry1, rx2, ry2, width, height)
                         if (rx2 - rx1) < self.MIN_ROI_SIZE or (ry2 - ry1) < self.MIN_ROI_SIZE:
+                            logger.debug(f"Track {tid}: Skipping small plate")
                             continue
                             
-                        plate_img = frame[ry1:ry2, rx1:rx2]
+                        plate_img = frame[int(ry1):int(ry2), int(rx1):int(rx2)]
                         
                         # Skip invalid plate images
                         if not self.validate_roi(plate_img, (rx1,ry1,rx2,ry2)):
+                            logger.debug(f"Track {tid}: Invalid plate image")
                             continue
                             
                         try:
                             text, conf_txt = self.ocr.read_plate(plate_img)
+                            logger.info(f"Track {tid}: OCR result: {text} (conf={conf_txt:.2f})")
+                            
+                            # DEBUG: Show OCR result on debug frame
+                            if debug_mode:
+                                cv2.rectangle(debug_frame, (int(rx1), int(ry1)), (int(rx2), int(ry2)), (255,0,0), 2)
+                                cv2.putText(debug_frame, f"{text} {conf_txt:.2f}", 
+                                            (int(rx1), int(max(ry1-10,0))), 
+                                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,0,0), 2)
                         except Exception as e:
-                            logger.error(f"OCR failed for plate at {rx1},{ry1}-{rx2},{ry2}: {str(e)}")
+                            logger.error(f"OCR failed for plate at {rx1},{ry1}-{rx2}, {ry2}: {str(e)}")
                             continue
 
                         # Lock in a high-confidence read
                         if conf_txt >= self.LOCK_CONF_THRESHOLD and tid not in self.locked_plate:
                             self.locked_plate[tid] = text
+                            logger.info(f"Track {tid}: Locked plate: {text}")
 
                         # If not locked, track frequency
                         if text and tid not in self.locked_plate:
                             self.plate_history[tid][text] += 1
                             self.plate_timestamps[tid].setdefault(text, datetime.now())
+                            logger.debug(f"Track {tid}: Added plate candidate: {text}")
 
                         # Decide final text and styling
                         if tid in self.locked_plate:
                             final_text, fs, th = self.locked_plate[tid], 1.0, 3
                         else:
                             hist = self.plate_history[tid]
-                            final_text = max(hist.items(), key=lambda x: x[1])[0] if hist else text
+                            if hist:
+                                final_text = max(hist.items(), key=lambda x: x[1])[0]
+                            else:
+                                final_text = text
                             fs, th = 0.6, 2
 
                         # Draw plate box and label
-                        cv2.rectangle(frame, (rx1,ry1), (rx2,ry2), (255,0,0), 2)
+                        cv2.rectangle(frame, (int(rx1), int(ry1)), (int(rx2), int(ry2)), (255,0,0), 2)
                         cv2.putText(frame,
                                     f"{final_text} ({conf_txt:.2f})",
-                                    (rx1, max(ry1-10,0)),
+                                    (int(rx1), int(max(ry1-10,0))),
                                     cv2.FONT_HERSHEY_SIMPLEX,
                                     fs,
                                     (255,255,255),
                                     th)
 
-                # Draw car tracking boxes
+                # Draw car tracking boxes on output frame
                 for tr in tracks:
                     bx1,by1,bx2,by2 = tr['bbox']
                     tid = tr['track_id']
-                    cv2.rectangle(frame, (bx1,by1), (bx2,by2), (0,255,0), 2)
+                    cv2.rectangle(frame, (int(bx1), int(by1)), (int(bx2), int(by2)), (0,255,0), 2)
                     cv2.putText(frame,
                                 f"Car {tid}",
-                                (bx1, max(by1-10,0)),
+                                (int(bx1), int(max(by1-10,0))),
                                 cv2.FONT_HERSHEY_SIMPLEX,
                                 0.6,
                                 (0,255,0),
                                 2)
 
+                # Show debug frame
+                if debug_mode:
+                    cv2.imshow(debug_window_name, debug_frame)
+                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                        logger.info("User interrupted processing")
+                        break
+
                 writer.write(frame)
         except Exception as e:
             logger.exception("Video processing failed")
             processing_error = True
+            error_details = str(e)
         finally:
             cap.release()
             writer.release()
+            if debug_mode:
+                cv2.destroyAllWindows()
+            logger.info("Released video resources")
             
             # Verify output file was created
             if annotated_video.exists():
@@ -355,7 +360,8 @@ class ANPRProcessor:
                 processing_error = True
 
         if processing_error:
-            raise HTTPException(status_code=500, detail="Video processing failed")
+            logger.error(f"Video processing failed: {error_details}")
+            return None, {"error": "Video processing failed", "details": error_details}
 
         # Summarize OCR results and persist
         rows, seen = [], set()
@@ -364,8 +370,12 @@ class ANPRProcessor:
                 plate = self.locked_plate[tid]
                 ts = self.plate_timestamps[tid].get(plate, datetime.now())
             else:
-                plate,_ = max(hist.items(), key=lambda x: x[1])
-                ts = self.plate_timestamps[tid].get(plate, datetime.now())
+                if hist:
+                    plate, _ = max(hist.items(), key=lambda x: x[1])
+                    ts = self.plate_timestamps[tid].get(plate, datetime.now())
+                else:
+                    continue
+                    
             if plate and plate not in seen:
                 seen.add(plate)
                 count = hist.get(plate,1)
@@ -374,15 +384,7 @@ class ANPRProcessor:
                     "Detected At": ts.strftime("%Y-%m-%d %H:%M:%S"),
                     "OCR Count": count
                 })
-                # Use the collection (will work with dummy if needed)
-                self.collection.insert_one({
-                    "plate_number": plate,
-                    "detected_at": ts,
-                    "ocr_count": count,
-                    "video_file": filename,
-                    "output_path": str(annotated_video)
-                })
-        
+            
         # Create CSV and Excel reports
         try:
             df = pd.DataFrame(rows)
@@ -412,10 +414,11 @@ class ANPRProcessor:
         """Process an image file with output saved to output directory"""
         image_path = Path(image_path)
         if not image_path.exists():
-            raise FileNotFoundError(f"Input image not found: {image_path}")
+            logger.error(f"Input image not found: {image_path}")
+            return None, {"error": "Input image not found", "path": str(image_path)}
             
         base = image_path.stem
-        # Create annotated filename with prefix
+        # Create annotated filename
         annotated_filename = f"annotated_{base}.jpg"
         out_file = OUTPUT_DIR / annotated_filename
         
@@ -430,10 +433,13 @@ class ANPRProcessor:
         try:
             frame = cv2.imread(str(image_path))
             if frame is None:
-                raise RuntimeError(f"Could not read image: {image_path}")
+                error_msg = f"Could not read image: {image_path}"
+                logger.error(error_msg)
+                return None, {"error": error_msg}
         except Exception as e:
-            logger.error(f"Image read failed: {str(e)}")
-            raise HTTPException(status_code=500, detail="Cannot read image file")
+            error_msg = f"Image read failed: {str(e)}"
+            logger.error(error_msg)
+            return None, {"error": error_msg}
 
         results = []
         try:
@@ -465,30 +471,27 @@ class ANPRProcessor:
         
         # Save output image
         try:
-            cv2.imwrite(str(out_file), frame)
-            if not out_file.exists():
-                raise RuntimeError("Failed to save output image")
+            success = cv2.imwrite(str(out_file), frame)
+            if not success or not out_file.exists():
+                error_msg = f"Failed to save output image: {out_file}"
+                logger.error(error_msg)
+                return None, {"error": error_msg}
             logger.info(f"Saved annotated image: {out_file}")
         except Exception as e:
-            logger.error(f"Image save failed: {str(e)}")
-            raise HTTPException(status_code=500, detail="Failed to save output image")
+            error_msg = f"Image save failed: {str(e)}"
+            logger.error(error_msg)
+            return None, {"error": error_msg}
 
         return str(out_file), results
-
-    def get_all_detections(self):
-        try:
-            return list(self.collection.find({}, {"_id":0}))
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
 
 
 class ParkingProcessor:
     """
-    Real-time parking management processor with:
-    - Dual camera support (entry and exit)
-    - Slot assignment and release
-    - Barrier control integration
-    - State persistence in MongoDB
+    Enhanced real-time parking management processor with:
+    - Zone-based detection
+    - Real-time event broadcasting
+    - State management for occupancy counts
+    - Optimized for local development
     """
     
     def __init__(self, plate_model_path: str, car_model_path: str, total_slots: int = 50):
@@ -503,23 +506,33 @@ class ParkingProcessor:
             "exit": None
         }
         
+        # Zone configuration
+        self.zones = defaultdict(list)  # camera_id -> list of zones
+        
         # Parking state
         self.total_slots = total_slots
         self.running = False
-        self.entry_line_y = 200
-        self.exit_line_y = 400
         self.track_history = defaultdict(list)
         
-        # Initialize parking slots
-        self.init_parking_slots()
+        # Event management and state tracking
+        self.event_manager = None
+        self.parking_state = None
+        
+        # Collections to be set later
+        self.parking_events_collection = None
+        self.parking_slots_collection = None
+        self.zone_configs_collection = None
+        
+        # Thread locks
+        self.lock = threading.Lock()
         
         logger.info("Parking Processor initialized")
 
-    def init_parking_slots(self):
+    def init_parking_slots(self, parking_slots_collection):
         """Initialize parking slots in MongoDB if not exists"""
-        if parking_slots.count_documents({}) == 0:
+        if parking_slots_collection.count_documents({}) == 0:
             for i in range(1, self.total_slots + 1):
-                parking_slots.insert_one({
+                parking_slots_collection.insert_one({
                     "slot_id": f"A-{i}",
                     "status": "AVAILABLE",
                     "plate": None,
@@ -536,11 +549,44 @@ class ParkingProcessor:
         logger.info(f"Cameras configured - Entry: {entry_cam_id}, Exit: {exit_cam_id}")
         return self.cameras
 
-    def assign_slot(self, plate: str) -> str:
+    def load_zones(self, camera_id: int):
+        """Load zones from database for a specific camera"""
+        with self.lock:
+            if not self.zone_configs_collection:
+                logger.error("Zone configs collection not set")
+                return
+                
+            config = self.zone_configs_collection.find_one({"camera_id": camera_id})
+            if config:
+                self.zones[camera_id] = config.get("zones", [])
+                logger.info(f"Loaded {len(self.zones[camera_id])} zones for camera {camera_id}")
+            else:
+                self.zones[camera_id] = []
+                logger.warning(f"No zones configured for camera {camera_id}")
+
+    def point_in_polygon(self, point: tuple, polygon: list) -> bool:
+        """Check if a point is inside a polygon using ray casting algorithm"""
+        x, y = point
+        n = len(polygon)
+        inside = False
+        p1x, p1y = polygon[0]
+        for i in range(n + 1):
+            p2x, p2y = polygon[i % n]
+            if y > min(p1y, p2y):
+                if y <= max(p1y, p2y):
+                    if x <= max(p1x, p2x):
+                        if p1y != p2y:
+                            xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
+                        if p1x == p2x or x <= xinters:
+                            inside = not inside
+            p1x, p1y = p2x, p2y
+        return inside
+
+    def assign_slot(self, plate: str, parking_slots_collection) -> str:
         """Assign available slot to vehicle"""
-        slot = parking_slots.find_one({"status": "AVAILABLE"})
+        slot = parking_slots_collection.find_one({"status": "AVAILABLE"})
         if slot:
-            parking_slots.update_one(
+            parking_slots_collection.update_one(
                 {"_id": slot["_id"]},
                 {"$set": {
                     "status": "OCCUPIED",
@@ -551,11 +597,11 @@ class ParkingProcessor:
             return slot["slot_id"]
         return None
 
-    def release_slot(self, plate: str) -> bool:
+    def release_slot(self, plate: str, parking_slots_collection) -> bool:
         """Release slot occupied by vehicle"""
-        slot = parking_slots.find_one({"plate": plate, "status": "OCCUPIED"})
+        slot = parking_slots_collection.find_one({"plate": plate, "status": "OCCUPIED"})
         if slot:
-            parking_slots.update_one(
+            parking_slots_collection.update_one(
                 {"_id": slot["_id"]},
                 {"$set": {
                     "status": "AVAILABLE",
@@ -567,41 +613,63 @@ class ParkingProcessor:
         return False
 
     def open_barrier(self, gate_type: str):
-        """Control barrier (stub implementation)"""
-        logger.info(f"Opening {gate_type} barrier")
-        # Actual GPIO control would go here
-        # GPIO.output(BARRIER_PINS[gate_type], GPIO.HIGH)
+        """Simulate barrier control (local development)"""
+        logger.info(f"Simulated barrier open: {gate_type}")
 
     def log_parking_event(self, plate: str, event_type: str, slot_id: str = None):
         """Log parking event to database"""
+        if not self.parking_events_collection:
+            logger.error("Parking events collection not set")
+            return
+            
         event = {
             "plate": plate,
             "event_type": event_type,
             "timestamp": datetime.utcnow(),
             "slot_id": slot_id
         }
-        parking_events.insert_one(event)
+        self.parking_events_collection.insert_one(event)
         logger.info(f"Logged event: {plate} {event_type}")
 
-    def process_frame(self, frame, cam_type: str):
-        """Process a single frame for parking system"""
+    def process_frame(self, frame, cam_type: str, camera_id: int):
+        """Process a single frame for parking system using zone detection"""
         # Detect vehicles
         car_dets = self.car_detector.detect_plates(frame, classes=[2])
         if not car_dets:
             return
         
+        # Get current zones for this camera
+        current_zones = self.zones.get(camera_id, [])
+        
         # Process each vehicle detection
         for (x1, y1, x2, y2, conf) in car_dets:
             # Calculate centroid
-            cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+            centroid = ((x1 + x2) // 2, (y1 + y2) // 2)
             
-            # Process based on camera type
-            if cam_type == "entry":
-                self.process_entry(frame, x1, y1, x2, y2)
-            elif cam_type == "exit":
-                self.process_exit(frame, x1, y1, x2, y2)
+            # Check against configured zones
+            for zone in current_zones:
+                zone_name = zone.get("name", "")
+                zone_points = zone.get("points", [])
+                
+                if not zone_points:
+                    continue
+                    
+                # Convert normalized points to absolute coordinates
+                abs_points = []
+                for point in zone_points:
+                    px = int(point["x"] * frame.shape[1])
+                    py = int(point["y"] * frame.shape[0])
+                    abs_points.append((px, py))
+                
+                # Check if centroid is in zone
+                if self.point_in_polygon(centroid, abs_points):
+                    # Process based on zone type
+                    if "entry" in zone_name.lower():
+                        self.process_entry(frame, x1, y1, x2, y2, camera_id)
+                    elif "exit" in zone_name.lower():
+                        self.process_exit(frame, x1, y1, x2, y2, camera_id)
 
-    def process_entry(self, frame, x1: int, y1: int, x2: int, y2: int):
+    def process_entry(self, frame, x1: int, y1: int, x2: int, y2: int, camera_id: int):
         """Process vehicle at entry point"""
         # Extract vehicle ROI
         vehicle_roi = frame[y1:y2, x1:x2]
@@ -621,13 +689,34 @@ class ParkingProcessor:
         
         if plate_text and conf > 0.7:
             # Assign slot and open barrier
-            slot_id = self.assign_slot(plate_text)
+            if not self.parking_slots_collection:
+                logger.error("Parking slots collection not set")
+                return
+                
+            slot_id = self.assign_slot(plate_text, self.parking_slots_collection)
             if slot_id:
                 self.open_barrier("entry")
                 self.log_parking_event(plate_text, "ENTRY", slot_id)
                 logger.info(f"Assigned slot {slot_id} to {plate_text}")
+                
+                # Broadcast event
+                if self.event_manager:
+                    event_data = {
+                        "type": "vehicle_entry",
+                        "data": {
+                            "camera_id": camera_id,
+                            "plate": plate_text,
+                            "slot_id": slot_id,
+                            "timestamp": datetime.utcnow().isoformat()
+                        }
+                    }
+                    asyncio.run(self.event_manager.broadcast("vehicle_entry", event_data["data"]))
+                
+                # Update state
+                if self.parking_state:
+                    self.parking_state.update_count(camera_id, "vehicle_entry")
 
-    def process_exit(self, frame, x1: int, y1: int, x2: int, y2: int):
+    def process_exit(self, frame, x1: int, y1: int, x2: int, y2: int, camera_id: int):
         """Process vehicle at exit point"""
         # Extract vehicle ROI
         vehicle_roi = frame[y1:y2, x1:x2]
@@ -647,37 +736,80 @@ class ParkingProcessor:
         
         if plate_text and conf > 0.7:
             # Release slot and open barrier
-            if self.release_slot(plate_text):
+            if not self.parking_slots_collection:
+                logger.error("Parking slots collection not set")
+                return
+                
+            if self.release_slot(plate_text, self.parking_slots_collection):
                 self.open_barrier("exit")
                 self.log_parking_event(plate_text, "EXIT")
                 logger.info(f"Released slot for {plate_text}")
+                
+                # Broadcast event
+                if self.event_manager:
+                    event_data = {
+                        "type": "vehicle_exit",
+                        "data": {
+                            "camera_id": camera_id,
+                            "plate": plate_text,
+                            "timestamp": datetime.utcnow().isoformat()
+                        }
+                    }
+                    asyncio.run(self.event_manager.broadcast("vehicle_exit", event_data["data"]))
+                
+                # Update state
+                if self.parking_state:
+                    self.parking_state.update_count(camera_id, "vehicle_exit")
 
-    def start_processing(self):
+    def start_processing(self, event_manager, parking_state, 
+                        parking_events_collection, parking_slots_collection,
+                        zone_configs_collection):
         """Start real-time processing for both cameras"""
         if not self.cameras["entry"] or not self.cameras["exit"]:
             logger.error("Cameras not configured")
             return
         
+        # Set up event and state management
+        self.event_manager = event_manager
+        self.parking_state = parking_state
+        self.parking_events_collection = parking_events_collection
+        self.parking_slots_collection = parking_slots_collection
+        self.zone_configs_collection = zone_configs_collection
+        
+        # Initialize parking slots
+        self.init_parking_slots(parking_slots_collection)
+        
+        # Load zones for cameras
+        self.load_zones(self.cameras["entry"])
+        self.load_zones(self.cameras["exit"])
+        
         self.running = True
         
         # Start entry camera thread
-        threading.Thread(target=self.process_camera_stream, args=("entry",), daemon=True).start()
+        threading.Thread(
+            target=self.process_camera_stream, 
+            args=("entry", self.cameras["entry"]),
+            daemon=True
+        ).start()
         
         # Start exit camera thread
-        threading.Thread(target=self.process_camera_stream, args=("exit",), daemon=True).start()
+        threading.Thread(
+            target=self.process_camera_stream, 
+            args=("exit", self.cameras["exit"]),
+            daemon=True
+        ).start()
         
         logger.info("Started parking processing threads")
 
-    def process_camera_stream(self, cam_type: str):
+    def process_camera_stream(self, cam_type: str, camera_id: int):
         """Process video stream from specified camera"""
-        cam_id = self.cameras[cam_type]
-        cap = cv2.VideoCapture(cam_id)
+        cap = cv2.VideoCapture(camera_id)
         
         if not cap.isOpened():
-            logger.error(f"Could not open {cam_type} camera (ID: {cam_id})")
+            logger.error(f"Could not open {cam_type} camera (ID: {camera_id})")
             return
         
-        logger.info(f"Processing {cam_type} camera stream")
+        logger.info(f"Processing {cam_type} camera stream (ID: {camera_id})")
         
         try:
             while self.running:
@@ -686,7 +818,7 @@ class ParkingProcessor:
                     logger.warning(f"Frame read error from {cam_type} camera")
                     continue
                 
-                self.process_frame(frame, cam_type)
+                self.process_frame(frame, cam_type, camera_id)
                 
         except Exception as e:
             logger.error(f"Error processing {cam_type} stream: {str(e)}")
@@ -699,9 +831,9 @@ class ParkingProcessor:
         self.running = False
         logger.info("Parking processing stopped")
 
-    def get_parking_status(self) -> dict:
+    def get_parking_status(self, parking_slots_collection) -> dict:
         """Get current parking status"""
-        available = parking_slots.count_documents({"status": "AVAILABLE"})
+        available = parking_slots_collection.count_documents({"status": "AVAILABLE"})
         occupied = self.total_slots - available
         return {
             "total_slots": self.total_slots,
