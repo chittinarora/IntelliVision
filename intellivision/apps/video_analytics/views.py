@@ -33,26 +33,32 @@ class VideoJobViewSet(viewsets.ModelViewSet):
         job_type = data.get("job_type", "emergency_count")
 
         if job_type == "emergency_count":
-            # Validate line coordinates for emergency_count jobs
-            line_coords = [
-                'line1_start_x', 'line1_start_y', 'line1_end_x', 'line1_end_y',
-                'line2_start_x', 'line2_start_y', 'line2_end_x', 'line2_end_y'
-            ]
-            for coord in line_coords:
-                if coord not in data:
-                    raise serializers.ValidationError(f"Line coordinate '{coord}' is required for emergency_count jobs.")
+            # Validate emergency_lines for emergency_count jobs
+            emergency_lines = data.get("emergency_lines")
+            if not emergency_lines:
+                raise serializers.ValidationError("'emergency_lines' is required for emergency_count jobs.")
+            # Accept both JSON string and list
+            import json
+            if isinstance(emergency_lines, str):
                 try:
-                    float(data[coord])
-                except (ValueError, TypeError):
-                    raise serializers.ValidationError(f"Line coordinate '{coord}' must be a valid number.")
-
-            # Validate that line coordinates are within reasonable bounds (0-1920 for x, 0-1080 for y)
-            for coord in line_coords:
-                value = float(data[coord])
-                if 'x' in coord and not (0 <= value <= 1920):
-                    raise serializers.ValidationError(f"Line coordinate '{coord}' must be between 0 and 1920.")
-                if 'y' in coord and not (0 <= value <= 1080):
-                    raise serializers.ValidationError(f"Line coordinate '{coord}' must be between 0 and 1080.")
+                    emergency_lines = json.loads(emergency_lines)
+                except Exception:
+                    raise serializers.ValidationError("'emergency_lines' must be a valid JSON list of line dicts.")
+            if not isinstance(emergency_lines, list) or not all(isinstance(line, dict) for line in emergency_lines):
+                raise serializers.ValidationError("'emergency_lines' must be a list of dicts.")
+            # Validate each line dict
+            for idx, line in enumerate(emergency_lines):
+                for key in ["start_x", "start_y", "end_x", "end_y"]:
+                    if key not in line:
+                        raise serializers.ValidationError(f"Line {idx+1} missing '{key}' in emergency_lines.")
+                    try:
+                        val = float(line[key])
+                    except (ValueError, TypeError):
+                        raise serializers.ValidationError(f"Line {idx+1} '{key}' must be a valid number.")
+                    if (key.endswith('x') and not (0 <= val <= 1920)) or (key.endswith('y') and not (0 <= val <= 1080)):
+                        raise serializers.ValidationError(f"Line {idx+1} '{key}' out of bounds.")
+            data._mutable = True
+            data["emergency_lines"] = emergency_lines
 
         User = get_user_model()
         user = self.request.user if self.request.user.is_authenticated else User.objects.first()
@@ -330,25 +336,28 @@ def emergency_count_view(request):
     if not video_file:
         return Response({'error': 'No video file provided.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Validate line coordinates for emergency_count jobs
-    line_coords = [
-        'line1_start_x', 'line1_start_y', 'line1_end_x', 'line1_end_y',
-        'line2_start_x', 'line2_start_y', 'line2_end_x', 'line2_end_y'
-    ]
-    for coord in line_coords:
-        if coord not in request.data:
-            return Response({'error': f"Line coordinate '{coord}' is required for emergency_count jobs."}, status=status.HTTP_400_BAD_REQUEST)
+    # Validate emergency_lines
+    emergency_lines = request.data.get("emergency_lines")
+    if not emergency_lines:
+        return Response({'error': "'emergency_lines' is required for emergency_count jobs."}, status=status.HTTP_400_BAD_REQUEST)
+    import json
+    if isinstance(emergency_lines, str):
         try:
-            float(request.data[coord])
-        except (ValueError, TypeError):
-            return Response({'error': f"Line coordinate '{coord}' must be a valid number."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Validate that line coordinates are within reasonable bounds
-        value = float(request.data[coord])
-        if 'x' in coord and not (0 <= value <= 1920):
-            return Response({'error': f"Line coordinate '{coord}' must be between 0 and 1920."}, status=status.HTTP_400_BAD_REQUEST)
-        if 'y' in coord and not (0 <= value <= 1080):
-            return Response({'error': f"Line coordinate '{coord}' must be between 0 and 1080."}, status=status.HTTP_400_BAD_REQUEST)
+            emergency_lines = json.loads(emergency_lines)
+        except Exception:
+            return Response({'error': "'emergency_lines' must be a valid JSON list of line dicts."}, status=status.HTTP_400_BAD_REQUEST)
+    if not isinstance(emergency_lines, list) or not all(isinstance(line, dict) for line in emergency_lines):
+        return Response({'error': "'emergency_lines' must be a list of dicts."}, status=status.HTTP_400_BAD_REQUEST)
+    for idx, line in enumerate(emergency_lines):
+        for key in ["start_x", "start_y", "end_x", "end_y"]:
+            if key not in line:
+                return Response({'error': f"Line {idx+1} missing '{key}' in emergency_lines."}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                val = float(line[key])
+            except (ValueError, TypeError):
+                return Response({'error': f"Line {idx+1} '{key}' must be a valid number."}, status=status.HTTP_400_BAD_REQUEST)
+            if (key.endswith('x') and not (0 <= val <= 1920)) or (key.endswith('y') and not (0 <= val <= 1080)):
+                return Response({'error': f"Line {idx+1} '{key}' out of bounds."}, status=status.HTTP_400_BAD_REQUEST)
 
     video_file.seek(0)
     video_content = ContentFile(video_file.read(), name=f"emergency_{uuid4()}.mp4")
@@ -358,14 +367,92 @@ def emergency_count_view(request):
         status='pending',
         input_video=video_content,
         job_type='emergency_count',
-        line1_start_x=float(request.data['line1_start_x']),
-        line1_start_y=float(request.data['line1_start_y']),
-        line1_end_x=float(request.data['line1_end_x']),
-        line1_end_y=float(request.data['line1_end_y']),
-        line2_start_x=float(request.data['line2_start_x']),
-        line2_start_y=float(request.data['line2_start_y']),
-        line2_end_x=float(request.data['line2_end_x']),
-        line2_end_y=float(request.data['line2_end_y']),
+        emergency_lines=emergency_lines,
+        video_width=int(request.data['video_width']) if 'video_width' in request.data else None,
+        video_height=int(request.data['video_height']) if 'video_height' in request.data else None,
+        created_at=timezone.now(),
+        updated_at=timezone.now(),
+    )
+
+    process_video_job.delay(job.id)
+
+    return Response({
+        'job_id': job.id,
+        'status': job.status,
+        'created_at': job.created_at,
+        'job_type': job.job_type,
+    })
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def room_readiness_view(request):
+    User = get_user_model()
+    user = request.user if request.user.is_authenticated else User.objects.first()
+
+    image_file = request.FILES.get('image')
+    if not image_file:
+        return Response({'error': 'No image file provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    image_file.seek(0)
+    image_content = ContentFile(image_file.read(), name=f"roomreadiness_{uuid4()}.jpg")
+
+    job = VideoJob.objects.create(
+        user=user,
+        status='pending',
+        input_video=image_content,
+        job_type='room_readiness',
+        created_at=timezone.now(),
+        updated_at=timezone.now(),
+    )
+
+    process_video_job.delay(job.id)
+
+    return Response({
+        'job_id': job.id,
+        'status': job.status,
+        'created_at': job.created_at,
+        'job_type': job.job_type,
+    })
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def lobby_detection_view(request):
+    User = get_user_model()
+    user = request.user if request.user.is_authenticated else User.objects.first()
+
+    video_file = request.FILES.get('video')
+    if not video_file:
+        return Response({'error': 'No video file provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Validate lobby_zones
+    lobby_zones = request.data.get("lobby_zones")
+    if not lobby_zones:
+        return Response({'error': "'lobby_zones' is required for lobby detection jobs."}, status=status.HTTP_400_BAD_REQUEST)
+    import json
+    if isinstance(lobby_zones, str):
+        try:
+            lobby_zones = json.loads(lobby_zones)
+        except Exception:
+            return Response({'error': "'lobby_zones' must be a valid JSON list of zone dicts."}, status=status.HTTP_400_BAD_REQUEST)
+    if not isinstance(lobby_zones, list) or not all(isinstance(zone, dict) for zone in lobby_zones):
+        return Response({'error': "'lobby_zones' must be a list of dicts."}, status=status.HTTP_400_BAD_REQUEST)
+    for idx, zone in enumerate(lobby_zones):
+        if 'points' not in zone or 'threshold' not in zone:
+            return Response({'error': f"Zone {idx+1} missing 'points' or 'threshold'."}, status=status.HTTP_400_BAD_REQUEST)
+        if not isinstance(zone['points'], list) or not all(isinstance(pt, list) and len(pt) == 2 for pt in zone['points']):
+            return Response({'error': f"Zone {idx+1} 'points' must be a list of [x, y] pairs."}, status=status.HTTP_400_BAD_REQUEST)
+        if not isinstance(zone['threshold'], int):
+            return Response({'error': f"Zone {idx+1} 'threshold' must be an integer."}, status=status.HTTP_400_BAD_REQUEST)
+
+    video_file.seek(0)
+    video_content = ContentFile(video_file.read(), name=f"lobby_{uuid4()}.mp4")
+
+    job = VideoJob.objects.create(
+        user=user,
+        status='pending',
+        input_video=video_content,
+        job_type='lobby_detection',
+        lobby_zones=lobby_zones,
         video_width=int(request.data['video_width']) if 'video_width' in request.data else None,
         video_height=int(request.data['video_height']) if 'video_height' in request.data else None,
         created_at=timezone.now(),

@@ -29,6 +29,7 @@ class VideoJob(models.Model):
         ("car_count", "Car Counting"),
         ("pothole_detection", "Pothole Detection"),
         ("food_waste_estimation", "Food Waste Estimation"),
+        ("room_readiness", "Room Readiness Analysis"),
         ("pest_monitoring", "Pest Monitoring"),
         ("wildlife_detection", "Wildlife Detection")
     ]
@@ -43,16 +44,10 @@ class VideoJob(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, help_text="Job creation timestamp.")
     updated_at = models.DateTimeField(auto_now=True, help_text="Job last updated timestamp.")
     # Line coordinates for emergency_count jobs (replaces ROI fields)
-    line1_start_x = models.FloatField(null=True, blank=True, help_text="Start X for line 1 (emergency_count)")
-    line1_start_y = models.FloatField(null=True, blank=True, help_text="Start Y for line 1 (emergency_count)")
-    line1_end_x = models.FloatField(null=True, blank=True, help_text="End X for line 1 (emergency_count)")
-    line1_end_y = models.FloatField(null=True, blank=True, help_text="End Y for line 1 (emergency_count)")
-    line2_start_x = models.FloatField(null=True, blank=True, help_text="Start X for line 2 (emergency_count)")
-    line2_start_y = models.FloatField(null=True, blank=True, help_text="Start Y for line 2 (emergency_count)")
-    line2_end_x = models.FloatField(null=True, blank=True, help_text="End X for line 2 (emergency_count)")
-    line2_end_y = models.FloatField(null=True, blank=True, help_text="End Y for line 2 (emergency_count)")
+    emergency_lines = models.JSONField(null=True, blank=True, help_text="List of lines for emergency_count, each as dict with start/end x/y")
     video_width = models.IntegerField(null=True, blank=True, help_text="Width of the input video (optional)")
     video_height = models.IntegerField(null=True, blank=True, help_text="Height of the input video (optional)")
+    lobby_zones = models.JSONField(null=True, blank=True, help_text="List of zones for lobby/crowd detection, each as dict with 'points' (list of [x, y]) and 'threshold' (int)")
 
     def __str__(self):
         return f"{self.job_type} (ID: {self.id})"
