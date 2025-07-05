@@ -16,6 +16,7 @@ def process_video_job(job_id):
     print(f"=== Celery: process_video_job CALLED with job_id: {job_id}")
     job = VideoJob.objects.get(id=job_id)
 
+    result_data = None  # Initialize to avoid UnboundLocalError
     try:
         job.status = 'processing'
         job.save()
@@ -156,7 +157,8 @@ def process_video_job(job_id):
             raise ValueError(f"Unknown job type: {job.job_type}")
 
         # --- FINALIZE ---
-        job.results = result_data
+        if result_data is not None:
+            job.results = result_data
         job.status = 'done'
         job.save()
 

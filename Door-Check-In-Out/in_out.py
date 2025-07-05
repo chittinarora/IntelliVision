@@ -5,7 +5,7 @@ from deep_sort_realtime.deepsort_tracker import DeepSort
 
 warnings.filterwarnings("ignore", category=UserWarning, module="deep_sort_realtime.embedder.embedder_pytorch")
 
-model = YOLO("yolo12l.pt")
+model = YOLO("yolo12x.pt")
 capture = cv2.VideoCapture("../videos/crowd4.mp4")
 
 output_path = "../output/output_in_out.mp4"
