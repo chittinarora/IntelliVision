@@ -5,6 +5,8 @@ import pandas as pd
 import re
 import logging
 import threading
+import time
+import asyncio
 from datetime import datetime
 from pathlib import Path
 from collections import defaultdict
@@ -492,13 +494,17 @@ class ParkingProcessor:
     - Real-time event broadcasting
     - State management for occupancy counts
     - Optimized for local development
+    - Video file processing capability
     """
+    
+    MIN_ROI_SIZE = 10  # Minimum pixel size for ROI width/height
     
     def __init__(self, plate_model_path: str, car_model_path: str, total_slots: int = 50):
         # Initialize detectors
         self.plate_detector = LicensePlateDetector(plate_model_path)
         self.car_detector = LicensePlateDetector(car_model_path)
         self.ocr = PlateOCR()
+        self.total_slots = total_slots
         
         # Camera configuration
         self.cameras = {
@@ -510,7 +516,6 @@ class ParkingProcessor:
         self.zones = defaultdict(list)  # camera_id -> list of zones
         
         # Parking state
-        self.total_slots = total_slots
         self.running = False
         self.track_history = defaultdict(list)
         
@@ -527,6 +532,189 @@ class ParkingProcessor:
         self.lock = threading.Lock()
         
         logger.info("Parking Processor initialized")
+
+    def clamp_bbox(self, x1: int, y1: int, x2: int, y2: int, frame_width: int, frame_height: int) -> tuple:
+        """Ensure bounding box stays within frame boundaries"""
+        x1 = max(0, x1)
+        y1 = max(0, y1)
+        x2 = min(frame_width - 1, x2)
+        y2 = min(frame_height - 1, y2)
+        return x1, y1, x2, y2
+
+    def validate_roi(self, roi: np.ndarray, bbox: tuple) -> bool:
+        """Validate ROI meets minimum requirements"""
+        if roi is None or roi.size == 0:
+            return False
+        if roi.shape[0] < self.MIN_ROI_SIZE or roi.shape[1] < self.MIN_ROI_SIZE:
+            return False
+        return True
+
+    def process_video(self, video_path: str, progress_callback: callable = None) -> tuple:
+        """
+        Process a video file for parking analysis
+        Returns: (output_video_path, summary_dict)
+        """
+        # Initialize components
+        from anpr.tracker import VehicleTracker
+        import cv2
+        import os
+        
+        # Create temporary tracker
+        tracker = VehicleTracker()
+        
+        # Prepare output path
+        video_name = os.path.basename(video_path)
+        output_path = OUTPUT_DIR / f"parking_analysis_{int(time.time())}_{video_name}"
+        
+        # Open video
+        cap = cv2.VideoCapture(str(video_path))
+        if not cap.isOpened():
+            raise IOError(f"Cannot open video: {video_path}")
+        
+        # Get video properties
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = cap.get(cv2.CAP_PROP_FPS) or 25
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        
+        logger.info(f"Parking analysis: {width}x{height} @ {fps:.1f}FPS, {total_frames} frames")
+        
+        # Prepare video writer
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
+        
+        # Processing variables
+        frame_idx = 0
+        plate_history = {}  # plate -> last seen frame
+        summary = {
+            'entries': 0,
+            'exits': 0,
+            'max_occupancy': 0,
+            'recognized_plates': [],
+            'processing_fps': 0,
+            'total_frames': total_frames,
+            'processing_time': 0
+        }
+
+        # Process frames
+        start_time = time.time()
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+                
+            frame_idx += 1
+            
+            # Update progress
+            if progress_callback and frame_idx % 10 == 0:
+                progress = frame_idx / total_frames
+                elapsed = time.time() - start_time
+                current_fps = frame_idx / elapsed
+                progress_callback(progress, f"Frame {frame_idx}/{total_frames} | FPS: {current_fps:.1f}")
+            
+            # Detect vehicles
+            car_dets = self.car_detector.detect_plates(frame, classes=[2])
+            
+            # Convert to tracker format: [x, y, w, h]
+            tracker_input = []
+            for (x1, y1, x2, y2, conf) in car_dets:
+                w = x2 - x1
+                h = y2 - y1
+                if w > 0 and h > 0:
+                    tracker_input.append(([x1, y1, w, h], conf, 0))
+            
+            # Update tracker
+            tracks = tracker.update(tracker_input, frame)
+            
+            # Process each tracked vehicle
+            current_plates = set()
+            for tr in tracks:
+                tid = tr['track_id']
+                x1, y1, x2, y2 = tr['bbox']
+                
+                # Clamp and validate bounding box
+                x1, y1, x2, y2 = self.clamp_bbox(x1, y1, x2, y2, width, height)
+                if (x2 - x1) < self.MIN_ROI_SIZE or (y2 - y1) < self.MIN_ROI_SIZE:
+                    continue
+                    
+                # Extract vehicle ROI
+                vehicle_roi = frame[int(y1):int(y2), int(x1):int(x2)]
+                
+                # Skip invalid ROIs
+                if not self.validate_roi(vehicle_roi, (x1,y1,x2,y2)):
+                    continue
+                    
+                # Detect plates in vehicle ROI
+                plates = self.plate_detector.detect_plates(vehicle_roi)
+                if not plates:
+                    continue
+                    
+                # Get best plate detection
+                best_plate = max(plates, key=lambda x: x[4])
+                px1, py1, px2, py2, _ = best_plate
+                
+                # Extract plate image
+                plate_img = vehicle_roi[int(py1):int(py2), int(px1):int(px2)]
+                
+                # Skip invalid plate images
+                if not self.validate_roi(plate_img, (px1,py1,px2,py2)):
+                    continue
+                    
+                # Recognize plate text
+                plate_text, conf = self.ocr.read_plate(plate_img)
+                if plate_text and conf > 0.7:
+                    current_plates.add(plate_text)
+                    
+                    # New vehicle entry
+                    if plate_text not in plate_history:
+                        plate_history[plate_text] = frame_idx
+                        summary['entries'] += 1
+                        summary['recognized_plates'].append(plate_text)
+                        cv2.putText(frame, "ENTRY", (int(x1), int(y1-30)), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,0), 2)
+                        logger.info(f"Entry detected: {plate_text}")
+            
+            # Check for exits
+            exited_plates = []
+            for plate, last_seen in plate_history.items():
+                if plate not in current_plates and (frame_idx - last_seen) > 30:
+                    exited_plates.append(plate)
+                    summary['exits'] += 1
+                    logger.info(f"Exit detected: {plate}")
+                    
+            # Remove exited plates
+            for plate in exited_plates:
+                plate_history.pop(plate)
+            
+            # Update plate history
+            for plate in current_plates:
+                plate_history[plate] = frame_idx
+            
+            # Update occupancy stats
+            current_occupancy = len(plate_history)
+            summary['max_occupancy'] = max(summary['max_occupancy'], current_occupancy)
+            
+            # Draw UI elements
+            cv2.putText(frame, f"Occupancy: {current_occupancy}/{self.total_slots}", 
+                       (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
+            cv2.putText(frame, f"Entries: {summary['entries']} | Exits: {summary['exits']}", 
+                       (10,70), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,255), 2)
+            
+            # Write frame
+            out.write(frame)
+        
+        # Finalize
+        cap.release()
+        out.release()
+        
+        # Calculate processing stats
+        elapsed = time.time() - start_time
+        summary['processing_fps'] = frame_idx / elapsed if elapsed > 0 else 0
+        summary['processing_time'] = elapsed
+        summary['final_occupancy'] = len(plate_history)
+        
+        logger.info(f"Parking analysis complete: {summary}")
+        return str(output_path), summary
 
     def init_parking_slots(self, parking_slots_collection):
         """Initialize parking slots in MongoDB if not exists"""

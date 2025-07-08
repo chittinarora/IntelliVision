@@ -116,11 +116,14 @@ def analyze_parking_video(video_path: str) -> dict:
     Returns: {
         'status': 'completed'|'error',
         'summary': {
-            'total_vehicles': int,
             'entries': int,
             'exits': int,
-            'occupancy': float,
-            'recognized_plates': list
+            'max_occupancy': int,
+            'final_occupancy': int,
+            'recognized_plates': list,
+            'processing_fps': float,
+            'total_frames': int,
+            'processing_time': float
         },
         'output_video': str,
         'preview_url': str,
@@ -385,4 +388,131 @@ def get_system_config() -> dict:
         }
     except Exception as e:
         logger.error(f"Config error: {str(e)}")
+        return {'status': 'error', 'message': str(e)}
+
+
+def get_active_jobs() -> list:
+    """
+    Get list of currently active jobs (simplified version)
+    Returns: List of active job IDs and types
+    """
+    # In a real implementation, this would track active processing tasks
+    return [
+        {'type': 'plate_recognition', 'status': 'idle'},
+        {'type': 'parking_analysis', 'status': 'idle'}
+    ]
+
+
+def get_job_result(job_id: str) -> dict:
+    """
+    Get result of a completed job (simulated)
+    In a real implementation, this would fetch from database or cache
+    """
+    return {
+        'job_id': job_id,
+        'status': 'completed',
+        'result': {
+            'output_video': 'data/output/processed.mp4',
+            'summary': {'entries': 5, 'exits': 3, 'occupancy': 2}
+        }
+    }
+
+
+def process_image_file(image_path: str) -> dict:
+    """
+    Process an image file for license plate detection
+    Returns: {
+        'status': 'completed'|'error',
+        'annotated_image': str,
+        'detections': list,
+        'processing_time': float,
+        'message': str
+    }
+    """
+    start_time = time.time()
+    try:
+        # Validate input
+        image_path = str(BASE_DIR / image_path)
+        if not Path(image_path).exists():
+            return {
+                'status': 'error',
+                'message': f"File not found: {image_path}",
+                'processing_time': time.time() - start_time
+            }
+        
+        # Process with thread lock
+        with anpr_lock:
+            logger.info(f"Processing image: {Path(image_path).name}")
+            output, detections = sync_anpr_processor.process_image(image_path)
+        
+        result = {
+            'status': 'completed',
+            'annotated_image': output,
+            'detections': detections,
+            'preview_url': f"/preview/{Path(output).name}",
+            'download_url': f"/download/{Path(output).name}",
+            'processing_time': time.time() - start_time,
+            'message': 'Image processing completed'
+        }
+        
+        # Save to database
+        db.image_results.insert_one({
+            'image_path': image_path,
+            'timestamp': datetime.utcnow(),
+            'result': result
+        })
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Image processing failed: {str(e)}")
+        return {
+            'status': 'error',
+            'message': f"Processing error: {str(e)}",
+            'processing_time': time.time() - start_time
+        }
+
+
+def get_zone_configuration() -> dict:
+    """
+    Get current zone configuration
+    Returns: {
+        'status': 'success'|'error',
+        'zones': list,
+        'message': str
+    }
+    """
+    try:
+        return {
+            'status': 'success',
+            'zones': sync_parking_processor.zones,
+            'message': 'Zone configuration loaded'
+        }
+    except Exception as e:
+        logger.error(f"Zone config error: {str(e)}")
+        return {'status': 'error', 'message': str(e)}
+
+
+def reset_parking_system() -> dict:
+    """Reset parking system to initial state"""
+    try:
+        # Reset all slots to available
+        db.parking_slots.update_many(
+            {},
+            {"$set": {
+                "status": "AVAILABLE",
+                "plate": None,
+                "entry_time": None
+            }}
+        )
+        
+        # Clear events
+        db.parking_events.delete_many({})
+        
+        return {
+            'status': 'success', 
+            'message': 'Parking system reset to initial state'
+        }
+    except Exception as e:
+        logger.error(f"Reset error: {str(e)}")
         return {'status': 'error', 'message': str(e)}
