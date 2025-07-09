@@ -66,7 +66,7 @@ def login_user(encoding):
     if not match:
         return "😔 No match found."
     
-    if match.score >= 0.6:
+    if match.score < 0.8:
         return "😔 Match too weak. Try again."
 
     user_id = match.id

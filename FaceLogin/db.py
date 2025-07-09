@@ -25,5 +25,5 @@ COLLECTION_NAME = "face_encodings"
 if COLLECTION_NAME not in [c.name for c in qdrant.get_collections().collections]:
     qdrant.recreate_collection(
         collection_name=COLLECTION_NAME,
-        vectors_config=VectorParams(size=128, distance=Distance.COSINE)
+        vectors_config=VectorParams(size=512, distance=Distance.COSINE)
     )

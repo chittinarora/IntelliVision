@@ -8,7 +8,7 @@ def create_face_collection():
     qdrant.recreate_collection(
         collection_name=collection_name,
         vectors_config=VectorParams(
-            size=128,              # Set to 512 if using FaceNet
+            size=512,              # Set to 512 if using FaceNet
             distance=Distance.EUCLID
         )
     )
