@@ -48,14 +48,20 @@ def register_user(name, encoding, image_path):
     encoding = normalize(encoding)
 
     # Add user to Qdrant
-    qdrant.upsert(
-        collection_name=COLLECTION_NAME,
-        points=[{
-            "id": point_id,
-            "vector": encoding.tolist(),
-            "payload": {"name": name, "image": image_url}
-        }]
-    )
+    try:
+        qdrant.upsert(
+            collection_name=COLLECTION_NAME,
+            points=[{
+                "id": point_id,
+                "vector": encoding.tolist(),
+                "payload": {"name": name, "image": image_url}
+            }]
+        )
+    except Exception as e:
+        import traceback
+        print("Qdrant upsert error:", e)
+        traceback.print_exc()
+        return {"success": False, "message": f"Qdrant upsert error: {str(e)}"}
 
     db.users.insert_one({
         "_id": point_id,
@@ -84,11 +90,17 @@ def login_user(encoding):
     encoding = normalize(encoding)
 
     # Match face
-    match = match_face(qdrant, encoding)
+    try:
+        match = match_face(qdrant, encoding)
+    except Exception as e:
+        import traceback
+        print("Qdrant search error:", e)
+        traceback.print_exc()
+        return {"success": False, "message": f"Qdrant search error: {str(e)}"}
 
     if not match:
         return {"success": False, "message": "😔 No match found."}
-    if match.score >= 0.6:
+    if match.score < 0.6:
         return {"success": False, "message": "😔 Match too weak. Try again."}
 
     user_id = match.id

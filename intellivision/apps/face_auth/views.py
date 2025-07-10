@@ -67,5 +67,14 @@ class TaskStatusView(APIView):
                 "image": res.get("image", "")
             })
         else:
-            # fallback for legacy results
-            return Response({"state": result.state, "result": res})
+            # fallback for legacy results and exceptions
+            import traceback
+            if isinstance(res, Exception):
+                return Response({
+                    "state": result.state,
+                    "success": False,
+                    "message": f"Task failed: {str(res)}",
+                    "error_type": res.__class__.__name__,
+                    "traceback": traceback.format_exception_only(type(res), res)
+                }, status=500)
+            return Response({"state": result.state, "result": str(res)})

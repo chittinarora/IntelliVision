@@ -9,13 +9,11 @@ __pycache__/
 # IDE
 .idea/
 
-# Virtual environments
-venv/
-p_venv/
+.gitignore/
 
 # Environment files
 .env
-tracker/analytics/.env
+intellivision/media/
 
 # SQLite and Redis
 db.sqlite3
@@ -24,17 +22,52 @@ dump.rdb
 # Old installer scripts
 Miniconda3-latest-MacOSX-arm64.sh
 
-# Unneeded data
 data.html
 samples/
 videos/
 
-# Ignore ALL media outputs and uploads
-media/*
+intellivision/apps/video_analytics/models/
 
 # Model files
 *.pt
 
-# IntelliVision paths
-intelli-vision
+*.jpg
+*.mp4
 
+p_venv/
+
+# Node modules
+node_modules/
+
+# Bun lock file
+bun.lockb
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build outputs
+dist/
+build/
+
+# Vite cache
+.vite/
+
+# TypeScript build artifacts
+*.tsbuildinfo
+
+# macOS system files
+.DS_Store
+
+# IDE/editor folders
+.vscode/
+.idea/
+*.swp
+
+# Coverage reports
+coverage/
+
+# Local debug or test output
+*.log

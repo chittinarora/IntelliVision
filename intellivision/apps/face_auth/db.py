@@ -22,9 +22,9 @@ qdrant = QdrantClient(
 # Ensure collection exists in Qdrant
 COLLECTION_NAME = "face_encodings"
 
-# Vector size of face_recognition encodings is 128
+# Vector size of face_recognition encodings is 512
 if COLLECTION_NAME not in [c.name for c in qdrant.get_collections().collections]:
     qdrant.recreate_collection(
         collection_name=COLLECTION_NAME,
-        vectors_config=VectorParams(size=128, distance=Distance.COSINE)
+        vectors_config=VectorParams(size=512, distance=Distance.EUCLID)
     )

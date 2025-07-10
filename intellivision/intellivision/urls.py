@@ -22,11 +22,12 @@ from django.http import HttpResponse
 
 
 def root(request):
-    return HttpResponse("Welcome to the People Tracker API! Go to /api/jobs/ or /admin/")
-
+    # Return a simple welcome message as an HTTP response.
+    # The content must be bytes, not str, to avoid type errors.
+    return HttpResponse(b"Welcome to the People Tracker API! Go to /api/jobs/ or /admin/")
 
 urlpatterns = [
-                  path('', root),
+    path('', root),
                   path('admin/', admin.site.urls),
                   path('api/', include('apps.video_analytics.urls')),
                   path('api/faceauth/', include('apps.face_auth.urls')),

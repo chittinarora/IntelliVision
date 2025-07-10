@@ -10,12 +10,19 @@ Dependencies:
 Install with: pip install requests python-dotenv
 """
 
+# === Standard Library Imports ===
 import os
 import json
 import re
 import logging
-import requests
 from typing import List, Dict
+from io import BytesIO
+
+import requests
+from PIL import Image
+
+# --- Set up logger for this module ---
+logger = logging.getLogger(__name__)
 
 # --- Environment Setup ---
 try:
@@ -55,30 +62,44 @@ def parse_json_from_response(text: str) -> Dict:
     except Exception as e:
         return {"error": f"Parsing error: {str(e)}", "raw_response": text}
 
-# --- Main Food Waste Estimation ---
+# --- Main Analysis ---
 def analyze_food_image(image_path: str) -> Dict:
     """
     Analyze a food image to identify items, estimate portions and calories, and tag properties.
-    Returns a dictionary with items and total calories.
+    Returns a unified result structure.
     """
     try:
-        with open(image_path, "rb") as f:
-            image_data = f.read()
+        # Resize image to 512px width while maintaining aspect ratio
+        with Image.open(image_path) as img:
+            img.thumbnail((512, 512))
+            buffer = BytesIO()
+            img.save(buffer, format="JPEG")
+            image_data = buffer.getvalue()
+
         import base64
         image_b64 = base64.b64encode(image_data).decode('utf-8')
 
+
         prompt = (
             "Identify all visible food items in this photo.\n"
-            "For each item, return:\n"
-            "- name\n"
-            "- estimated portion (g or ml)\n"
-            "- estimated calories\n"
-            "- tags like spicy/oily/fried if applicable\n\n"
-            "Format the output strictly in JSON, inside a markdown block:\n"
-            "```json\n"
-            "{\n  \"items\": [...],\n  \"total_calories\": ...\n}\n"
-            "```"
+                "For each item, return:\n"
+                "- name\n"
+                "- estimated portion in grams as an integer (e.g., 150, 50)\n"
+                "- estimated calories as an integer (e.g., 120)\n"
+                "- tags like spicy, oily, fried, etc., if applicable\n\n"
+                "Output strictly in JSON, inside a markdown block, without any explanation or extra text.\n"
+                "Example format:\n"
+                "```json\n"
+                "{\n"
+                "  \"items\": [\n"
+                "    {\"name\": \"White rice\", \"estimated_portion\": 150, \"estimated_calories\": 200, \"tags\": [\"plain\"]},\n"
+                "    {\"name\": \"Cooked vegetables\", \"estimated_portion\": 50, \"estimated_calories\": 50, \"tags\": [\"stir-fried\"]}\n"
+                "  ],\n"
+                "  \"total_calories\": 250\n"
+                "}\n"
+                "```"
         )
+
 
         payload = {
             "messages": [
@@ -94,27 +115,58 @@ def analyze_food_image(image_path: str) -> Dict:
 
         response = requests.post(AZURE_OPENAI_ENDPOINT, headers=HEADERS, data=json.dumps(payload))
         if response.status_code != 200:
-            return {"error": f"OpenAI API error: {response.status_code} {response.text}"}
+            return {
+                'status': 'failed',
+                'job_type': 'food_waste_estimation',
+                'output_image': None,
+                'results': {'alerts': [], 'error': f"OpenAI API error: {response.status_code} {response.text}"},
+                'meta': {},
+                'error': f"OpenAI API error: {response.status_code} {response.text}"
+            }
         data = response.json()
-        # Extract the model's reply
         try:
             text = data["choices"][0]["message"]["content"]
         except Exception as e:
-            return {"error": f"Unexpected API response: {str(e)}", "raw_response": data}
-        return parse_json_from_response(text)
-
+            return {
+                'status': 'failed',
+                'job_type': 'food_waste_estimation',
+                'output_image': None,
+                'results': {'alerts': [], 'error': f"Unexpected API response: {str(e)}"},
+                'meta': {},
+                'error': f"Unexpected API response: {str(e)}"
+            }
+        parsed = parse_json_from_response(text)
+        return {
+            'status': 'completed',
+            'job_type': 'food_waste_estimation',
+            'output_image': image_path,
+            'data': {**parsed, 'alerts': []},
+            'meta': {},
+            'error': None
+        }
     except Exception as e:
         logging.exception("OpenAI image analysis failed")
-        return {"error": str(e), "image": image_path}
+        return {
+            'status': 'failed',
+            'job_type': 'food_waste_estimation',
+            'output_image': None,
+            'results': {'alerts': [], 'error': str(e)},
+            'meta': {},
+            'error': str(e)
+        }
 
-# --- Batch Food Waste Estimation ---
-def analyze_multiple_food_images(image_paths: List[str]) -> List[Dict]:
+# --- Batch Function ---
+def analyze_multiple_food_images(image_paths: List[str]) -> List[Dict] | Dict:
     """
-    Analyze multiple food images and return a list of results for each image.
+    Analyze multiple food images and return:
+    - A single dict if only one image is provided
+    - A list of dicts if multiple images are provided
     """
-    results = []
-    for path in image_paths:
-        result = analyze_food_image(path)
-        result["image"] = str(path)
-        results.append(result)
+    results = [analyze_food_image(path) for path in image_paths]
+    if len(image_paths) == 1:
+        return results[0]
     return results
+
+
+OUTPUT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../media/outputs'))
+os.makedirs(OUTPUT_DIR, exist_ok=True)

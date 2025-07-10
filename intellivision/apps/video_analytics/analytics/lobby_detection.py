@@ -231,15 +231,22 @@ def setup_best_tracker(device, fps):
 def run_crowd_analysis(source_path, zone_configs, output_path=None):
     model_name = 'yolov8x.pt'
     model = YOLO(model_name)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    if torch.cuda.is_available():
+        device = "cuda"
+    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+        device = "mps"
+    else:
+        device = "cpu"
     model.to(device)
     logger.info(f"Using model: {model_name} on device: {device}")
 
     # Video setup
     video_info = sv.VideoInfo.from_video_path(source_path)
     base_name = os.path.splitext(os.path.basename(source_path))[0]
+    OUTPUT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../media/outputs'))
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
     if output_path is None:
-        output_path = get_next_filename(f"output_crowd_{base_name}.mp4")
+        output_path = get_next_filename(os.path.join(OUTPUT_DIR, f"output_crowd_{base_name}.mp4"))
     writer = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'),
                              video_info.fps, video_info.resolution_wh)
 
@@ -260,6 +267,9 @@ def run_crowd_analysis(source_path, zone_configs, output_path=None):
     alert_log = []
     last_alert_times = {}
     frame_number = 0
+
+    ALERTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../media/alerts'))
+    os.makedirs(ALERTS_DIR, exist_ok=True)
 
     with tqdm(total=video_info.total_frames, desc="Processing") as pbar:
         while True:
@@ -328,7 +338,8 @@ def run_crowd_analysis(source_path, zone_configs, output_path=None):
                     alert_msg = f"🚨 ALERT: {zone.name} has {count} people (threshold: {zone.threshold})"
                     logger.warning(alert_msg)
                     alert_log.append(alert_msg)  # Add to list
-                    cv2.imwrite(f"alert_{zone.name}_{timestamp}.jpg", frame)
+                    alert_img_path = os.path.join(ALERTS_DIR, f"alert_{zone.name}_{timestamp}.jpg")
+                    cv2.imwrite(alert_img_path, frame)
                     last_alert_times[zone.name] = frame_number
 
             # Blend the overlay with the frame
@@ -393,37 +404,37 @@ def run_crowd_analysis(source_path, zone_configs, output_path=None):
         for msg in alert_log:
             logger.info(f"   • {msg}")
 
-    return output_path
+    # Convert to web-friendly MP4 (like people_count)
+    from apps.video_analytics.convert import convert_to_web_mp4
+    web_output_path = output_path.replace('.mp4', '_web.mp4')
+    if convert_to_web_mp4(output_path, web_output_path):
+        final_output_path = web_output_path
+    else:
+        final_output_path = output_path
 
+    # After processing loop, compute final zone counts
+    final_zone_counts = {}
+    if zones:
+        # Use last frame's tracked detections for final count (or 0 if none)
+        for zone in zones:
+            # If tracked_detections is not defined (e.g. no frames), set to 0
+            try:
+                count = zone.count_detections(tracked_detections)
+            except Exception:
+                count = 0
+            final_zone_counts[zone.name] = count
 
-# =================================================================================
-# MAIN FUNCTION (for CLI/testing only)
-# =================================================================================
-def main():
-    import argparse
-    parser = argparse.ArgumentParser(description="Optimized Lobby Crowd Detector (no UI, no config file)")
-    parser.add_argument("--video", required=True, help="Path to video file")
-    parser.add_argument("--zones", required=True, help="JSON string of zones (list of dicts with points and threshold)")
-    args = parser.parse_args()
-
-    import json
-    try:
-        lobby_zones = json.loads(args.zones)
-    except Exception:
-        print("Error: --zones must be a valid JSON list of zone dicts.")
-        return
-    zone_configs = {}
-    for idx, zone in enumerate(lobby_zones):
-        name = zone.get('name', f'Zone{idx+1}')
-        zone_configs[name] = {
-            'points': zone['points'],
-            'threshold': zone['threshold']
-        }
-    run_crowd_analysis(args.video, zone_configs)
-
-
-if __name__ == "__main__":
-    main()
+    return {
+        'status': 'completed',
+        'job_type': 'lobby_detection',
+        'output_video': final_output_path,
+        'data': {
+            'zone_counts': final_zone_counts,
+            'alerts': alert_log
+        },
+        'meta': {},
+        'error': None
+    }
 
 '''
 🎯 OPTIMIZED FOR CLOSE PROXIMITY TRACKING

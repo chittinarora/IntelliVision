@@ -5,6 +5,8 @@ import cv2
 import face_recognition
 import numpy as np
 import tempfile
+import numpy as np
+from .embedding import get_embedding_from_image
 
 
 def capture_face():
@@ -15,15 +17,11 @@ def capture_face():
     if not ret:
         return None, None
 
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    locs = face_recognition.face_locations(rgb, model="cnn")
-    encodings = face_recognition.face_encodings(rgb, locs)
-    if not encodings:
-        return None, None
-
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
     cv2.imwrite(tmp.name, frame)
-    return encodings[0], tmp.name
+
+    embedding = get_embedding_from_image(tmp.name)
+    return embedding, tmp.name
 
 
 def match_face(qdrant, encoding):
@@ -33,7 +31,7 @@ def match_face(qdrant, encoding):
         collection_name="face_encodings",
         query_vector=encoding.tolist(),
         limit=1,
-        score_threshold=0.6
+        score_threshold=0.93
     )
     return results[0] if results else None
 

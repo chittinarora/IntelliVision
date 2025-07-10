@@ -14,10 +14,15 @@ CLIENT = InferenceHTTPClient(
     api_key="vfMnQeFixryhPw18Thmz"
 )
 
-def tracking_video(input_path: str, output_path: str) -> Dict[str, Any]:
+def tracking_video(input_path: str, output_path: str = None) -> Dict[str, Any]:
     """
     Main entry point for pothole detection on a video file. Returns a result dict for job.results.
     """
+    OUTPUT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../media/outputs'))
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    if output_path is None:
+        base_name = os.path.splitext(os.path.basename(input_path))[0]
+        output_path = os.path.join(OUTPUT_DIR, f"output_pothole_{base_name}.mp4")
     result = run_pothole_detection(input_path, output_path)
     return result
 
@@ -117,9 +122,16 @@ def run_pothole_detection(input_path: str, output_path: str) -> Dict[str, Any]:
         final_output_path = output_path
 
     return {
-        "total_potholes": total_potholes,
-        "frames": frame_details,
-        "output_path": final_output_path
+        'status': 'completed',
+        'job_type': 'pothole-detection',
+        'output_video': final_output_path,
+        'results': {
+            'total_potholes': total_potholes,
+            'frames': frame_details,
+            'alerts': []
+        },
+        'meta': {},
+        'error': None
     }
 
 def run_pothole_image_detection(input_path: str, output_path: str) -> Dict[str, Any]:

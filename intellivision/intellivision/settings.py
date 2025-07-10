@@ -134,8 +134,6 @@ REST_FRAMEWORK = {
     )
 }
 
-# === FAST API URL
-FASTAPI_ANPR_URL = "http://localhost:9000"
 
 # === ANPR Callback URL for FastAPI to notify when processing is done
 ANPR_CALLBACK_URL = os.environ.get('ANPR_CALLBACK_URL', 'http://localhost:8001/api/anpr-callback/')
@@ -145,11 +143,7 @@ CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = list(default_headers) + [
     "ngrok-skip-browser-warning",
 ]
-CORS_ALLOWED_ORIGINS = [
-    "https://9ca0-2405-201-4003-8065-ff-cc50-d2a7-a126.ngrok-free.app",  # backend
-    "https://85f98c37-4bf0-4ce3-b49c-12f3aa8a42b9.lovableproject.com",   # frontend
-    "https://id-preview--85f98c37-4bf0-4ce3-b49c-12f3aa8a42b9.lovable.app",
-]
+CORS_ALLOW_ALL_ORIGINS=True
 
 # === Security Headers ===
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')

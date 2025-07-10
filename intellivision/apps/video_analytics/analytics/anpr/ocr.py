@@ -22,10 +22,10 @@ class PlateOCR:
       - EasyOCR fallback.
     """
     def __init__(self,
-                 tesseract_cmd: str = "",
-                 whitelist: str = "",
+                 tesseract_cmd: str = None,
+                 whitelist: str = None,
                  tesseract_conf_thresh: float = 0.7,
-                 lang_list: list = [],
+                 lang_list: list = ['en'],
                  buffer_size: int = 5):
         # configure tesseract binary
         if tesseract_cmd:
@@ -72,7 +72,7 @@ class PlateOCR:
                 seen.add(key); unique.append(v)
         return unique
 
-    def _tesseract_read(self, img: np.ndarray) -> tuple[str, float]:
+    def _tesseract_read(self, img: np.ndarray) -> (str, float):
         best_text, best_conf = "", 0.0
         config = f"--psm 8 --oem 3 -c tessedit_char_whitelist={self.whitelist}"
         data = pytesseract.image_to_data(img, output_type=Output.DICT, config=config)
@@ -88,15 +88,14 @@ class PlateOCR:
                     best_conf = conf; best_text = clean
         return best_text, best_conf
 
-    def _easyocr_read(self, img: np.ndarray) -> tuple[str, float]:
+    def _easyocr_read(self, img: np.ndarray) -> (str, float):
         results = self.reader.readtext(img, detail=1, paragraph=False)
-        if not results:
-            return "", 0.0
+        if not results: return "", 0.0
         best = max(results, key=lambda x: x[2])
         text = re.sub(r'[^A-Za-z0-9]', '', best[1]).upper()
         return text, float(best[2])
 
-    def read_plate(self, img: np.ndarray) -> tuple[str, float]:
+    def read_plate(self, img: np.ndarray) -> (str, float):
         if img is None or img.size == 0:
             return "", 0.0
         # Tesseract on variants
@@ -118,7 +117,7 @@ class PlateOCR:
             return most, fconf
         return final, fconf
 
-    def read_plate_from_path(self, path: str) -> tuple[str, float]:
+    def read_plate_from_path(self, path: str) -> (str, float):
         img = cv2.imread(path)
         if img is None:
             raise FileNotFoundError(f"Cannot load image: {path}")

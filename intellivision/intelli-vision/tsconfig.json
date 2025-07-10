@@ -1,0 +1,61 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ],
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@imageupload/*": ["./src/components/features/upload/image/*"],
+      "@videoupload/*": ["./src/components/features/upload/video/*"],
+      "@p": [
+        "./src/components/features/jobs/JobViews/ProcessingView"
+      ],
+      "@FailedView": ["./src/components/features/jobs/JobViews/FailedView"],
+      "@DoneView": ["./src/components/features/jobs/JobViews/DoneView"],
+      "@JobResultRenderer": [
+        "./src/components/features/jobs/JobResults/JobResultRenderer"
+      ],
+      "@FoodWasteResult": [
+        "./src/components/features/jobs/JobResults/FoodWasteResult"
+      ],
+      "@RoomReadinessResult": [
+        "./src/components/features/jobs/JobResults/RoomReadinessResult"
+      ],
+      "@ResultBlock": ["./src/components/features/jobs/JobResults/ResultBlock"],
+      "@ActionButtons": ["./src/components/features/jobs/JobUI/ActionButtons"],
+      "@JobInfoDisplay": [
+        "./src/components/features/jobs/JobUI/JobInfoDisplay"
+      ],
+      "@ImageDropzone": [
+        "./src/components/features/upload/image/ImageDropzone"
+      ],
+      "@ImagePreview": ["./src/components/features/upload/image/ImagePreview"],
+      "@ImageUploadForm": [
+        "./src/components/features/upload/image/ImageUploadForm"
+      ],
+      "@ImageUploadSection": [
+        "./src/components/features/upload/image/ImageUploadSection"
+      ],
+      "@VideoDropzone": [
+        "./src/components/features/upload/video/VideoDropzone"
+      ],
+      "@VideoPlayer": ["./src/components/features/upload/video/VideoPlayer"],
+      "@VideoPreview": ["./src/components/features/upload/video/VideoPreview"],
+      "@VideoUploadForm": [
+        "./src/components/features/upload/video/VideoUploadForm"
+      ],
+      "@VideoUploadSection": [
+        "./src/components/features/upload/video/VideoUploadSection"
+      ]
+    },
+    "noImplicitAny": false,
+    "noUnusedParameters": false,
+    "skipLibCheck": true,
+    "allowJs": true,
+    "noUnusedLocals": false,
+    "strictNullChecks": false
+  }
+}

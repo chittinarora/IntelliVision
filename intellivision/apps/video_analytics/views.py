@@ -18,17 +18,30 @@ from django.core.files.storage import default_storage
 from uuid import uuid4
 import os
 import tempfile
+import logging
 
 # Import the food waste estimation function
 from apps.video_analytics.analytics.food_waste_estimation import analyze_food_image, analyze_multiple_food_images
 
+logger = logging.getLogger(__name__)
+
 class VideoJobViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing VideoJob objects.
+    Handles creation, listing, and retrieval of video analytics jobs for authenticated users.
+    """
     queryset = VideoJob.objects.all()
     serializer_class = VideoJobSerializer
     permission_classes = [permissions.IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
     def perform_create(self, serializer):
+        """
+        Handles creation of a new VideoJob instance.
+        - Validates emergency_lines for emergency_count jobs.
+        - Associates the job with the current user.
+        - Triggers asynchronous processing via Celery.
+        """
         data = self.request.data
         job_type = data.get("job_type", "emergency_count")
 
@@ -57,15 +70,24 @@ class VideoJobViewSet(viewsets.ModelViewSet):
                         raise serializers.ValidationError(f"Line {idx+1} '{key}' must be a valid number.")
                     if (key.endswith('x') and not (0 <= val <= 1920)) or (key.endswith('y') and not (0 <= val <= 1080)):
                         raise serializers.ValidationError(f"Line {idx+1} '{key}' out of bounds.")
+            # Validate inDirection
+            if "inDirection" not in line:
+                raise serializers.ValidationError(f"Line {idx+1} missing 'inDirection' in emergency_lines.")
+            if line["inDirection"] not in ["UP", "DOWN", "LR", "RL"]:
+                raise serializers.ValidationError(f"Line {idx+1} 'inDirection' must be one of: 'UP', 'DOWN', 'LR', 'RL'.")
             data._mutable = True
             data["emergency_lines"] = emergency_lines
 
         User = get_user_model()
         user = self.request.user if self.request.user.is_authenticated else User.objects.first()
         instance = serializer.save(user=user, status='pending')
+        # Trigger asynchronous processing of the job
         process_video_job.delay(instance.id)
 
     def get_queryset(self):
+        """
+        Returns jobs belonging to the authenticated user, ordered by creation date.
+        """
         user = self.request.user
         if user.is_authenticated:
             return VideoJob.objects.filter(user=user).order_by('-created_at')
@@ -74,6 +96,9 @@ class VideoJobViewSet(viewsets.ModelViewSet):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def current_user_view(request):
+    """
+    API endpoint to retrieve the current authenticated user's ID and username.
+    """
     user = request.user
     return Response({
         "id": user.id,
@@ -83,6 +108,10 @@ def current_user_view(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def food_waste_estimation_view(request):
+    """
+    API endpoint for food waste estimation from uploaded images.
+    Accepts one or more images, processes them, and returns the results.
+    """
     User = get_user_model()
     user = request.user if request.user.is_authenticated else User.objects.first()
 
@@ -97,6 +126,7 @@ def food_waste_estimation_view(request):
     saved_files = []
     try:
         for image_file in image_files:
+            # Save each uploaded image to a temporary file
             with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp:
                 for chunk in image_file.chunks():
                     tmp.write(chunk)
@@ -106,6 +136,7 @@ def food_waste_estimation_view(request):
                 image_content = ContentFile(image_file.read(), name=f"food_{uuid4()}.jpg")
                 saved_files.append(image_content)
 
+        # Create a VideoJob for the food waste estimation
         job = VideoJob.objects.create(
             user=user,
             status='pending',
@@ -114,11 +145,13 @@ def food_waste_estimation_view(request):
             created_at=timezone.now(),
             updated_at=timezone.now(),
         )
+        # Analyze the images
         result_data = analyze_multiple_food_images(temp_paths)
         job.results = result_data
         job.status = 'done'
         job.save()
     finally:
+        # Clean up temporary files
         for path in temp_paths:
             if os.path.exists(path):
                 os.remove(path)
@@ -134,6 +167,10 @@ def food_waste_estimation_view(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def pothole_detection_image_view(request):
+    """
+    API endpoint for pothole detection from an uploaded image.
+    Processes the image and returns the detection results and output path.
+    """
     from apps.video_analytics.analytics.pothole_detection import run_pothole_image_detection
 
     User = get_user_model()
@@ -158,6 +195,7 @@ def pothole_detection_image_view(request):
         output_url = default_storage.url(saved_path)
         result_data['output_path'] = output_url
 
+    # Create a VideoJob for the pothole detection
     job = VideoJob.objects.create(
         user=user,
         status='done',
@@ -168,6 +206,7 @@ def pothole_detection_image_view(request):
         updated_at=timezone.now(),
     )
 
+    # Clean up temporary files
     os.remove(temp_path)
     os.remove(output_path)
 
@@ -182,6 +221,10 @@ def pothole_detection_image_view(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def pothole_detection_video_view(request):
+    """
+    API endpoint for pothole detection from an uploaded video.
+    Triggers asynchronous processing and returns the job info.
+    """
     User = get_user_model()
     user = request.user if request.user.is_authenticated else User.objects.first()
 
@@ -213,6 +256,10 @@ def pothole_detection_video_view(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def car_count_view(request):
+    """
+    API endpoint for car counting from an uploaded video.
+    Triggers asynchronous processing and returns the job info.
+    """
     User = get_user_model()
     user = request.user if request.user.is_authenticated else User.objects.first()
 
@@ -243,7 +290,55 @@ def car_count_view(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+def parking_analysis_view(request):
+    """
+    API endpoint for parking analysis from an uploaded video.
+    Logs request data for debugging, triggers async processing, and returns job info.
+    """
+    # Debug: Log all request data and files for backend logging
+    logger.info("=== PARKING ANALYSIS DEBUG ===")
+    logger.info("Request data keys: %s", list(request.data.keys()))
+    logger.info("Request FILES keys: %s", list(request.FILES.keys()))
+    logger.debug("Request data (raw): %s", dict(request.data))
+    logger.debug("Request FILES (raw): %s", {k: v.name for k, v in request.FILES.items()})
+    logger.info("job_type: %s", request.data.get("job_type"))
+    logger.info("analysis_type: %s", request.data.get("analysis_type"))
+
+    User = get_user_model()
+    user = request.user if request.user.is_authenticated else User.objects.first()
+
+    video_file = request.FILES.get('video')
+    if not video_file:
+        return Response({'error': 'No video file provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    video_file.seek(0)
+    video_content = ContentFile(video_file.read(), name=f"carcount_{uuid4()}.mp4")
+
+    job = VideoJob.objects.create(
+        user=user,
+        status='pending',
+        input_video=video_content,
+        job_type='parking_analysis',
+        created_at=timezone.now(),
+        updated_at=timezone.now(),
+    )
+
+    process_video_job.delay(job.id)
+
+    return Response({
+        'job_id': job.id,
+        'status': job.status,
+        'created_at': job.created_at,
+        'job_type': job.job_type,
+    })
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def pest_monitoring_image_view(request):
+    """
+    API endpoint for pest monitoring from an uploaded image.
+    Triggers asynchronous processing and returns the job info.
+    """
     User = get_user_model()
     user = request.user if request.user.is_authenticated else User.objects.first()
 
@@ -275,6 +370,10 @@ def pest_monitoring_image_view(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def pest_monitoring_video_view(request):
+    """
+    API endpoint for pest monitoring from an uploaded video.
+    Triggers asynchronous processing and returns the job info.
+    """
     User = get_user_model()
     user = request.user if request.user.is_authenticated else User.objects.first()
 
@@ -304,31 +403,12 @@ def pest_monitoring_video_view(request):
     })
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
-def anpr_callback_view(request):
-    job_id = request.data.get('job_id')
-    status = request.data.get('status')
-    summary = request.data.get('summary')
-    history = request.data.get('history')
-    download_urls = request.data.get('download_urls', {})
-
-    from .models import VideoJob
-    try:
-        job = VideoJob.objects.get(id=job_id)
-        job.status = 'done' if status == 'completed' else 'failed'
-        job.results = {
-            'summary': summary,
-            'history': history,
-            **download_urls
-        }
-        job.save()
-        return Response({'message': 'Callback received and job updated.'})
-    except VideoJob.DoesNotExist:
-        return Response({'error': 'Job not found.'}, status=404)
-
-@api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def emergency_count_view(request):
+    """
+    API endpoint for emergency counting from an uploaded video.
+    Validates emergency_lines and triggers async processing.
+    """
     User = get_user_model()
     user = request.user if request.user.is_authenticated else User.objects.first()
 
@@ -336,28 +416,54 @@ def emergency_count_view(request):
     if not video_file:
         return Response({'error': 'No video file provided.'}, status=status.HTTP_400_BAD_REQUEST)
 
+    # Debug: Log all request data
+    logger.info("=== EMERGENCY COUNT DEBUG ===")
+    logger.info("Request data keys: %s", list(request.data.keys()))
+    logger.info("Request FILES keys: %s", list(request.FILES.keys()))
+
     # Validate emergency_lines
     emergency_lines = request.data.get("emergency_lines")
+    logger.info("Emergency lines type: %s", type(emergency_lines))
+    logger.info("Emergency lines value: %s", emergency_lines)
+
     if not emergency_lines:
         return Response({'error': "'emergency_lines' is required for emergency_count jobs."}, status=status.HTTP_400_BAD_REQUEST)
     import json
     if isinstance(emergency_lines, str):
         try:
             emergency_lines = json.loads(emergency_lines)
-        except Exception:
+            logger.info("Parsed emergency_lines from JSON: %s", emergency_lines)
+        except Exception as e:
+            logger.error("JSON parsing error: %s", e)
             return Response({'error': "'emergency_lines' must be a valid JSON list of line dicts."}, status=status.HTTP_400_BAD_REQUEST)
     if not isinstance(emergency_lines, list) or not all(isinstance(line, dict) for line in emergency_lines):
+        logger.error("Emergency lines validation failed - not a list of dicts")
         return Response({'error': "'emergency_lines' must be a list of dicts."}, status=status.HTTP_400_BAD_REQUEST)
+
+    logger.info("Validating each line...")
     for idx, line in enumerate(emergency_lines):
+        logger.info(f"Line {idx+1}: %s", line)
         for key in ["start_x", "start_y", "end_x", "end_y"]:
             if key not in line:
+                logger.error(f"Missing key: {key}")
                 return Response({'error': f"Line {idx+1} missing '{key}' in emergency_lines."}, status=status.HTTP_400_BAD_REQUEST)
             try:
                 val = float(line[key])
             except (ValueError, TypeError):
+                logger.error(f"Invalid number for {key}: {line[key]}")
                 return Response({'error': f"Line {idx+1} '{key}' must be a valid number."}, status=status.HTTP_400_BAD_REQUEST)
             if (key.endswith('x') and not (0 <= val <= 1920)) or (key.endswith('y') and not (0 <= val <= 1080)):
+                logger.error(f"Value out of bounds for {key}: {val}")
                 return Response({'error': f"Line {idx+1} '{key}' out of bounds."}, status=status.HTTP_400_BAD_REQUEST)
+        # Validate inDirection
+        if "inDirection" not in line:
+            logger.error(f"Missing inDirection in line {idx+1}")
+            return Response({'error': f"Line {idx+1} missing 'inDirection' in emergency_lines."}, status=status.HTTP_400_BAD_REQUEST)
+        if line["inDirection"] not in ["UP", "DOWN", "LR", "RL"]:
+            logger.error(f"Invalid inDirection in line {idx+1}: {line['inDirection']}")
+            return Response({'error': f"Line {idx+1} 'inDirection' must be one of: 'UP', 'DOWN', 'LR', 'RL'."}, status=status.HTTP_400_BAD_REQUEST)
+
+    logger.info("All validation passed!")
 
     video_file.seek(0)
     video_content = ContentFile(video_file.read(), name=f"emergency_{uuid4()}.mp4")
@@ -367,11 +473,11 @@ def emergency_count_view(request):
         status='pending',
         input_video=video_content,
         job_type='emergency_count',
-        emergency_lines=emergency_lines,
         video_width=int(request.data['video_width']) if 'video_width' in request.data else None,
         video_height=int(request.data['video_height']) if 'video_height' in request.data else None,
         created_at=timezone.now(),
         updated_at=timezone.now(),
+        results={"emergency_lines": emergency_lines},
     )
 
     process_video_job.delay(job.id)
@@ -386,20 +492,30 @@ def emergency_count_view(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def room_readiness_view(request):
+    """
+    API endpoint for room readiness analysis from an uploaded image or video.
+    Triggers asynchronous processing and returns the job info.
+    """
     User = get_user_model()
     user = request.user if request.user.is_authenticated else User.objects.first()
 
+    # Accept both image and video uploads
     image_file = request.FILES.get('image')
-    if not image_file:
-        return Response({'error': 'No image file provided.'}, status=status.HTTP_400_BAD_REQUEST)
+    video_file = request.FILES.get('video')
+    if not image_file and not video_file:
+        return Response({'error': 'No image or video file provided.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    image_file.seek(0)
-    image_content = ContentFile(image_file.read(), name=f"roomreadiness_{uuid4()}.jpg")
+    if image_file:
+        image_file.seek(0)
+        input_content = ContentFile(image_file.read(), name=f"roomreadiness_{uuid4()}.jpg")
+    else:
+        video_file.seek(0)
+        input_content = ContentFile(video_file.read(), name=f"roomreadiness_{uuid4()}.mp4")
 
     job = VideoJob.objects.create(
         user=user,
         status='pending',
-        input_video=image_content,
+        input_video=input_content,
         job_type='room_readiness',
         created_at=timezone.now(),
         updated_at=timezone.now(),
@@ -417,6 +533,10 @@ def room_readiness_view(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def lobby_detection_view(request):
+    """
+    API endpoint for lobby/crowd detection from an uploaded video.
+    Triggers asynchronous processing and returns the job info.
+    """
     User = get_user_model()
     user = request.user if request.user.is_authenticated else User.objects.first()
 

@@ -19,10 +19,10 @@ collection = db["detections"]
 
 # ---------------------- YOLO + File Settings ---------------------
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-MODEL_PATH = str(PROJECT_ROOT / "models" / "best.pt")
-SAVE_DIR = Path(settings.MEDIA_ROOT) / "snake_detections"
-SAVE_DIR.mkdir(parents=True, exist_ok=True)
-model = YOLO(MODEL_PATH)
+OUTPUT_DIR = PROJECT_ROOT.parent.parent / 'media' / 'outputs'
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+SAVE_DIR = OUTPUT_DIR  # No subfolder
+model = YOLO(str(PROJECT_ROOT / "models" / "best.pt"))
 DETECTION_CONFIDENCE = 0.15
 EMBEDDER_FILE = Path(os.path.expanduser("~/.cache/torch/checkpoints/osnet_ibn_x1_0_msmt17.pth"))
 
@@ -75,7 +75,15 @@ def detect_snakes_in_video(video_path):
     out = cv2.VideoWriter(str(save_path), cv2.VideoWriter_fourcc(*'mp4v'), fps, (width, height))
 
     # --- Tracker Setup ---
-    tracker = BotSort(track_high_thresh=0.15, new_track_thresh=0.15, track_buffer=30, device="cpu", half=False, reid_weights=EMBEDDER_FILE)  # tune thresholds as needed
+    import torch
+    # Device selection: prefer cuda > mps > cpu
+    if torch.cuda.is_available():
+        device = "cuda"
+    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+        device = "mps"
+    else:
+        device = "cpu"
+    tracker = BotSort(track_high_thresh=0.15, new_track_thresh=0.15, track_buffer=30, device=device, half=False, reid_weights=EMBEDDER_FILE)  # tune thresholds as needed
 
     total_detected = 0
     while cap.isOpened():
@@ -116,10 +124,16 @@ def detect_snakes_in_video(video_path):
 
     # Return result as dict
     return {
-        "status": "success",
-        "detected_snakes": total_detected,
-        "saved_path": str(save_path),
-        "mongo_id": str(result.inserted_id)
+        'status': 'completed',
+        'job_type': 'pest-monitoring',
+        'output_video': str(save_path),
+        'data': {
+            'detected_snakes': total_detected,
+            'mongo_id': str(result.inserted_id),
+            'alerts': []
+        },
+        'meta': {},
+        'error': None
     }
 
 def tracking_video(input_path: str, output_path: str) -> dict:
@@ -136,24 +150,19 @@ def tracking_video(input_path: str, output_path: str) -> dict:
         # Save to web-accessible location
         rel_path = Path(result['saved_path']).relative_to(settings.MEDIA_ROOT)
         url = settings.MEDIA_URL + str(rel_path).replace(os.sep, '/')
-        result['output_url'] = url
-        result['output_path'] = str(rel_path)
-        return result
+        return {
+            'status': 'completed',
+            'job_type': 'pest-monitoring',
+            'output_image': str(rel_path),
+            'output_url': url,
+            'data': {
+                'detected_snakes': result['detected_snakes'],
+                'mongo_id': result['mongo_id'],
+                'alerts': []
+            },
+            'meta': {},
+            'error': None
+        }
     else:
         # Video job
-        result = detect_snakes_in_video(input_path)
-        # Convert to web-friendly MP4
-        web_output_path = str(Path(result['saved_path']).with_name(Path(result['saved_path']).stem + '_web.mp4'))
-        if convert_to_web_mp4(result['saved_path'], web_output_path):
-            if os.path.exists(result['saved_path']):
-                os.remove(result['saved_path'])
-            rel_path = Path(web_output_path).relative_to(settings.MEDIA_ROOT)
-            url = settings.MEDIA_URL + str(rel_path).replace(os.sep, '/')
-            result['output_url'] = url
-            result['output_path'] = str(rel_path)
-        else:
-            rel_path = Path(result['saved_path']).relative_to(settings.MEDIA_ROOT)
-            url = settings.MEDIA_URL + str(rel_path).replace(os.sep, '/')
-            result['output_url'] = url
-            result['output_path'] = str(rel_path)
-        return result
+        return detect_snakes_in_video(input_path)

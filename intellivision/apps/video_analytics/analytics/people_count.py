@@ -55,7 +55,7 @@ DEFAULT_DEVICE = 'cpu'
 DEFAULT_USE_REID = True
 DEFAULT_POST_PROCESS = True
 REID_MODEL_PATH = Path.home() / ".cache/torch/checkpoints/osnet_x0_25_msmt17.pt"
-YOLO_MODEL_PATH = '/Users/adidubbs/Downloads/yolo12x.pt'
+YOLO_MODEL_PATH = '../models/yolo12x.pt'
 RTDETR_MODEL_PATH = 'rtdetr-l.pt'
 MIDAS_WEIGHTS_PATH = 'midas/weights/dpt_large_384.pt'
 MIDAS_REPO = 'intel-isl/MiDaS'
@@ -64,6 +64,7 @@ DPT_HF_MODEL = 'Intel/dpt-large'
 GLPN_HF_MODEL = 'vinvino02/glpn-nyu'
 DEFAULT_OUTPUT_PREFIX = 'dubs_comprehensive_output_'
 DEFAULT_OUTPUT_EXT = '.mp4'
+DEFAULT_OUTPUT_DIR = str(Path(__file__).resolve().parent.parent.parent / 'media' / 'outputs')
 # Confidence thresholds
 YOLO_CONF_CLOSE = 0.35
 YOLO_CONF_MEDIUM = 0.40
@@ -78,7 +79,7 @@ MIN_LIFETIME_FRAMES = 40
 
 from apps.video_analytics.convert import convert_to_web_mp4
 
-def next_sequential_name(out_dir: str, prefix="dubs_comprehensive_output_", ext=".mp4") -> str:
+def next_sequential_name(out_dir: str = DEFAULT_OUTPUT_DIR, prefix=DEFAULT_OUTPUT_PREFIX, ext=DEFAULT_OUTPUT_EXT) -> str:
     """Generate next sequential filename."""
     os.makedirs(out_dir, exist_ok=True)
     pattern = os.path.join(out_dir, f"{prefix}*{ext}")
@@ -1368,26 +1369,39 @@ def tracking_video(input_path: str, output_path: str) -> dict:
         input_path: Path to the input video file
         output_path: Path where the annotated video should be saved
     Returns:
-        dict with person_count and output_path
+        dict with unified result structure
     """
-    # All model/tracker initialization must be inside the function for Celery fork-safety
-    counter = DubsComprehensivePeopleCounting(device=DEFAULT_DEVICE, use_reid=DEFAULT_USE_REID)
+    import torch
+    # Device selection: prefer cuda > mps > cpu
+    if torch.cuda.is_available():
+        device = 'cuda'
+    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+        device = 'mps'
+    else:
+        device = 'cpu'
+    counter = DubsComprehensivePeopleCounting(device=device, use_reid=DEFAULT_USE_REID)
     results = counter.process_video(
         video_path=input_path,
         output_path=output_path,
         use_post_process=DEFAULT_POST_PROCESS
     )
-    # Convert to web-friendly MP4
     web_output_path = output_path.replace('.mp4', '_web.mp4')
     if convert_to_web_mp4(results.get('output_path', output_path), web_output_path):
         final_output_path = web_output_path
     else:
         final_output_path = results.get('output_path', output_path)
     return {
-        'person_count': results.get('person_count', 0),
-        'output_path': final_output_path,
-        'raw_track_count': results.get('raw_track_count', 0),
-        'depth_method': results.get('depth_method', ''),
-        'fps': results.get('fps', 0),
-        'detection_strategies': results.get('detection_strategies', []),
+        'status': 'completed',
+        'job_type': 'people-count',
+        'output_video': final_output_path,
+        'data': {
+            'person_count': results.get('person_count', 0),
+            'raw_track_count': results.get('raw_track_count', 0),
+            'depth_method': results.get('depth_method', ''),
+            'fps': results.get('fps', 0),
+            'detection_strategies': results.get('detection_strategies', []),
+            'alerts': []
+        },
+        'meta': {},
+        'error': None
     }
