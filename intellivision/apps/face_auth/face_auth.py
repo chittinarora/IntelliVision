@@ -99,9 +99,9 @@ def login_user(encoding):
         return {"success": False, "message": f"Qdrant search error: {str(e)}"}
 
     if not match:
-        return {"success": False, "message": "😔 No match found."}
-    if match.score < 0.6:
-        return {"success": False, "message": "😔 Match too weak. Try again."}
+        return {"success": False, "message": "No match found."}
+    if match.score < 0.4:
+        return {"success": False, "message": "Match too weak. Try again."}
 
     user_id = match.id
     mongo_user = db.users.find_one({"_id": user_id})

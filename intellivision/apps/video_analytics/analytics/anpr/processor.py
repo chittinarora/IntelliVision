@@ -14,6 +14,7 @@ from pymongo import MongoClient
 from dotenv import load_dotenv
 import cloudinary
 import cloudinary.uploader
+from django.conf import settings
 
 # Load environment variables
 load_dotenv()
@@ -27,8 +28,7 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 # Define canonical output directory
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent  # lands at project root (intellivision)
-OUTPUT_DIR = Path(os.getenv("ANPR_OUTPUT_DIR", PROJECT_ROOT / "media" / "anpr_outputs"))
+OUTPUT_DIR = Path(settings.JOB_OUTPUT_DIR)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 logger.info(f"All output will be saved to: {OUTPUT_DIR}")
 
@@ -409,7 +409,10 @@ class ANPRProcessor:
             "processed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "output_video": str(annotated_video),
             "csv_file": str(csv_file) if csv_file else None,
-            "xlsx_file": str(xlsx_file) if xlsx_file else None
+            "xlsx_file": str(xlsx_file) if xlsx_file else None,
+            # --- PATCH: Add backward-compatible keys for car_count.py and others ---
+            "detected_plates": df.get("Plate Number", []).tolist() if not df.empty else [],
+            "recognized_plates": df.get("Plate Number", []).tolist() if not df.empty else [],
         }
         return str(annotated_video), summary
 
