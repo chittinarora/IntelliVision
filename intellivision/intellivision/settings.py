@@ -14,7 +14,7 @@ load_dotenv(BASE_DIR / '.env')  # Loads .env from project root
 
 # === Environment Variables / Secrets ===
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-aq_x8cykh&3r_q9df@b%n(p(dv5&3gt$=17m#u-ir$kzl-(mjm')
-DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True'
+DEBUG = True
 
 
 SIMPLE_JWT = {
@@ -22,11 +22,65 @@ SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
 }
 
+# === Production Database Example (PostgreSQL) ===
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.environ.get('POSTGRES_DB', 'intellivision'),
+        'USER': os.environ.get('POSTGRES_USER', 'adminvision'),
+        'PASSWORD': os.environ.get('POSTGRES_PASSWORD', 'IntelliVisionAIonOS'),
+        'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
+        'PORT': os.environ.get('POSTGRES_PORT', '5432'),
+    }
+}
+
+# === Development Database (SQLite, not for production) ===
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.sqlite3',
+#         'NAME': BASE_DIR / 'db.sqlite3',
+#     }
+# }
+
+# === Password Validation ===
+AUTH_PASSWORD_VALIDATORS = [
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
+]
+
+# === Internationalization ===
+LANGUAGE_CODE = 'en-us'
+TIME_ZONE = 'UTC'
+USE_I18N = True
+USE_TZ = True
+
+# === Static & Media Files ===
+STATIC_URL = '/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')  # For collectstatic, serve with Nginx in production
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')         # Serve with Nginx in production
+
+# === Security Settings for Production ===
+if not DEBUG:
+    SECURE_SSL_REDIRECT = False
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 31536000  # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_REFERRER_POLICY = "strict-origin"
+    # SECURE_CONTENT_TYPE_NOSNIFF = True
+    # SECURE_BROWSER_XSS_FILTER = True
+
+# === ALLOWED_HOSTS ===
+# For production, add your domain or public IP
 ALLOWED_HOSTS = [
-    "localhost",
-    "127.0.0.1",
-    ".ngrok-free.app",
-    ".trycloudflare.com",
+    'localhost',
+    '0.0.0.0',  # Allow all network interfaces for deployment
+    # 'your.server.ip.address',
+    # 'yourdomain.com',
 ]
 
 # === Third-Party Service Credentials ===
@@ -36,6 +90,11 @@ QDRANT_API_KEY = os.environ.get('QDRANT_API_KEY')
 CLOUDINARY_CLOUD_NAME = os.environ.get('CLOUDINARY_CLOUD_NAME')
 CLOUDINARY_API_KEY = os.environ.get('CLOUDINARY_API_KEY')
 CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET')
+
+# === Unified Output Directory for Analytics Jobs ===
+# All analytics jobs (people_count, car_count, anpr, etc.) should save outputs here.
+# Set JOB_OUTPUT_DIR in your .env to override, or use the default below.
+JOB_OUTPUT_DIR = os.environ.get('JOB_OUTPUT_DIR', str(BASE_DIR / 'media' / 'outputs'))
 
 # === Application Definition ===
 INSTALLED_APPS = [
@@ -82,33 +141,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'intellivision.wsgi.application'
 
-# === Database ===
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
-}
-
-# === Password Validation ===
-AUTH_PASSWORD_VALIDATORS = [
-    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
-    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
-    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
-    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
-]
-
-# === Internationalization ===
-LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'UTC'
-USE_I18N = True
-USE_TZ = True
-
-# === Static & Media Files ===
-STATIC_URL = 'static/'
-MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
-
 # === Celery Configuration ===
 CELERY_BROKER_URL = 'redis://localhost:6379/0'
 CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
@@ -134,19 +166,37 @@ REST_FRAMEWORK = {
     )
 }
 
-
-# === ANPR Callback URL for FastAPI to notify when processing is done
-ANPR_CALLBACK_URL = os.environ.get('ANPR_CALLBACK_URL', 'http://localhost:8001/api/anpr-callback/')
-
 # === CORS Headers ===
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = list(default_headers) + [
     "ngrok-skip-browser-warning",
 ]
-CORS_ALLOW_ALL_ORIGINS=True
+CORS_ALLOWED_ORIGINS = [
+    "http://0.0.0.0:5173",
+    "http://0.0.0.0:8080",
+    "http://localhost:5173",
+    "http://localhost:8080"
+]
 
 # === Security Headers ===
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # === Miscellaneous ===
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# === .env Usage ===
+# Place all secrets and sensitive config in your .env file (never commit to git):
+# DJANGO_SECRET_KEY=your-secret-key
+# DJANGO_DEBUG=False
+# POSTGRES_DB=your_db
+# POSTGRES_USER=your_user
+# POSTGRES_PASSWORD=your_password
+# POSTGRES_HOST=localhost
+# POSTGRES_PORT=5432
+# ... other secrets ...
+
+# === Static/Media File Serving (Nginx Example) ===
+# In production, serve /static/ and /media/ with Nginx, not Django.
+# Example Nginx config:
+# location /static/ { alias /path/to/staticfiles/; }
+# location /media/  { alias /path/to/media/; }

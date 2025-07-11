@@ -11,6 +11,7 @@ import cloudinary
 from dotenv import load_dotenv
 from .anpr.processor import ANPRProcessor, ParkingProcessor
 from apps.video_analytics.convert import convert_to_web_mp4
+from django.conf import settings
 
 # Configure logging
 logging.basicConfig(level=logging.INFO,
@@ -20,13 +21,12 @@ logger = logging.getLogger("anpr_functions")
 # Load environment
 BASE_DIR = Path(__file__).resolve().parent.parent.parent  # project root
 MODELS_DIR = BASE_DIR / 'video_analytics' / 'models'
-plate_model = MODELS_DIR / 'best.pt'
+plate_model = MODELS_DIR / 'best_plate.pt'
 car_model = MODELS_DIR / 'yolo11m.pt'
 load_dotenv(BASE_DIR / '.env')
 
 # Define canonical output directory for all outputs
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent  # lands at project root (intellivision)
-OUTPUT_DIR = Path(os.getenv("ANPR_OUTPUT_DIR", PROJECT_ROOT / "media" / "anpr_outputs"))
+OUTPUT_DIR = Path(settings.JOB_OUTPUT_DIR)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Configure Cloudinary & MongoDB

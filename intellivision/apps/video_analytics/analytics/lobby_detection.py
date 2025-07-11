@@ -12,6 +12,7 @@ import datetime
 import time
 import pathlib
 import urllib.request
+from django.conf import settings
 
 # --- Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -32,6 +33,10 @@ except ImportError as e:
     logger.warning("   Install with: pip install boxmot")
     BOTSORT_AVAILABLE = False
     DEEPOCSORT_AVAILABLE = False
+
+# Canonical models directory for all analytics jobs
+from pathlib import Path
+MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 
 
 # =================================================================================
@@ -60,11 +65,12 @@ def get_next_filename(base_path):
 
 def download_reid_model():
     """Download Re-ID model if not present"""
-    model_path = pathlib.Path("/Users/adidubbs/.cache/torch/checkpoints/osnet_x0_25_msmt17.pt")
+    model_path = MODELS_DIR / "osnet_x0_25_msmt17.pt"
     if not model_path.exists():
         logger.info("Downloading Re-ID model for better tracking...")
         url = "https://github.com/mikel-brostrom/yolo_tracking/releases/download/v9.0.0/osnet_x0_25_msmt17.pt"
         try:
+            import urllib.request
             urllib.request.urlretrieve(url, str(model_path))
             logger.info(f"✅ Re-ID model downloaded: {model_path}")
         except Exception as e:
@@ -229,7 +235,7 @@ def setup_best_tracker(device, fps):
 # MAIN ANALYSIS FUNCTION
 # =================================================================================
 def run_crowd_analysis(source_path, zone_configs, output_path=None):
-    model_name = 'yolov8x.pt'
+    model_name = str(MODELS_DIR / 'yolov8x.pt')
     model = YOLO(model_name)
     if torch.cuda.is_available():
         device = "cuda"
@@ -243,7 +249,7 @@ def run_crowd_analysis(source_path, zone_configs, output_path=None):
     # Video setup
     video_info = sv.VideoInfo.from_video_path(source_path)
     base_name = os.path.splitext(os.path.basename(source_path))[0]
-    OUTPUT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../media/outputs'))
+    OUTPUT_DIR = settings.JOB_OUTPUT_DIR
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     if output_path is None:
         output_path = get_next_filename(os.path.join(OUTPUT_DIR, f"output_crowd_{base_name}.mp4"))
@@ -263,12 +269,12 @@ def run_crowd_analysis(source_path, zone_configs, output_path=None):
 
     # Main processing loop
     cap = cv2.VideoCapture(source_path)
-    # --- FIX: Use a list to correctly log all alerts ---
+    # --- FIX: Use a list to correctly log all alerts with timestamps ---
     alert_log = []
     last_alert_times = {}
     frame_number = 0
 
-    ALERTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../media/alerts'))
+    ALERTS_DIR = os.path.abspath(os.path.join(OUTPUT_DIR, '../alerts'))
     os.makedirs(ALERTS_DIR, exist_ok=True)
 
     with tqdm(total=video_info.total_frames, desc="Processing") as pbar:
@@ -334,11 +340,30 @@ def run_crowd_analysis(source_path, zone_configs, output_path=None):
                 # Alert logic
                 if alert_triggered and (zone.name not in last_alert_times or
                                         (frame_number - last_alert_times.get(zone.name, 0)) > video_info.fps * 10):
-                    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                    # Calculate video timestamp based on frame number and fps
+                    video_timestamp_seconds = frame_number / video_info.fps
+                    video_timestamp = datetime.timedelta(seconds=int(video_timestamp_seconds))
+                    video_timestamp_str = str(video_timestamp)
+
+                    # Current system timestamp
+                    system_timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
                     alert_msg = f"🚨 ALERT: {zone.name} has {count} people (threshold: {zone.threshold})"
                     logger.warning(alert_msg)
-                    alert_log.append(alert_msg)  # Add to list
-                    alert_img_path = os.path.join(ALERTS_DIR, f"alert_{zone.name}_{timestamp}.jpg")
+
+                    # Store structured alert data with timestamps
+                    alert_data = {
+                        'zone_name': zone.name,
+                        'count': count,
+                        'threshold': zone.threshold,
+                        'video_timestamp': video_timestamp_str,
+                        'system_timestamp': system_timestamp,
+                        'frame_number': frame_number,
+                        'message': alert_msg
+                    }
+                    alert_log.append(alert_data)
+
+                    alert_img_path = os.path.join(ALERTS_DIR, f"alert_{zone.name}_{system_timestamp}.jpg")
                     cv2.imwrite(alert_img_path, frame)
                     last_alert_times[zone.name] = frame_number
 
@@ -401,8 +426,8 @@ def run_crowd_analysis(source_path, zone_configs, output_path=None):
 
     if alert_log:
         logger.info(f"📊 Total alerts triggered: {len(alert_log)}")
-        for msg in alert_log:
-            logger.info(f"   • {msg}")
+        for alert_data in alert_log:
+            logger.info(f"   • {alert_data['message']} at {alert_data['video_timestamp']} (frame {alert_data['frame_number']})")
 
     # Convert to web-friendly MP4 (like people_count)
     from apps.video_analytics.convert import convert_to_web_mp4
@@ -412,8 +437,10 @@ def run_crowd_analysis(source_path, zone_configs, output_path=None):
     else:
         final_output_path = output_path
 
-    # After processing loop, compute final zone counts
+    # After processing loop, compute final zone counts and alert summary
     final_zone_counts = {}
+    alerts_by_zone = {}
+
     if zones:
         # Use last frame's tracked detections for final count (or 0 if none)
         for zone in zones:
@@ -423,6 +450,13 @@ def run_crowd_analysis(source_path, zone_configs, output_path=None):
             except Exception:
                 count = 0
             final_zone_counts[zone.name] = count
+            alerts_by_zone[zone.name] = 0
+
+    # Count alerts by zone
+    for alert_data in alert_log:
+        zone_name = alert_data['zone_name']
+        if zone_name in alerts_by_zone:
+            alerts_by_zone[zone_name] += 1
 
     return {
         'status': 'completed',
@@ -430,9 +464,17 @@ def run_crowd_analysis(source_path, zone_configs, output_path=None):
         'output_video': final_output_path,
         'data': {
             'zone_counts': final_zone_counts,
-            'alerts': alert_log
+            'alerts': alert_log,
+            'alert_summary': {
+                'total_alerts': len(alert_log),
+                'alerts_by_zone': alerts_by_zone
+            }
         },
-        'meta': {},
+        'meta': {
+            'video_fps': video_info.fps,
+            'total_frames': video_info.total_frames,
+            'video_duration_seconds': video_info.total_frames / video_info.fps
+        },
         'error': None
     }
 

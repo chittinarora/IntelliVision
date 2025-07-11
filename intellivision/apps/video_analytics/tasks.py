@@ -78,6 +78,10 @@ def process_video_job(job_id):
         # EMERGENCY COUNT
         # =============================
         elif job.job_type == "emergency_count":
+            # DEBUG: Log the raw emergency_lines and video dimensions
+            print("DEBUG: job.emergency_lines:", job.emergency_lines)
+            print("DEBUG: job.video_width:", job.video_width)
+            print("DEBUG: job.video_height:", job.video_height)
             # Lazy import for emergency counting
             from apps.video_analytics.analytics.emergency_count import tracking_video
             # Build line_coords_dict from emergency_lines JSONField
@@ -102,6 +106,8 @@ def process_video_job(job_id):
                         ),
                         "inDirection": line.get("inDirection", "UP")
                     }
+            # DEBUG: Log the line coordinates being sent to analytics
+            print("DEBUG: line_coords_dict being sent to analytics:", line_coords_dict)
             video_width = int(job.video_width) if job.video_width else None
             video_height = int(job.video_height) if job.video_height else None
             # Run emergency counting
@@ -138,13 +144,20 @@ def process_video_job(job_id):
                     saved_path = default_storage.save(saved_name, ContentFile(out_f.read()))
                     output_url = default_storage.url(saved_path)
                 job.output_video.name = saved_name
-            # Unified result format
+            # --- FIX: Always include detected_plates, recognized_plates, and plate_count in data ---
+            summary = raw_result.get('summary') or {}
+            data = dict(summary) if summary else {}
+            # Fallbacks for missing fields
+            plates = data.get('detected_plates') or data.get('plates_detected') or []
+            data['detected_plates'] = plates
+            data['recognized_plates'] = plates
+            data['plate_count'] = len(plates)
             result_data = {
                 'status': raw_result.get('status', 'error'),
                 'job_type': 'car_count',
                 'output_video': output_url,
                 'output_path': output_url,
-                'data': raw_result.get('summary', {}),
+                'data': data,
                 'meta': {},
                 'error': None if raw_result.get('status') == 'completed' else raw_result.get('message', 'Error')
             }
@@ -254,42 +267,35 @@ def process_video_job(job_id):
                 job.output_video = None
 
         # =============================
-        # PEST MONITORING
+        # WILDLIFE DETECTION
         # =============================
-        elif job.job_type == "pest_monitoring":
-            # Lazy import for pest monitoring
+        elif job.job_type == "wildlife_detection":
+            # Lazy import for wildlife detection
             from apps.video_analytics.analytics.pest_monitoring import tracking_video
-            # Run pest monitoring (image or video)
+            # Run wildlife detection (was pest monitoring)
             result_data = tracking_video(input_path, output_path)
             ext = os.path.splitext(input_path)[1].lower()
-            output_file_path = os.path.join(settings.MEDIA_ROOT, result_data['output_path'])
-            if ext in ['.jpg', '.jpeg', '.png']:
-                # Image output
+            # Handle image or video output
+            output_file_path = None
+            if 'output_image' in result_data:
+                output_file_path = os.path.join(settings.MEDIA_ROOT, result_data['output_image'])
                 output_filename = f'output_{job.id}.jpg'
                 with open(output_file_path, 'rb') as out_f:
                     job.output_image.save(output_filename, File(out_f))
                 job.output_video = None
                 result_data['media_type'] = 'image'
                 result_data['output_url'] = job.output_image.url
-            else:
-                # Video output
+            elif 'output_video' in result_data:
+                output_file_path = os.path.join(settings.MEDIA_ROOT, result_data['output_video'])
                 output_filename = f'output_{job.id}.mp4'
                 with open(output_file_path, 'rb') as out_f:
                     job.output_video.save(output_filename, File(out_f))
                 job.output_image = None
                 result_data['media_type'] = 'video'
                 result_data['output_url'] = job.output_video.url
-
-        # =============================
-        # WILDLIFE DETECTION
-        # =============================
-        elif job.job_type == "wildlife_detection":
-            # Lazy import for wildlife detection
-            from apps.video_analytics.analytics.wildlife_detection import tracking_video
-            # Run wildlife detection
-            result_data = tracking_video(input_path, output_path)
-            with open(output_path, 'rb') as out_f:
-                job.output_video.save(output_filename, File(out_f))
+            else:
+                # Log error if neither output_image nor output_video is present
+                logger.error(f"Wildlife detection result missing output file: {result_data}")
 
         # =============================
         # LOBBY DETECTION / CROWD ANALYSIS

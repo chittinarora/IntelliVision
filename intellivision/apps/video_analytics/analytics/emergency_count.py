@@ -365,13 +365,14 @@ def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, custo
 
     cap = cv2.VideoCapture(video_path)
     frame_number = 0
-
+    frame_count = 0
     with tqdm(total=video_info.total_frames, desc="Optimal YOLOv12x Processing") as pbar:
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
             frame_number += 1
+            frame_count += 1
 
             # YOLO prediction with optimal confidence
             yolo_results = model.predict(
@@ -407,28 +408,38 @@ def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, custo
             # Visualization
             annotated_frame = frame.copy()
 
-            # Draw counting lines
-            for name, data in line_definitions.items():
-                pt1 = tuple(map(int, data['coords'][0]))
-                pt2 = tuple(map(int, data['coords'][1]))
-                cv2.line(annotated_frame, pt1, pt2, (0, 255, 0), 3)
+            # Draw detections (boxes, labels, etc.)
+            if len(tracked_detections) > 0:
+                labels = [f"ID:{tracker_id}" for tracker_id in tracked_detections.tracker_id]
+                annotated_frame = box_annotator.annotate(scene=annotated_frame, detections=tracked_detections)
+                annotated_frame = label_annotator.annotate(scene=annotated_frame, detections=tracked_detections,
+                                                           labels=labels)
+
+            # Draw counting lines as the LAST overlay, with high visibility
+            h, w = annotated_frame.shape[:2]
+            colors = [(0, 0, 255), (0, 255, 255)]  # Red, Yellow
+            for idx, (name, data) in enumerate(line_definitions.items()):
+                pt1 = list(map(int, data['coords'][0]))
+                pt2 = list(map(int, data['coords'][1]))
+                # Clamp coordinates to frame bounds
+                pt1[0] = max(0, min(pt1[0], w-1))
+                pt1[1] = max(0, min(pt1[1], h-1))
+                pt2[0] = max(0, min(pt2[0], w-1))
+                pt2[1] = max(0, min(pt2[1], h-1))
+                color = colors[idx % len(colors)]
+                cv2.line(annotated_frame, tuple(pt1), tuple(pt2), color, 6)
+                # Draw a contrasting border for extra visibility
+                cv2.line(annotated_frame, tuple(pt1), tuple(pt2), (255,255,255), 2)
                 mid_x, mid_y = (pt1[0] + pt2[0]) // 2, (pt1[1] + pt2[1]) // 2
                 cv2.putText(
                     annotated_frame,
                     f"{data.get('inDirection', 'UP')} = IN",
                     (mid_x, mid_y - 20),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
-                    (0, 255, 0),
-                    2
+                    1.0,
+                    color,
+                    3
                 )
-
-            # Draw detections
-            if len(tracked_detections) > 0:
-                labels = [f"ID:{tracker_id}" for tracker_id in tracked_detections.tracker_id]
-                annotated_frame = box_annotator.annotate(scene=annotated_frame, detections=tracked_detections)
-                annotated_frame = label_annotator.annotate(scene=annotated_frame, detections=tracked_detections,
-                                                           labels=labels)
 
             # Show counts
             total_in_out = f"OPTIMAL YOLOv12x - IN: {fast_in} | OUT: {fast_out} | Total: {fast_in + fast_out}"

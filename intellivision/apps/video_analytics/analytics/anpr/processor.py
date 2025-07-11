@@ -388,6 +388,24 @@ class ANPRProcessor:
                     "OCR Count": count
                 })
 
+        # --- PATCH: If no rows but plate_history has entries, add most frequent plate for each track ---
+        if not rows and self.plate_history:
+            logger.warning("[PATCH] No locked plates, but plate_history has entries. Adding most frequent plates for each track.")
+            for tid, hist in self.plate_history.items():
+                if hist:
+                    plate, _ = max(hist.items(), key=lambda x: x[1])
+                    ts = self.plate_timestamps[tid].get(plate, datetime.now())
+                    if plate and plate not in seen:
+                        seen.add(plate)
+                        count = hist.get(plate,1)
+                        rows.append({
+                            "Plate Number": plate,
+                            "Detected At": ts.strftime("%Y-%m-%d %H:%M:%S"),
+                            "OCR Count": count
+                        })
+            logger.debug(f"[PATCH] plate_history: {dict(self.plate_history)}")
+            logger.debug(f"[PATCH] locked_plate: {self.locked_plate}")
+
         # Create CSV and Excel reports
         try:
             df = pd.DataFrame(rows)
@@ -410,9 +428,6 @@ class ANPRProcessor:
             "output_video": str(annotated_video),
             "csv_file": str(csv_file) if csv_file else None,
             "xlsx_file": str(xlsx_file) if xlsx_file else None,
-            # --- PATCH: Add backward-compatible keys for car_count.py and others ---
-            "detected_plates": df.get("Plate Number", []).tolist() if not df.empty else [],
-            "recognized_plates": df.get("Plate Number", []).tolist() if not df.empty else [],
         }
         return str(annotated_video), summary
 

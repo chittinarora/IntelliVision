@@ -22,6 +22,7 @@ import logging
 
 # Import the food waste estimation function
 from apps.video_analytics.analytics.food_waste_estimation import analyze_food_image, analyze_multiple_food_images
+from apps.video_analytics.convert import convert_to_web_image
 
 logger = logging.getLogger(__name__)
 
@@ -131,12 +132,14 @@ def food_waste_estimation_view(request):
                 for chunk in image_file.chunks():
                     tmp.write(chunk)
                 temp_paths.append(tmp.name)
-            if len(saved_files) == 0:
-                image_file.seek(0)
-                image_content = ContentFile(image_file.read(), name=f"food_{uuid4()}.jpg")
-                saved_files.append(image_content)
+            # Save each image file for database storage
+            image_file.seek(0)
+            image_content = ContentFile(image_file.read(), name=f"food_{uuid4()}.jpg")
+            saved_files.append(image_content)
 
         # Create a VideoJob for the food waste estimation
+        # Store the first image as input_video (for backward compatibility)
+        # Store all images in results for frontend access
         job = VideoJob.objects.create(
             user=user,
             status='pending',
@@ -147,6 +150,17 @@ def food_waste_estimation_view(request):
         )
         # Analyze the images
         result_data = analyze_multiple_food_images(temp_paths)
+
+        # Add input images to results for frontend access
+        if isinstance(result_data, list):
+            # Multiple images - add input_images to each result
+            for i, result in enumerate(result_data):
+                if i < len(saved_files):
+                    result['input_image'] = saved_files[i].name
+        else:
+            # Single image - add input_image to result
+            result_data['input_image'] = saved_files[0].name
+
         job.results = result_data
         job.status = 'done'
         job.save()
@@ -188,9 +202,16 @@ def pothole_detection_image_view(request):
     output_path = temp_path.replace('.jpg', '_out.jpg')
     result_data = run_pothole_image_detection(temp_path, output_path)
 
+    # Convert to web-friendly WebP image
+    web_output_path = output_path.replace('.jpg', '_web.webp')
+    if convert_to_web_image(output_path, web_output_path, format="WEBP", quality=80):
+        final_output_path = web_output_path
+    else:
+        final_output_path = output_path
+
     # Convert to web-accessible path
-    with open(output_path, 'rb') as out_f:
-        saved_name = f"results/pothole_{uuid4()}.jpg"
+    with open(final_output_path, 'rb') as out_f:
+        saved_name = f"results/pothole_{uuid4()}.webp" if final_output_path.endswith('.webp') else f"results/pothole_{uuid4()}.jpg"
         saved_path = default_storage.save(saved_name, ContentFile(out_f.read()))
         output_url = default_storage.url(saved_path)
         result_data['output_path'] = output_url
@@ -209,6 +230,8 @@ def pothole_detection_image_view(request):
     # Clean up temporary files
     os.remove(temp_path)
     os.remove(output_path)
+    if os.path.exists(web_output_path):
+        os.remove(web_output_path)
 
     return Response({
         'job_id': job.id,
@@ -334,9 +357,9 @@ def parking_analysis_view(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-def pest_monitoring_image_view(request):
+def wildlife_detection_image_view(request):
     """
-    API endpoint for pest monitoring from an uploaded image.
+    API endpoint for wildlife detection from an uploaded image.
     Triggers asynchronous processing and returns the job info.
     """
     User = get_user_model()
@@ -347,13 +370,13 @@ def pest_monitoring_image_view(request):
         return Response({'error': 'No image file provided.'}, status=status.HTTP_400_BAD_REQUEST)
 
     image_file.seek(0)
-    image_content = ContentFile(image_file.read(), name=f"pest_{uuid4()}.jpg")
+    image_content = ContentFile(image_file.read(), name=f"wildlife_{uuid4()}.jpg")
 
     job = VideoJob.objects.create(
         user=user,
         status='pending',
         input_video=image_content,
-        job_type='pest_monitoring',
+        job_type='wildlife_detection',
         created_at=timezone.now(),
         updated_at=timezone.now(),
     )
@@ -369,9 +392,9 @@ def pest_monitoring_image_view(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-def pest_monitoring_video_view(request):
+def wildlife_detection_video_view(request):
     """
-    API endpoint for pest monitoring from an uploaded video.
+    API endpoint for wildlife detection from an uploaded video.
     Triggers asynchronous processing and returns the job info.
     """
     User = get_user_model()
@@ -382,13 +405,13 @@ def pest_monitoring_video_view(request):
         return Response({'error': 'No video file provided.'}, status=status.HTTP_400_BAD_REQUEST)
 
     video_file.seek(0)
-    video_content = ContentFile(video_file.read(), name=f"pest_{uuid4()}.mp4")
+    video_content = ContentFile(video_file.read(), name=f"wildlife_{uuid4()}.mp4")
 
     job = VideoJob.objects.create(
         user=user,
         status='pending',
         input_video=video_content,
-        job_type='pest_monitoring',
+        job_type='wildlife_detection',
         created_at=timezone.now(),
         updated_at=timezone.now(),
     )
@@ -477,8 +500,11 @@ def emergency_count_view(request):
         video_height=int(request.data['video_height']) if 'video_height' in request.data else None,
         created_at=timezone.now(),
         updated_at=timezone.now(),
+        emergency_lines=emergency_lines,
         results={"emergency_lines": emergency_lines},
     )
+    # DEBUG: Log the emergency_lines and job id after creation
+    logger.warning(f"DEBUG: Created job {job.id} with emergency_lines: {job.emergency_lines}")
 
     process_video_job.delay(job.id)
 

@@ -23,6 +23,11 @@ from typing import List, Dict, Union
 import cv2
 import base64
 import time
+from django.conf import settings
+from pathlib import Path
+
+# Canonical models directory for all analytics jobs
+MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 
 # --- Environment Setup ---
 try:
@@ -55,8 +60,8 @@ MAX_IMAGE_SIZE = 3 * 1024 * 1024
 MAX_PAYLOAD_SIZE = 8 * 1024 * 1024
 
 # --- Output Directory Setup ---
-OUTPUT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), 'media/outputs'))
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+OUTPUT_DIR = Path(settings.JOB_OUTPUT_DIR)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # --- Room Parameter Definitions ---
 ROOM_PARAMETERS = {
@@ -648,10 +653,11 @@ def assess_frame_quality(image: np.ndarray) -> Dict[str, float]:
         return {'blur_score': 0, 'is_blurry': True}
 
 
-def extract_key_bedroom_frames(video_path: str, output_dir: str) -> List[str]:
+def extract_key_bedroom_frames(video_path: str, output_dir: Path = OUTPUT_DIR) -> List[str]:
     """Extracts visually distinct frames by sampling one frame per second."""
     print("[DEBUG] Starting intelligent frame extraction (1 frame/sec sampling)...")
-    os.makedirs(output_dir, exist_ok=True)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
     vidcap = cv2.VideoCapture(video_path)
 
     if not vidcap.isOpened():
@@ -683,18 +689,18 @@ def extract_key_bedroom_frames(video_path: str, output_dir: str) -> List[str]:
 
                 if not selected_frame_paths:
                     print(f"[DEBUG] Selecting first frame (index {frame_idx}).")
-                    path = os.path.join(output_dir, f"frame_{frame_idx:05}.jpg")
-                    cv2.imwrite(path, frame)
-                    selected_frame_paths.append(path)
+                    path = output_dir / f"frame_{frame_idx:05}.jpg"
+                    cv2.imwrite(str(path), frame)
+                    selected_frame_paths.append(str(path))
                     selected_histograms.append(hist)
                 else:
                     is_too_similar = any(
                         cv2.compareHist(hist, h, cv2.HISTCMP_CORREL) > 0.95 for h in selected_histograms)
                     if not is_too_similar:
                         print(f"[DEBUG] Selecting distinct frame (index {frame_idx}).")
-                        path = os.path.join(output_dir, f"frame_{frame_idx:05}.jpg")
-                        cv2.imwrite(path, frame)
-                        selected_frame_paths.append(path)
+                        path = output_dir / f"frame_{frame_idx:05}.jpg"
+                        cv2.imwrite(str(path), frame)
+                        selected_frame_paths.append(str(path))
                         selected_histograms.append(hist)
             except Exception as e:
                 print(f"[ERROR] Could not process frame {frame_idx}: {e}")
@@ -1143,7 +1149,7 @@ You MUST provide checklist entries for ALL required parameters. Do not skip any 
         }
 
 
-def analyze_room_video_multi_zone_only(video_path: str, output_dir: str = OUTPUT_DIR) -> Dict:
+def analyze_room_video_multi_zone_only(video_path: str, output_dir: Path = OUTPUT_DIR) -> Dict:
     """
     Main video analysis function with AI-generated fixes and frontend compatibility.
     100% drop-in replacement that provides both legacy API and AI-powered fix suggestions.
@@ -1214,12 +1220,12 @@ def get_current_config() -> Dict:
 
 
 # Legacy wrapper functions for 100% compatibility
-def analyze_room_video_legacy_format(video_path: str, output_dir: str = OUTPUT_DIR) -> Dict:
+def analyze_room_video_legacy_format(video_path: str, output_dir: Path = OUTPUT_DIR) -> Dict:
     """Legacy wrapper that returns the old backend format for perfect compatibility."""
     return analyze_room_video_multi_zone_only(video_path, output_dir)
 
 
-def extract_key_bedroom_frames_legacy(video_path: str, output_dir: str) -> List[str]:
+def extract_key_bedroom_frames_legacy(video_path: str, output_dir: Path = OUTPUT_DIR) -> List[str]:
     """Legacy wrapper for frame extraction that matches old behavior"""
     return extract_key_bedroom_frames(video_path, output_dir)
 
