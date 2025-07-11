@@ -1,5 +1,5 @@
 from rest_framework.routers import DefaultRouter
-from .views import VideoJobViewSet, current_user_view, food_waste_estimation_view, pothole_detection_image_view, pothole_detection_video_view, pest_monitoring_image_view, pest_monitoring_video_view, car_count_view, parking_analysis_view, emergency_count_view, room_readiness_view, lobby_detection_view
+from .views import VideoJobViewSet, current_user_view, food_waste_estimation_view, pothole_detection_image_view, pothole_detection_video_view, wildlife_detection_image_view, wildlife_detection_video_view, car_count_view, parking_analysis_view, emergency_count_view, room_readiness_view, lobby_detection_view
 from django.urls import path, include
 
 """
@@ -16,8 +16,8 @@ urlpatterns = router.urls + [
     path('faceauth/', include('apps.face_auth.urls')),
     path('pothole-detection/video/', pothole_detection_video_view, name='pothole_detection_video'),
     path('pothole-detection/image/', pothole_detection_image_view, name='pothole_detection_image'),
-    path('pest-monitoring/image/', pest_monitoring_image_view, name='pest_monitoring_image'),
-    path('pest-monitoring/video/', pest_monitoring_video_view, name='pest_monitoring_video'),
+    path('wildlife-detection/image/', wildlife_detection_image_view, name='wildlife_detection_image'),
+    path('wildlife-detection/video/', wildlife_detection_video_view, name='wildlife_detection_video'),
     path('car-count/', car_count_view, name='car_count_view'),
     path('parking-analysis/', parking_analysis_view, name='parking_analysis_view'),
     path('emergency-count/', emergency_count_view, name='emergency_count'),

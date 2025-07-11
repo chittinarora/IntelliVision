@@ -3,11 +3,16 @@ import os
 from inference_sdk import InferenceHTTPClient
 from typing import List, Dict, Any
 from apps.video_analytics.convert import convert_to_web_mp4
+from django.conf import settings
+from pathlib import Path
 
 """
 Pothole detection analytics using Roboflow Inference API.
 Supports both video and image input.
 """
+
+# Canonical models directory for all analytics jobs
+MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 
 CLIENT = InferenceHTTPClient(
     api_url="https://serverless.roboflow.com",
@@ -18,7 +23,7 @@ def tracking_video(input_path: str, output_path: str = None) -> Dict[str, Any]:
     """
     Main entry point for pothole detection on a video file. Returns a result dict for job.results.
     """
-    OUTPUT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../media/outputs'))
+    OUTPUT_DIR = settings.JOB_OUTPUT_DIR
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     if output_path is None:
         base_name = os.path.splitext(os.path.basename(input_path))[0]

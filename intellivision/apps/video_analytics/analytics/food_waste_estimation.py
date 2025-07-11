@@ -20,6 +20,11 @@ from io import BytesIO
 
 import requests
 from PIL import Image
+from django.conf import settings
+
+# Canonical models directory for all analytics jobs
+from pathlib import Path
+MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 
 # --- Set up logger for this module ---
 logger = logging.getLogger(__name__)
@@ -168,5 +173,5 @@ def analyze_multiple_food_images(image_paths: List[str]) -> List[Dict] | Dict:
     return results
 
 
-OUTPUT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../media/outputs'))
+OUTPUT_DIR = settings.JOB_OUTPUT_DIR
 os.makedirs(OUTPUT_DIR, exist_ok=True)

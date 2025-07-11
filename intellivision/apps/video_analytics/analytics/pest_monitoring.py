@@ -12,6 +12,9 @@ from apps.video_analytics.convert import convert_to_web_mp4
 from boxmot import BotSort
 import numpy as np
 
+# Canonical models directory for all analytics jobs
+MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
+
 # ---------------------- MongoDB Connection ----------------------
 client = MongoClient("mongodb://localhost:27017/")
 db = client["snake_db"]
@@ -19,12 +22,12 @@ collection = db["detections"]
 
 # ---------------------- YOLO + File Settings ---------------------
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-OUTPUT_DIR = PROJECT_ROOT.parent.parent / 'media' / 'outputs'
+OUTPUT_DIR = Path(settings.JOB_OUTPUT_DIR)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 SAVE_DIR = OUTPUT_DIR  # No subfolder
-model = YOLO(str(PROJECT_ROOT / "models" / "best.pt"))
-DETECTION_CONFIDENCE = 0.15
-EMBEDDER_FILE = Path(os.path.expanduser("~/.cache/torch/checkpoints/osnet_ibn_x1_0_msmt17.pth"))
+model = YOLO(str(MODELS_DIR / "best_animal.pt"))
+DETECTION_CONFIDENCE = 0.4
+EMBEDDER_FILE = MODELS_DIR / "osnet_ibn_x1_0_msmt17.pth"
 
 def get_timestamp():
     return datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -32,7 +35,7 @@ def get_timestamp():
 def detect_snakes_in_image(image_path):
     """
     Detect snakes in an image (input as file path).
-    Returns: dict with count, save path, and Mongo ID.
+    Returns: dict with count, save path, Mongo ID, and detected animals with confidence.
     """
     # Load image into numpy array
     img = Image.open(image_path).convert("RGB")
@@ -42,6 +45,14 @@ def detect_snakes_in_image(image_path):
     results = model(img_array, )
     plotted = results[0].plot()
     num_snakes = len(results[0].boxes)
+
+    # Collect detected animals and confidence
+    detected_animals = []
+    for box in results[0].boxes:
+        class_id = int(box.cls[0])
+        class_name = model.names[class_id]
+        confidence = float(box.conf[0])
+        detected_animals.append({"name": class_name, "confidence": confidence})
 
     # Save annotated image to disk
     timestamp = get_timestamp()
@@ -53,6 +64,7 @@ def detect_snakes_in_image(image_path):
         "type": "image",
         "file_name": os.path.basename(image_path),
         "detected_snakes": num_snakes,
+        "detected_animals": detected_animals,
         "timestamp": datetime.now()
     }
     result = collection.insert_one(mongo_doc)
@@ -61,6 +73,7 @@ def detect_snakes_in_image(image_path):
     return {
         "status": "success",
         "detected_snakes": num_snakes,
+        "detected_animals": detected_animals,
         "saved_path": str(save_path),
         "mongo_id": str(result.inserted_id)
     }
@@ -86,11 +99,12 @@ def detect_snakes_in_video(video_path):
     tracker = BotSort(track_high_thresh=0.15, new_track_thresh=0.15, track_buffer=30, device=device, half=False, reid_weights=EMBEDDER_FILE)  # tune thresholds as needed
 
     total_detected = 0
+    detected_animals = []
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
-        results = model(frame, conf=DETECTION_CONFIDENCE)
+        results = model(frame, conf=DETECTION_CONFIDENCE, imgsz=640)
         boxes = []
         # Convert YOLO results to tracker format: [x1, y1, x2, y2, conf, cls]
         for box in results[0].boxes:
@@ -98,6 +112,10 @@ def detect_snakes_in_video(video_path):
             conf = float(box.conf[0])
             cls = float(box.cls[0])
             boxes.append([x1, y1, x2, y2, conf, cls])
+            # Collect detected animal info
+            class_id = int(cls)
+            class_name = model.names[class_id]
+            detected_animals.append({"name": class_name, "confidence": conf})
         boxes = np.array(boxes) if boxes else np.zeros((0, 6))
         tracks = tracker.update(boxes, frame)
 
@@ -118,6 +136,7 @@ def detect_snakes_in_video(video_path):
         "type": "video",
         "file_name": os.path.basename(video_path),
         "detected_snakes": total_detected,
+        "detected_animals": detected_animals,
         "timestamp": datetime.now()
     }
     result = collection.insert_one(mongo_doc)
@@ -125,10 +144,11 @@ def detect_snakes_in_video(video_path):
     # Return result as dict
     return {
         'status': 'completed',
-        'job_type': 'pest-monitoring',
+        'job_type': 'wildlife_detection',
         'output_video': str(save_path),
         'data': {
             'detected_snakes': total_detected,
+            'detected_animals': detected_animals,
             'mongo_id': str(result.inserted_id),
             'alerts': []
         },
@@ -138,7 +158,7 @@ def detect_snakes_in_video(video_path):
 
 def tracking_video(input_path: str, output_path: str) -> dict:
     """
-    Main entry point for pest monitoring jobs. Handles both images and videos.
+    Main entry point for wildlife detection jobs. Handles both images and videos.
     For images: runs detection, saves annotated image to MEDIA_ROOT, returns result with web URL.
     For videos: runs detection, converts to web-friendly MP4, returns result with web URL.
     """
@@ -152,11 +172,12 @@ def tracking_video(input_path: str, output_path: str) -> dict:
         url = settings.MEDIA_URL + str(rel_path).replace(os.sep, '/')
         return {
             'status': 'completed',
-            'job_type': 'pest-monitoring',
+            'job_type': 'wildlife_detection',
             'output_image': str(rel_path),
             'output_url': url,
             'data': {
                 'detected_snakes': result['detected_snakes'],
+                'detected_animals': result['detected_animals'],
                 'mongo_id': result['mongo_id'],
                 'alerts': []
             },
@@ -165,4 +186,11 @@ def tracking_video(input_path: str, output_path: str) -> dict:
         }
     else:
         # Video job
-        return detect_snakes_in_video(input_path)
+        result = detect_snakes_in_video(input_path)
+        # Convert to web-friendly MP4
+        output_video_path = result.get('output_video')
+        if output_video_path:
+            web_output_path = str(output_video_path).replace('.mp4', '_web.mp4')
+            if convert_to_web_mp4(str(output_video_path), web_output_path):
+                result['output_video'] = web_output_path
+        return result

@@ -19,18 +19,18 @@ from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from pymongo import MongoClient
 from loguru import logger
 from pydantic import BaseModel
+from django.conf import settings
 
 # Create router
 router = APIRouter()
 
 # === Resolve paths ===
 BASE_DIR = Path(__file__).resolve().parent.parent
-plate_model_path = BASE_DIR / "models" / "best.pt"
+plate_model_path = BASE_DIR / "models" / "best_plate.pt"
 car_model_path   = BASE_DIR / "models" / "yolo11m.pt"
 
 # Define canonical output directory for all outputs
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent  # lands at project root (intellivision)
-OUTPUT_DIR = Path(os.getenv("ANPR_OUTPUT_DIR", PROJECT_ROOT / "media" / "anpr_outputs"))
+OUTPUT_DIR = Path(settings.JOB_OUTPUT_DIR)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 logger.info(f"All output will be saved to: {OUTPUT_DIR}")
 

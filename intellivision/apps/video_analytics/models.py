@@ -30,7 +30,6 @@ class VideoJob(models.Model):
         ("pothole_detection", "Pothole Detection"),
         ("food_waste_estimation", "Food Waste Estimation"),
         ("room_readiness", "Room Readiness Analysis"),
-        ("pest_monitoring", "Pest Monitoring"),
         ("wildlife_detection", "Wildlife Detection")
     ]
 

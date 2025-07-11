@@ -25,6 +25,7 @@ import re
 from pathlib import Path
 from tqdm import tqdm
 from typing import Dict, List, Tuple, Optional, Any
+from django.conf import settings
 
 # Import scipy with fallback
 try:
@@ -64,7 +65,7 @@ DPT_HF_MODEL = 'Intel/dpt-large'
 GLPN_HF_MODEL = 'vinvino02/glpn-nyu'
 DEFAULT_OUTPUT_PREFIX = 'dubs_comprehensive_output_'
 DEFAULT_OUTPUT_EXT = '.mp4'
-DEFAULT_OUTPUT_DIR = str(Path(__file__).resolve().parent.parent.parent / 'media' / 'outputs')
+DEFAULT_OUTPUT_DIR = str(settings.JOB_OUTPUT_DIR)
 # Confidence thresholds
 YOLO_CONF_CLOSE = 0.35
 YOLO_CONF_MEDIUM = 0.40

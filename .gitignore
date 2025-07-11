@@ -12,7 +12,6 @@ __pycache__/
 .gitignore/
 
 # Environment files
-.env
 intellivision/media/
 
 # SQLite and Redis
