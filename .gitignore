@@ -11,6 +11,8 @@ __pycache__/
 
 .gitignore/
 
+.env
+
 # Environment files
 intellivision/media/
 
