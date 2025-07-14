@@ -3,6 +3,7 @@ Cython
 # Core Django stack
 Django~=5.2.3
 djangorestframework~=3.16.0
+djangorestframework-simplejwt~=5.3.1
 
 # Celery + Redis (as Celery broker)
 celery~=5.5.3
@@ -21,6 +22,7 @@ cloudinary==1.44.1
 face_recognition
 opencv-python~=4.11.0.86
 insightface==0.7.3
+onnxruntime~=1.18.0
 
 # Environment management
 python-dotenv~=1.1.0
@@ -43,7 +45,6 @@ tqdm~=4.67.1
 pandas~=2.2.3
 requests~=2.32.3
 filterpy~=1.4.5
-numba>=0.58,<0.59
 psutil~=7.0.0
 PyYAML~=6.0.2
 lap~=0.5.12
@@ -72,3 +73,5 @@ transformers==4.53.1
 # Other dependencies
 python-dateutil~=2.9.0.post0
 six~=1.17.0
+psycopg2-binary~=2.9.9
+psycopg[binary]~=3.1.18
