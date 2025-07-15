@@ -76,12 +76,7 @@ if not DEBUG:
 
 # === ALLOWED_HOSTS ===
 # For production, add your domain or public IP
-ALLOWED_HOSTS = [
-    'localhost',
-    '0.0.0.0',  # Allow all network interfaces for deployment
-    # 'your.server.ip.address',
-    # 'yourdomain.com',
-]
+ALLOWED_HOSTS = ['*']
 
 # === Third-Party Service Credentials ===
 MONGO_URI = os.environ.get('MONGO_URI')
