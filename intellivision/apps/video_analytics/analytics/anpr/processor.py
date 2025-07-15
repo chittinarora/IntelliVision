@@ -51,7 +51,7 @@ class ANPRProcessor:
     CAR_DET_CONF = 0.6
     PLATE_DET_CONF = 0.6
     DET_IOU = 0.5
-    LOCK_CONF_THRESHOLD = 0.75
+    LOCK_CONF_THRESHOLD = 0.6
     MIN_ROI_SIZE = 10  # Minimum pixel size for ROI width/height
 
     def __init__(self, plate_model_path: str, car_model_path: str):

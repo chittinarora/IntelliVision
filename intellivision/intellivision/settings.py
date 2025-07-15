@@ -14,7 +14,7 @@ load_dotenv(BASE_DIR / '.env')  # Loads .env from project root
 
 # === Environment Variables / Secrets ===
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-aq_x8cykh&3r_q9df@b%n(p(dv5&3gt$=17m#u-ir$kzl-(mjm')
-DEBUG = True
+DEBUG = False
 
 
 SIMPLE_JWT = {
@@ -63,20 +63,20 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')         # Serve with Nginx in production
 
 # === Security Settings for Production ===
-if not DEBUG:
-    SECURE_SSL_REDIRECT = False
-    SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
-    SECURE_HSTS_SECONDS = 31536000  # 1 year
-    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_PRELOAD = True
-    SECURE_REFERRER_POLICY = "strict-origin"
-    # SECURE_CONTENT_TYPE_NOSNIFF = True
-    # SECURE_BROWSER_XSS_FILTER = True
+SECURE_SSL_REDIRECT = True
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
+SECURE_HSTS_SECONDS = 31536000  # 1 year
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_HSTS_PRELOAD = True
+SECURE_REFERRER_POLICY = "strict-origin"
+# SECURE_CONTENT_TYPE_NOSNIFF = True
+# SECURE_BROWSER_XSS_FILTER = True
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # === ALLOWED_HOSTS ===
 # For production, add your domain or public IP
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = ['intellivision.aionos.co']
 
 # === Third-Party Service Credentials ===
 MONGO_URI = os.environ.get('MONGO_URI')
@@ -166,10 +166,7 @@ CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = list(default_headers) + [
     "ngrok-skip-browser-warning",
 ]
-CORS_ALLOW_ALL_ORIGINS = True
-
-# === Security Headers ===
-SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+CORS_ALLOWED_ORIGINS = ["https://intellivision.aionos.co"]
 
 # === Miscellaneous ===
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
