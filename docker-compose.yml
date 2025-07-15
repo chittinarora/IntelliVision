@@ -47,10 +47,11 @@ services:
 
   celery:
     build: .
-    command: celery -A intellivision worker --loglevel=info --pool=solo
+    command: celery -A intellivision worker --loglevel=info
     volumes:
       - .:/app
     environment:
+      - PYTHONPATH=/app/intellivision
       - POSTGRES_DB=intellivision
       - POSTGRES_USER=adminvision
       - POSTGRES_PASSWORD=IntelliVisionAIonOS

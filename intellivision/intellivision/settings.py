@@ -137,17 +137,17 @@ TEMPLATES = [
 WSGI_APPLICATION = 'intellivision.wsgi.application'
 
 # === Celery Configuration ===
-CELERY_BROKER_URL = 'redis://localhost:6379/0'
-CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
-CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_BROKER_URL = os.environ.get('REDIS_URL', 'redis://redis:6379/0')
+CELERY_RESULT_BACKEND = os.environ.get('REDIS_URL', 'redis://redis:6379/0')
+CELERY_WORKER_PREFETCH_MULTIPLIER = 2
 CELERY_TASK_ACKS_LATE = True
 
 # Additional settings to prevent SIGSEGV and improve stability
-CELERY_WORKER_MAX_TASKS_PER_CHILD = 1  # Restart worker after each task
-CELERY_WORKER_MAX_MEMORY_PER_CHILD = 200000  # 200MB memory limit per worker
+CELERY_WORKER_MAX_TASKS_PER_CHILD = 100  # Restart worker after 100 tasks
+CELERY_WORKER_MAX_MEMORY_PER_CHILD = 500000  # 500MB memory limit per worker
 CELERY_TASK_TIME_LIMIT = 3600  # 1 hour time limit
 CELERY_TASK_SOFT_TIME_LIMIT = 3000  # 50 minutes soft limit
-CELERY_WORKER_CONCURRENCY = 1  # Use single worker to avoid conflicts
+CELERY_WORKER_CONCURRENCY = 2  # Two worker processes
 CELERY_TASK_ALWAYS_EAGER = False  # Ensure tasks run in background
 CELERY_WORKER_DISABLE_RATE_LIMITS = True  # Disable rate limiting for ML tasks
 
