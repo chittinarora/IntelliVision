@@ -18,8 +18,11 @@ COPY requirements.txt /app/
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Collect static files
+RUN python intellivision/manage.py collectstatic --noinput
+
 # Copy project files
 COPY . /app/
 
-# Default command (can be overridden in docker-compose)
-CMD ["python", "intellivision/manage.py", "runserver", "0.0.0.0:8000"]
+# Run migrations and start Gunicorn
+CMD ["sh", "-c", "python intellivision/manage.py migrate && gunicorn intellivision.wsgi:application --bind 0.0.0.0:8000 --workers 3"]
