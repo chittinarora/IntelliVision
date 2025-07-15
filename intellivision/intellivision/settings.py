@@ -172,6 +172,10 @@ CORS_ALLOWED_ORIGINS = ["https://intellivision.aionos.co"]
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # === Logging Configuration ===
+# Ensure logs directory exists for file-based logging
+LOG_DIR = os.path.join(BASE_DIR, 'logs')
+os.makedirs(LOG_DIR, exist_ok=True)
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,

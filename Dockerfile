@@ -21,6 +21,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy project files
 COPY . /app/
 
+# Ensure logs directory exists for Django logging
+RUN mkdir -p intellivision/logs
+
 # Collect static files
 RUN python intellivision/manage.py collectstatic --noinput
 
