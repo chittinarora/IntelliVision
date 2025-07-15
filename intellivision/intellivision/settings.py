@@ -171,12 +171,7 @@ CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = list(default_headers) + [
     "ngrok-skip-browser-warning",
 ]
-CORS_ALLOWED_ORIGINS = [
-    "http://0.0.0.0:5173",
-    "http://0.0.0.0:8080",
-    "http://localhost:5173",
-    "http://localhost:8080"
-]
+CORS_ALLOW_ALL_ORIGINS = True
 
 # === Security Headers ===
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
