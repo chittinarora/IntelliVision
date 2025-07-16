@@ -25,9 +25,6 @@ data.html
 samples/
 videos/
 
-# Model files
-*.pt
-
 *.jpg
 *.mp4
 
