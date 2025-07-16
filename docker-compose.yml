@@ -29,6 +29,7 @@ services:
     command: python intellivision/manage.py runserver 0.0.0.0:8001
     volumes:
       - .:/app
+      - shared-tmp:/tmp
     ports:
       - "8001:8001"
     environment:
@@ -40,6 +41,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - QDRANT_URL=http://qdrant:6333
       - MONGO_URI=mongodb+srv://toram444444:06nJTevaUItCDpd9@cluster01.lemxesc.mongodb.net/?retryWrites=true&w=majority&appName=Cluster01
+      - YOLO_CACHE_DIR=/app/intellivision/apps/video_analytics/models
     depends_on:
       - db
       - redis
@@ -50,6 +52,7 @@ services:
     command: celery -A intellivision worker --loglevel=info
     volumes:
       - .:/app
+      - shared-tmp:/tmp
     environment:
       - PYTHONPATH=/app/intellivision
       - POSTGRES_DB=intellivision
@@ -60,6 +63,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - QDRANT_URL=http://qdrant:6333
       - MONGO_URI=mongodb+srv://toram444444:06nJTevaUItCDpd9@cluster01.lemxesc.mongodb.net/?retryWrites=true&w=majority&appName=Cluster01
+      - YOLO_CACHE_DIR=/app/intellivision/apps/video_analytics/models
     depends_on:
       - db
       - redis
@@ -68,3 +72,4 @@ services:
 volumes:
   postgres_data:
   qdrant_data:
+  shared-tmp:

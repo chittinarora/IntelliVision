@@ -26,8 +26,8 @@ router = APIRouter()
 
 # === Resolve paths ===
 BASE_DIR = Path(__file__).resolve().parent.parent
-plate_model_path = BASE_DIR / "models" / "best_plate.pt"
-car_model_path   = BASE_DIR / "models" / "yolo11m.pt"
+plate_model_path = BASE_DIR / "models" / "best_car.pt"
+car_model_path   = BASE_DIR / "models" / "yolo11m_car.pt"
 
 # Define canonical output directory for all outputs
 OUTPUT_DIR = Path(settings.JOB_OUTPUT_DIR)
