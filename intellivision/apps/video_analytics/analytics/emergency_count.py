@@ -23,6 +23,7 @@ import supervision as sv
 from tqdm import tqdm
 import torch
 from boxmot import BotSort
+from apps.video_analytics.models.utils import load_yolo_model
 
 # --- Setup logger for this module ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -324,7 +325,7 @@ def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, custo
     params.log_params()
 
     # Load YOLOv12x model
-    model = YOLO('../models/yolo12x.pt')
+    model = load_yolo_model('../models/yolo12x.pt')
     logger.info("🔧 Using YOLOv12x (Optimal Configuration)")
 
     device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"

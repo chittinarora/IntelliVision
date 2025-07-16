@@ -13,6 +13,7 @@ import time
 import pathlib
 import urllib.request
 from django.conf import settings
+from apps.video_analytics.models.utils import load_yolo_model
 
 # --- Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -236,7 +237,7 @@ def setup_best_tracker(device, fps):
 # =================================================================================
 def run_crowd_analysis(source_path, zone_configs, output_path=None):
     model_name = str(MODELS_DIR / 'yolov8x.pt')
-    model = YOLO(model_name)
+    model = load_yolo_model(model_name)
     if torch.cuda.is_available():
         device = "cuda"
     elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():

@@ -21,8 +21,8 @@ logger = logging.getLogger("anpr_functions")
 # Load environment
 BASE_DIR = Path(__file__).resolve().parent.parent.parent  # project root
 MODELS_DIR = BASE_DIR / 'video_analytics' / 'models'
-plate_model = MODELS_DIR / 'best_plate.pt'
-car_model = MODELS_DIR / 'yolo11m.pt'
+plate_model = MODELS_DIR / 'best_car.pt'
+car_model = MODELS_DIR / 'yolo11m_car.pt'
 load_dotenv(BASE_DIR / '.env')
 
 # Define canonical output directory for all outputs

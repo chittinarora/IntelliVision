@@ -37,7 +37,8 @@ except ImportError:
     print("⚠️ scipy not available - using numpy cosine similarity fallback")
 
 # Correct imports for actual libraries
-from ultralytics import YOLO, RTDETR
+from ultralytics import RTDETR
+from apps.video_analytics.models.utils import load_yolo_model
 from boxmot import BotSort, ByteTrack
 import torch.nn.functional as F
 
@@ -367,7 +368,7 @@ class SmartAdaptiveDetector:
         self.rtdetr_conf_far = 0.40
 
         try:
-            self.yolo = YOLO(YOLO_MODEL_PATH)
+            self.yolo = load_yolo_model(YOLO_MODEL_PATH)
             logger.info("✅ YOLO loaded")
         except Exception as e:
             self.yolo = None
