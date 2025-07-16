@@ -27,6 +27,7 @@ data.html
 samples/
 videos/
 
+intellivision/apps/video_analytics/utils.py
 intell_venv/
 intelli-vision/
 package-lock.json
