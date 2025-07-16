@@ -11,8 +11,6 @@ __pycache__/
 
 .gitignore/
 
-.env
-
 # Environment files
 intellivision/media/
 
@@ -26,8 +24,6 @@ Miniconda3-latest-MacOSX-arm64.sh
 data.html
 samples/
 videos/
-
-intellivision/apps/video_analytics/models/
 
 # Model files
 *.pt
