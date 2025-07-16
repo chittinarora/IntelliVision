@@ -38,7 +38,7 @@ except ImportError:
 
 # Correct imports for actual libraries
 from ultralytics import RTDETR
-from apps.video_analytics.models.utils import load_yolo_model
+from apps.video_analytics.models import load_yolo_model
 from boxmot import BotSort, ByteTrack
 import torch.nn.functional as F
 

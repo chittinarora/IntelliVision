@@ -23,7 +23,7 @@ import supervision as sv
 from tqdm import tqdm
 import torch
 from boxmot import BotSort
-from apps.video_analytics.models.utils import load_yolo_model
+from apps.video_analytics.models import load_yolo_model
 
 # --- Setup logger for this module ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

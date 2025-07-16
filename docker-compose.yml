@@ -49,7 +49,7 @@ services:
 
   celery:
     build: .
-    command: celery -A intellivision worker --loglevel=info
+    command: celery -A intellivision worker --loglevel=info --concurrency=4
     volumes:
       - .:/app
       - shared-tmp:/tmp
