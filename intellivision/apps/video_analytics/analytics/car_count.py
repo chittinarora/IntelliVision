@@ -10,7 +10,6 @@ from pymongo import MongoClient
 import cloudinary
 from dotenv import load_dotenv
 from .anpr.processor import ANPRProcessor, ParkingProcessor
-from apps.video_analytics.convert import convert_to_web_mp4
 from django.conf import settings
 
 # Configure logging
@@ -18,8 +17,18 @@ logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("anpr_functions")
 
-# Load environment
-BASE_DIR = Path(__file__).resolve().parent.parent.parent  # project root
+# Handle missing convert module
+try:
+    from apps.video_analytics.convert import convert_to_web_mp4
+    HAS_VIDEO_CONVERTER = True
+except ImportError:
+    logger.warning("Video converter module not found. Web MP4 conversion disabled.")
+    HAS_VIDEO_CONVERTER = False
+    def convert_to_web_mp4(input_path: str, output_path: str) -> bool:
+        return False
+
+# Standardize MODELS_DIR
+BASE_DIR = Path(settings.BASE_DIR)
 MODELS_DIR = BASE_DIR / 'video_analytics' / 'models'
 plate_model = MODELS_DIR / 'best_car.pt'
 car_model = MODELS_DIR / 'yolo11m_car.pt'
@@ -87,11 +96,14 @@ def recognize_number_plates(video_path: str) -> dict:
         # === Convert output video to web-friendly MP4 ===
         if output and Path(output).exists():
             web_output = str(Path(output).with_name(Path(output).stem + '_web.mp4'))
-            if convert_to_web_mp4(str(output), web_output):
+            if HAS_VIDEO_CONVERTER and convert_to_web_mp4(str(output), web_output):
                 output = web_output
                 logger.info(f"Converted output to web mp4: {web_output}")
             else:
-                logger.warning(f"Failed to convert output to web mp4, using original: {output}")
+                if not HAS_VIDEO_CONVERTER:
+                    logger.info("Video converter not available, using original output")
+                else:
+                    logger.warning(f"Failed to convert output to web mp4, using original: {output}")
 
         # Generate URLs
         output_filename = Path(output).name
@@ -165,11 +177,14 @@ def analyze_parking_video(video_path: str) -> dict:
         # === Convert output video to web-friendly MP4 ===
         if output and Path(output).exists():
             web_output = str(Path(output).with_name(Path(output).stem + '_web.mp4'))
-            if convert_to_web_mp4(str(output), web_output):
+            if HAS_VIDEO_CONVERTER and convert_to_web_mp4(str(output), web_output):
                 output = web_output
                 logger.info(f"Converted output to web mp4: {web_output}")
             else:
-                logger.warning(f"Failed to convert output to web mp4, using original: {output}")
+                if not HAS_VIDEO_CONVERTER:
+                    logger.info("Video converter not available, using original output")
+                else:
+                    logger.warning(f"Failed to convert output to web mp4, using original: {output}")
 
         # Ensure all summary fields are present
         summary = {

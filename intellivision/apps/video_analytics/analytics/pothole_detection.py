@@ -18,6 +18,15 @@ MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 ROBOFLOW_API_URL = "https://detect.roboflow.com/pothole-voxrl/1"
 ROBOFLOW_API_KEY = "vfMnQeFixryhPw18Thmz"
 
+MAX_SIZE = 1024
+
+def resize_frame_if_needed(frame):
+    h, w = frame.shape[:2]
+    if max(h, w) > MAX_SIZE:
+        scale = MAX_SIZE / max(h, w)
+        frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
+    return frame
+
 def send_frame_to_roboflow(frame) -> List[Dict[str, Any]]:
     _, img_encoded = cv2.imencode('.jpg', frame)
     base64_encoded_image = base64.b64encode(img_encoded).decode('utf-8')
@@ -79,7 +88,8 @@ def run_pothole_detection(input_path: str, output_path: str) -> Dict[str, Any]:
         print(f"➡️ Processing frame {frame_idx}")
 
         try:
-            predictions = send_frame_to_roboflow(frame)
+            resized_frame = resize_frame_if_needed(frame)
+            predictions = send_frame_to_roboflow(resized_frame)
             print("🧠 Prediction received:", predictions)
             potholes_in_frame = [
                 {
@@ -152,7 +162,8 @@ def run_pothole_image_detection(input_path: str, output_path: str) -> Dict[str, 
         return {"error": "Failed to read image."}
 
     try:
-        predictions = send_frame_to_roboflow(frame)
+        resized_frame = resize_frame_if_needed(frame)
+        predictions = send_frame_to_roboflow(resized_frame)
         print("🧠 Prediction received:", predictions)
         potholes = [
             {
