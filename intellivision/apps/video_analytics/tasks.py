@@ -199,37 +199,32 @@ def process_video_job(job_id):
         # POTHOLE DETECTION
         # =============================
         elif job.job_type == "pothole_detection":
-            # Lazy import for pothole detection
             from apps.video_analytics.analytics.pothole_detection import tracking_video, run_pothole_image_detection
             ext = os.path.splitext(input_path)[1].lower()
             if ext in ['.jpg', '.jpeg', '.png']:
-                # Image input: run pothole image detection
                 output_filename = f'output_{job.id}.jpg'
-                output_path = os.path.join('/tmp', output_filename)
+                output_path = os.path.join(settings.JOB_OUTPUT_DIR, output_filename)
                 result_data = run_pothole_image_detection(input_path, output_path)
-                output_file_path = result_data['output_video'] if 'output_video' in result_data else output_path
+                output_file_path = result_data.get('output_path', output_path)
                 actual_filename = os.path.basename(output_file_path)
                 saved_name = f"outputs/{actual_filename}"
-                # Save output image to media/outputs
                 with open(output_file_path, 'rb') as out_f:
                     saved_path = default_storage.save(saved_name, ContentFile(out_f.read()))
                     output_url = default_storage.url(saved_path)
-                job.output_video.name = saved_name  # Store relative path only
-                result_data['output_video'] = output_url
-                job.results = {**result_data, "output_path": output_url}
+                job.output_video.name = saved_name
+                result_data['output_path'] = output_url
+                job.results = {**result_data}
             else:
-                # Video input: run pothole video detection
                 result_data = tracking_video(input_path, output_path)
                 output_file_path = result_data['output_video']
                 actual_filename = os.path.basename(output_file_path)
                 saved_name = f"outputs/{actual_filename}"
-                # Save output video to media/outputs
                 with open(output_file_path, 'rb') as out_f:
                     saved_path = default_storage.save(saved_name, ContentFile(out_f.read()))
                     output_url = default_storage.url(saved_path)
-                job.output_video.name = saved_name  # Store relative path only
+                job.output_video.name = saved_name
                 result_data['output_video'] = output_url
-                job.results = {**result_data, "output_path": output_url}
+                job.results = {**result_data}
 
         # =============================
         # FOOD WASTE ESTIMATION

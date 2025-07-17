@@ -55,12 +55,12 @@ def run_pothole_detection(input_path: str, output_path: str) -> Dict[str, Any]:
     frame_idx = 0
     processed_frames = 0
     total_potholes = 0
-    frame_details = []
+    frame_details: List[Dict[str, Any]] = []
 
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret or processed_frames >= MAX_FRAMES:
-            print("✅ Done processing frames.")
+            print("✅ Done processing frames or reached max frame limit.")
             break
 
         if frame_idx % FRAME_SKIP != 0:
@@ -73,6 +73,7 @@ def run_pothole_detection(input_path: str, output_path: str) -> Dict[str, Any]:
 
         try:
             result = CLIENT.infer(temp_input, model_id="pothole-voxrl/1")
+            print("🧠 Prediction received:", result)
             predictions = result.get("predictions", [])
             potholes_in_frame = [
                 {
@@ -148,6 +149,7 @@ def run_pothole_image_detection(input_path: str, output_path: str) -> Dict[str, 
 
     try:
         result = CLIENT.infer(input_path, model_id="pothole-voxrl/1")
+        print("🧠 Prediction received:", result)
         predictions = result.get("predictions", [])
         potholes = [
             {
