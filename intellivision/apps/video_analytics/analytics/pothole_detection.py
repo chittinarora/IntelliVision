@@ -175,6 +175,11 @@ def run_pothole_image_detection(input_path: str, output_path: str) -> Dict[str, 
         cv2.imwrite(output_path, frame)
         print("✅ Image saved with predictions.")
 
+        # Check if output file was created
+        if not os.path.exists(output_path):
+            print(f"❌ Output file not created: {output_path}")
+            return {"error": "Detection failed, output file not found."}
+
         return {
             "total_potholes": len(potholes),
             "potholes": potholes,

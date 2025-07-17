@@ -38,6 +38,7 @@ except ImportError as e:
 # Canonical models directory for all analytics jobs
 from pathlib import Path
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
+REID_MODEL_PATH = MODELS_DIR / "osnet_x0_25_msmt17.pt"
 
 
 # =================================================================================
@@ -66,7 +67,7 @@ def get_next_filename(base_path):
 
 def download_reid_model():
     """Download Re-ID model if not present"""
-    model_path = MODELS_DIR / "osnet_x0_25_msmt17.pt"
+    model_path = REID_MODEL_PATH
     if not model_path.exists():
         logger.info("Downloading Re-ID model for better tracking...")
         url = "https://github.com/mikel-brostrom/yolo_tracking/releases/download/v9.0.0/osnet_x0_25_msmt17.pt"
@@ -166,7 +167,7 @@ def setup_best_tracker(device, fps):
             import torch
             import pathlib
 
-            reid_path = pathlib.Path(reid_model)
+            reid_path = REID_MODEL_PATH
             torch_device = torch.device(device)
 
             # Try BotSort with correct parameter types
@@ -180,8 +181,8 @@ def setup_best_tracker(device, fps):
                     track_high_thresh=0.6,  # Higher threshold for new tracks
                     track_low_thresh=0.2,  # Lower threshold to keep existing tracks
                     new_track_thresh=0.8,  # Much harder to create new IDs
-                    track_buffer=150,  # 5 second memory at 30fps
-                    match_thresh=0.9,  # Very strict matching
+                    track_buffer=fps * 2,  # 5 second memory at 30fps
+                    match_thresh=0.7,  # Very strict matching
                     proximity_thresh=0.5,  # Closer proximity required
                     appearance_thresh=0.1,  # Very strict appearance matching
                     frame_rate=fps,  # Use actual fps

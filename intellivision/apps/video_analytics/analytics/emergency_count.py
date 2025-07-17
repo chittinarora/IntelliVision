@@ -24,6 +24,9 @@ from tqdm import tqdm
 import torch
 from boxmot import BotSort
 from apps.video_analytics.models import load_yolo_model
+from pathlib import Path
+MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
+REID_MODEL_PATH = MODELS_DIR / "osnet_x0_25_msmt17.pt"
 
 # --- Setup logger for this module ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -339,7 +342,7 @@ def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, custo
     clean_analyzer = EnhancedCleanAnalyzer(line_definitions, params)
 
     # Initialize tracker
-    reid_path = pathlib.Path("osnet_x0_25_msmt17.pt")
+    reid_path = REID_MODEL_PATH
     tracker = BotSort(
         reid_weights=reid_path,
         device=device,
