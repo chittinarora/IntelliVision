@@ -42,6 +42,7 @@ services:
       - QDRANT_URL=http://qdrant:6333
       - MONGO_URI=mongodb+srv://toram444444:06nJTevaUItCDpd9@cluster01.lemxesc.mongodb.net/?retryWrites=true&w=majority&appName=Cluster01
       - YOLO_CACHE_DIR=/app/intellivision/apps/video_analytics/models
+      - JOB_OUTPUT_DIR=/app/intellivision/media/outputs
     depends_on:
       - db
       - redis
@@ -64,6 +65,7 @@ services:
       - QDRANT_URL=http://qdrant:6333
       - MONGO_URI=mongodb+srv://toram444444:06nJTevaUItCDpd9@cluster01.lemxesc.mongodb.net/?retryWrites=true&w=majority&appName=Cluster01
       - YOLO_CACHE_DIR=/app/intellivision/apps/video_analytics/models
+      - JOB_OUTPUT_DIR=/app/intellivision/media/outputs
     depends_on:
       - db
       - redis

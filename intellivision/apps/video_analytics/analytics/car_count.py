@@ -26,7 +26,7 @@ car_model = MODELS_DIR / 'yolo11m_car.pt'
 load_dotenv(BASE_DIR / '.env')
 
 # Define canonical output directory for all outputs
-OUTPUT_DIR = Path(settings.JOB_OUTPUT_DIR)
+OUTPUT_DIR = settings.JOB_OUTPUT_DIR
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Configure Cloudinary & MongoDB
