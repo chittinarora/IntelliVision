@@ -13,6 +13,9 @@ RUN apt-get update && \
     apt-get install -y build-essential libpq-dev gcc cmake git qtbase5-dev qtchooser qt5-qmake qtbase5-dev-tools && \
     apt-get clean
 
+# Install system dependencies
+RUN apt-get update && apt-get install -y tesseract-ocr
+
 # Install Python dependencies
 COPY requirements.txt /app/
 RUN pip install --upgrade pip

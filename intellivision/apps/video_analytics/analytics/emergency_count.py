@@ -23,8 +23,9 @@ import supervision as sv
 from tqdm import tqdm
 import torch
 from boxmot import BotSort
-from apps.video_analytics.models import load_yolo_model
+from apps.video_analytics.utils import load_yolo_model
 from pathlib import Path
+from django.conf import settings
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 REID_MODEL_PATH = MODELS_DIR / "osnet_x0_25_msmt17.pt"
 
@@ -363,7 +364,9 @@ def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, custo
         job_id = match.group(1)
     else:
         job_id = str(int(time.time()))  # fallback to timestamp
-    output_name = f"output_{job_id}.mp4"
+    OUTPUT_DIR = settings.JOB_OUTPUT_DIR
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    output_name = os.path.join(OUTPUT_DIR, f"output_{job_id}.mp4")
 
     writer = cv2.VideoWriter(output_name, cv2.VideoWriter_fourcc(*'mp4v'), video_info.fps, video_info.resolution_wh)
 

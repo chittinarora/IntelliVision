@@ -13,7 +13,7 @@ import time
 import pathlib
 import urllib.request
 from django.conf import settings
-from apps.video_analytics.models import load_yolo_model
+from apps.video_analytics.utils import load_yolo_model
 
 # --- Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -254,7 +254,7 @@ def run_crowd_analysis(source_path, zone_configs, output_path=None):
     OUTPUT_DIR = settings.JOB_OUTPUT_DIR
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     if output_path is None:
-        output_path = get_next_filename(os.path.join(OUTPUT_DIR, f"output_crowd_{base_name}.mp4"))
+        output_path = os.path.join(OUTPUT_DIR, f"output_crowd_{base_name}.mp4")
     writer = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'),
                              video_info.fps, video_info.resolution_wh)
 
