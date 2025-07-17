@@ -103,6 +103,7 @@ class ANPRProcessor:
         """Process a video file with enhanced debugging and diagnostics"""
         # Reset state for new video
         self.reset()
+        start_time = time.time()
 
         # Verify input file exists
         video_path = Path(video_path)
@@ -430,9 +431,13 @@ class ANPRProcessor:
 
         summary = {
             "plates_detected": df.get("Plate Number", []).tolist() if not df.empty else [],
+            "recognized_plates": df.get("Plate Number", []).tolist() if not df.empty else [],
+            "detected_plates": df.get("Plate Number", []).tolist() if not df.empty else [],  # alias for consistency
             "plate_detection_times": {r["Plate Number"]: r["Detected At"] for r in rows},
             "plate_count": len(rows),
             "vehicle_count": self.tracker.get_total_unique_ids(),
+            "total_frames": frame_idx,  # expected by car_count.py
+            "processing_fps": frame_idx / (time.time() - start_time) if (time.time() - start_time) > 0 else 0,  # expected by car_count.py
             "processed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "output_video": str(annotated_video),
             "csv_file": str(csv_file) if csv_file else None,
@@ -673,5 +678,6 @@ class ParkingProcessor:
         summary['processing_fps'] = frame_idx / elapsed if elapsed > 0 else 0
         summary['processing_time'] = elapsed
         summary['final_occupancy'] = len(plate_history)
+        summary['vehicle_count'] = len(plate_history)
         logger.info(f"Parking analysis complete: {summary}")
         return str(output_path), summary

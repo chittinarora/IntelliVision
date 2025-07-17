@@ -128,7 +128,7 @@ def process_video_job(job_id):
         # =============================
         elif job.job_type == "car_count":
             from apps.video_analytics.analytics.car_count import recognize_number_plates
-            MODELS_DIR = Path(__file__).resolve().parent / 'models'
+            MODELS_DIR = Path(settings.BASE_DIR) / 'video_analytics' / 'models'
             input_filename = os.path.basename(input_path)
             models_input_path = MODELS_DIR / input_filename
             if not models_input_path.exists():
@@ -144,13 +144,12 @@ def process_video_job(job_id):
                     saved_path = default_storage.save(saved_name, ContentFile(out_f.read()))
                     output_url = default_storage.url(saved_path)
                 job.output_video.name = saved_name
-            # --- FIX: Always include detected_plates, recognized_plates, and plate_count in data and at top level ---
             summary = raw_result.get('summary') or {}
-            data = dict(summary) if summary else {}
-            plates = data.get('detected_plates') or data.get('plates_detected') or []
-            data['detected_plates'] = plates
+            plates = summary.get('recognized_plates', [])
+            plate_count = len(plates)
+            data = dict(summary)
             data['recognized_plates'] = plates
-            data['plate_count'] = len(plates)
+            data['plate_count'] = plate_count
             result_data = {
                 'status': raw_result.get('status', 'error'),
                 'job_type': 'car_count',
@@ -158,8 +157,7 @@ def process_video_job(job_id):
                 'output_path': ensure_api_media_url(output_url),
                 'data': data,
                 'recognized_plates': plates,
-                'detected_plates': plates,
-                'plate_count': len(plates),
+                'plate_count': plate_count,
                 'meta': {},
                 'error': None if raw_result.get('status') == 'completed' else raw_result.get('message', 'Error')
             }
@@ -170,7 +168,7 @@ def process_video_job(job_id):
         # =============================
         elif job.job_type == "parking_analysis":
             from apps.video_analytics.analytics.car_count import analyze_parking_video
-            MODELS_DIR = Path(__file__).resolve().parent / 'models'
+            MODELS_DIR = Path(settings.BASE_DIR) / 'video_analytics' / 'models'
             input_filename = os.path.basename(input_path)
             models_input_path = MODELS_DIR / input_filename
             if not models_input_path.exists():
