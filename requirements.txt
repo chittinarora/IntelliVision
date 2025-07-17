@@ -50,6 +50,7 @@ thop~=0.1.1-2209072238
 keras~=3.8.0
 inference_sdk
 roboflow
+timm
 
 # =============================
 # Face Recognition & Computer Vision

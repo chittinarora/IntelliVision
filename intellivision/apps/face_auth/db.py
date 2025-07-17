@@ -9,7 +9,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
 
 # --- MongoDB Setup ---
-mongo = MongoClient(os.environ.get("MONGO_URI"))
+mongo = MongoClient(os.environ.get("MONGO_URI", "mongodb+srv://toram444444:06nJTevaUItCDpd9@cluster01.lemxesc.mongodb.net/?retryWrites=true&w=majority&appName=Cluster01"))
 db = mongo.face_auth
 users_collection = db.users
 

@@ -141,10 +141,15 @@ def analyze_food_image(image_path: str) -> Dict:
                 'error': f"Unexpected API response: {str(e)}"
             }
         parsed = parse_json_from_response(text)
+        # Convert image_path to a URL for output_image
+        rel_path = os.path.relpath(image_path, settings.MEDIA_ROOT)
+        output_image_url = settings.MEDIA_URL + rel_path.replace(os.sep, '/')
+        if not output_image_url.startswith('/api/media/'):
+            output_image_url = '/api/media/' + rel_path.replace(os.sep, '/')
         return {
             'status': 'completed',
             'job_type': 'food_waste_estimation',
-            'output_image': image_path,
+            'output_image': output_image_url,
             'data': {**parsed, 'alerts': []},
             'meta': {},
             'error': None

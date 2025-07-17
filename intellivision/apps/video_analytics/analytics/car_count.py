@@ -26,7 +26,7 @@ car_model = MODELS_DIR / 'yolo11m_car.pt'
 load_dotenv(BASE_DIR / '.env')
 
 # Define canonical output directory for all outputs
-OUTPUT_DIR = settings.JOB_OUTPUT_DIR
+OUTPUT_DIR = Path(settings.JOB_OUTPUT_DIR)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Configure Cloudinary & MongoDB
@@ -36,7 +36,7 @@ cloudinary.config(
     api_secret=os.getenv('CLOUDINARY_API_SECRET'),
     secure=True
 )
-mongo_uri = os.getenv('MONGODB_URI', 'mongodb://localhost:27017/anpr')
+mongo_uri = os.environ.get('MONGO_URI', 'mongodb+srv://toram444444:06nJTevaUItCDpd9@cluster01.lemxesc.mongodb.net/?retryWrites=true&w=majority&appName=Cluster01')
 mongo_client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
 db = mongo_client['anpr']
 

@@ -71,8 +71,8 @@ def process_video_job(job_id):
                 saved_path = default_storage.save(saved_name, ContentFile(out_f.read()))
                 output_url = default_storage.url(saved_path)
             job.output_video.name = saved_name  # Store relative path only
-            result_data['output_video'] = output_url
-            job.results = {**result_data, "output_path": output_url}
+            result_data['output_video'] = ensure_api_media_url(output_url)
+            job.results = {**result_data, "output_path": ensure_api_media_url(output_url)}
 
         # =============================
         # EMERGENCY COUNT
@@ -120,8 +120,8 @@ def process_video_job(job_id):
                 saved_path = default_storage.save(saved_name, ContentFile(out_f.read()))
                 output_url = default_storage.url(saved_path)
             job.output_video.name = saved_name  # Store relative path only
-            result_data['output_video'] = output_url
-            job.results = {**result_data, "output_path": output_url}
+            result_data['output_video'] = ensure_api_media_url(output_url)
+            job.results = {**result_data, "output_path": ensure_api_media_url(output_url)}
 
         # =============================
         # CAR COUNT
@@ -155,8 +155,8 @@ def process_video_job(job_id):
             result_data = {
                 'status': raw_result.get('status', 'error'),
                 'job_type': 'car_count',
-                'output_video': output_url,
-                'output_path': output_url,
+                'output_video': ensure_api_media_url(output_url),
+                'output_path': ensure_api_media_url(output_url),
                 'data': data,
                 'meta': {},
                 'error': None if raw_result.get('status') == 'completed' else raw_result.get('message', 'Error')
@@ -187,8 +187,8 @@ def process_video_job(job_id):
             result_data = {
                 'status': raw_result.get('status', 'error'),
                 'job_type': 'parking_analysis',
-                'output_video': output_url,
-                'output_path': output_url,
+                'output_video': ensure_api_media_url(output_url),
+                'output_path': ensure_api_media_url(output_url),
                 'data': raw_result.get('summary', {}),
                 'meta': {},
                 'error': None if raw_result.get('status') == 'completed' else raw_result.get('message', 'Error')
@@ -212,7 +212,7 @@ def process_video_job(job_id):
                     saved_path = default_storage.save(saved_name, ContentFile(out_f.read()))
                     output_url = default_storage.url(saved_path)
                 job.output_video.name = saved_name
-                result_data['output_path'] = output_url
+                result_data['output_path'] = ensure_api_media_url(output_url)
                 job.results = {**result_data}
             else:
                 result_data = tracking_video(input_path, output_path)
@@ -223,7 +223,7 @@ def process_video_job(job_id):
                     saved_path = default_storage.save(saved_name, ContentFile(out_f.read()))
                     output_url = default_storage.url(saved_path)
                 job.output_video.name = saved_name
-                result_data['output_video'] = output_url
+                result_data['output_video'] = ensure_api_media_url(output_url)
                 job.results = {**result_data}
 
         # =============================
@@ -252,7 +252,7 @@ def process_video_job(job_id):
                     saved_path = default_storage.save(saved_name, ContentFile(f.read()))
                     output_url = default_storage.url(saved_path)
                 # Place output image path inside the frame dict
-                frame_result['output_image'] = output_url
+                frame_result['output_image'] = ensure_api_media_url(output_url)
                 # Set job.results to the unified format (not wrapped in a list)
                 result_data = frame_result
                 job.output_video = None
@@ -279,7 +279,7 @@ def process_video_job(job_id):
                     job.output_image.save(output_filename, File(out_f))
                 job.output_video = None
                 result_data['media_type'] = 'image'
-                result_data['output_url'] = job.output_image.url
+                result_data['output_url'] = ensure_api_media_url(job.output_image.url)
             elif 'output_video' in result_data:
                 output_file_path = os.path.join(settings.MEDIA_ROOT, result_data['output_video'])
                 output_filename = f'output_{job.id}.mp4'
@@ -287,7 +287,7 @@ def process_video_job(job_id):
                     job.output_video.save(output_filename, File(out_f))
                 job.output_image = None
                 result_data['media_type'] = 'video'
-                result_data['output_url'] = job.output_video.url
+                result_data['output_url'] = ensure_api_media_url(job.output_video.url)
             else:
                 # Log error if neither output_image nor output_video is present
                 logger.error(f"Wildlife detection result missing output file: {result_data}")
@@ -318,8 +318,8 @@ def process_video_job(job_id):
                 saved_path = default_storage.save(saved_name, ContentFile(out_f.read()))
                 output_url = default_storage.url(saved_path)
             job.output_video.name = saved_name  # Store relative path only
-            result_data['output_video'] = output_url
-            job.results = {**result_data, "output_path": output_url}
+            result_data['output_video'] = ensure_api_media_url(output_url)
+            job.results = {**result_data, "output_path": ensure_api_media_url(output_url)}
 
         # =============================
         # UNKNOWN JOB TYPE
@@ -346,3 +346,15 @@ def process_video_job(job_id):
         job.status = 'failed'
         job.save()
         raise
+
+def ensure_api_media_url(url):
+    # If the url is already absolute or starts with /api/media/, return as is
+    if not url:
+        return url
+    if url.startswith('/api/media/') or url.startswith('http'):
+        return url
+    # If it starts with /media/, replace with /api/media/
+    if url.startswith('/media/'):
+        return '/api' + url
+    # Otherwise, ensure it is relative to /api/media/
+    return '/api/media/' + url.lstrip('/')

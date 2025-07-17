@@ -5,20 +5,30 @@ from datetime import datetime
 from PIL import Image
 import numpy as np
 from ultralytics import YOLO
-from pymongo import MongoClient
 import os
 from django.conf import settings
 from apps.video_analytics.convert import convert_to_web_mp4
 from boxmot import BotSort
 import numpy as np
+from pymongo import MongoClient
 
 # Canonical models directory for all analytics jobs
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 
-# ---------------------- MongoDB Connection ----------------------
-client = MongoClient("mongodb://localhost:27017/")
-db = client["snake_db"]
-collection = db["detections"]
+# Read the exact URI you injected into Docker
+MONGO_URI = os.environ.get("MONGO_URI", "mongodb+srv://toram444444:06nJTevaUItCDpd9@cluster01.lemxesc.mongodb.net/?retryWrites=true&w=majority&appName=Cluster01")
+if not MONGO_URI:
+    raise RuntimeError("MONGO_URI not set!")
+
+# Create the client against your Atlas cluster
+mongo_client = MongoClient(MONGO_URI)
+
+# Choose your DB name (if not embedded in the URI)
+# For a srv URI without DB, you can pick one here:
+db = mongo_client["snake_db"]
+
+# And reference the collection you need
+snake_collection = db["snake_detections"]
 
 # ---------------------- YOLO + File Settings ---------------------
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -67,7 +77,7 @@ def detect_snakes_in_image(image_path):
         "detected_animals": detected_animals,
         "timestamp": datetime.now()
     }
-    result = collection.insert_one(mongo_doc)
+    result = snake_collection.insert_one(mongo_doc)
 
     # Return result as dict
     return {
@@ -139,7 +149,7 @@ def detect_snakes_in_video(video_path):
         "detected_animals": detected_animals,
         "timestamp": datetime.now()
     }
-    result = collection.insert_one(mongo_doc)
+    result = snake_collection.insert_one(mongo_doc)
 
     # Return result as dict
     return {
@@ -170,6 +180,9 @@ def tracking_video(input_path: str, output_path: str) -> dict:
         # Save to web-accessible location
         rel_path = Path(result['saved_path']).relative_to(settings.MEDIA_ROOT)
         url = settings.MEDIA_URL + str(rel_path).replace(os.sep, '/')
+        # Ensure MEDIA_URL always ends with a single slash
+        if not url.startswith('/api/media/'):
+            url = '/api/media/' + str(rel_path).replace(os.sep, '/')
         return {
             'status': 'completed',
             'job_type': 'wildlife_detection',

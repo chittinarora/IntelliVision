@@ -14,8 +14,13 @@ load_dotenv(BASE_DIR / '.env')  # Loads .env from project root
 
 # 2. Security
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-aq_x8cykh&3r_q9df@b%n(p(dv5&3gt$=17m#u-ir$kzl-(mjm')
-DEBUG = False
-SECURE_SSL_REDIRECT = True
+DEBUG = os.environ.get("DJANGO_DEBUG", "False") == "True"
+
+# Only redirect to HTTPS in production
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+else:
+    SECURE_SSL_REDIRECT = False
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 SECURE_HSTS_SECONDS = 31536000  # 1 year
@@ -94,9 +99,9 @@ ROOT_URLCONF = 'intellivision.urls'
 WSGI_APPLICATION = 'intellivision.wsgi.application'
 
 # 8. Static & Media Files
-STATIC_URL = '/static/'
+STATIC_URL = '/api/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')  # For collectstatic, serve with Nginx in production
-MEDIA_URL = '/media/'
+MEDIA_URL = '/api/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')         # Serve with Nginx in production
 
 # 9. Authentication & Password Validation
