@@ -1,28 +1,37 @@
 import cv2
 import os
-from inference_sdk import InferenceHTTPClient
+import base64
+import requests
 from typing import List, Dict, Any
 from apps.video_analytics.convert import convert_to_web_mp4
 from django.conf import settings
 from pathlib import Path
 
 """
-Pothole detection analytics using Roboflow Inference API.
+Pothole detection analytics using Roboflow HTTP API.
 Supports both video and image input.
 """
 
 # Canonical models directory for all analytics jobs
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 
-CLIENT = InferenceHTTPClient(
-    api_url="https://serverless.roboflow.com",
-    api_key="vfMnQeFixryhPw18Thmz"
-)
+ROBOFLOW_API_URL = "https://detect.roboflow.com/pothole-voxrl/1"
+ROBOFLOW_API_KEY = "vfMnQeFixryhPw18Thmz"
+
+def send_frame_to_roboflow(frame) -> List[Dict[str, Any]]:
+    _, img_encoded = cv2.imencode('.jpg', frame)
+    base64_encoded_image = base64.b64encode(img_encoded).decode('utf-8')
+    response = requests.post(
+        ROBOFLOW_API_URL,
+        params={"api_key": ROBOFLOW_API_KEY},
+        data=base64_encoded_image,
+        headers={"Content-Type": "application/x-www-form-urlencoded"}
+    )
+    response.raise_for_status()
+    result = response.json()
+    return result.get("predictions", [])
 
 def tracking_video(input_path: str, output_path: str = None) -> Dict[str, Any]:
-    """
-    Main entry point for pothole detection on a video file. Returns a result dict for job.results.
-    """
     OUTPUT_DIR = settings.JOB_OUTPUT_DIR
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     if output_path is None:
@@ -68,13 +77,10 @@ def run_pothole_detection(input_path: str, output_path: str) -> Dict[str, Any]:
             continue
 
         print(f"➡️ Processing frame {frame_idx}")
-        temp_input = "temp_frame.jpg"
-        cv2.imwrite(temp_input, frame)
 
         try:
-            result = CLIENT.infer(temp_input, model_id="pothole-voxrl/1")
-            print("🧠 Prediction received:", result)
-            predictions = result.get("predictions", [])
+            predictions = send_frame_to_roboflow(frame)
+            print("🧠 Prediction received:", predictions)
             potholes_in_frame = [
                 {
                     "x": float(pred['x']),
@@ -114,8 +120,6 @@ def run_pothole_detection(input_path: str, output_path: str) -> Dict[str, Any]:
 
     cap.release()
     out.release()
-    if os.path.exists(temp_input):
-        os.remove(temp_input)
     print("✅ All done, video saved.")
 
     # Convert to web-friendly MP4
@@ -148,9 +152,8 @@ def run_pothole_image_detection(input_path: str, output_path: str) -> Dict[str, 
         return {"error": "Failed to read image."}
 
     try:
-        result = CLIENT.infer(input_path, model_id="pothole-voxrl/1")
-        print("🧠 Prediction received:", result)
-        predictions = result.get("predictions", [])
+        predictions = send_frame_to_roboflow(frame)
+        print("🧠 Prediction received:", predictions)
         potholes = [
             {
                 "x": float(pred['x']),
