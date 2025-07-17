@@ -144,10 +144,9 @@ def process_video_job(job_id):
                     saved_path = default_storage.save(saved_name, ContentFile(out_f.read()))
                     output_url = default_storage.url(saved_path)
                 job.output_video.name = saved_name
-            # --- FIX: Always include detected_plates, recognized_plates, and plate_count in data ---
+            # --- FIX: Always include detected_plates, recognized_plates, and plate_count in data and at top level ---
             summary = raw_result.get('summary') or {}
             data = dict(summary) if summary else {}
-            # Fallbacks for missing fields
             plates = data.get('detected_plates') or data.get('plates_detected') or []
             data['detected_plates'] = plates
             data['recognized_plates'] = plates
@@ -158,6 +157,9 @@ def process_video_job(job_id):
                 'output_video': ensure_api_media_url(output_url),
                 'output_path': ensure_api_media_url(output_url),
                 'data': data,
+                'recognized_plates': plates,
+                'detected_plates': plates,
+                'plate_count': len(plates),
                 'meta': {},
                 'error': None if raw_result.get('status') == 'completed' else raw_result.get('message', 'Error')
             }

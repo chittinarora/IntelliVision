@@ -368,26 +368,35 @@ class ANPRProcessor:
 
         # Summarize OCR results and persist
         rows, seen = [], set()
+        # Collect all locked plates first
         for tid, hist in self.plate_history.items():
             if tid in self.locked_plate:
                 plate = self.locked_plate[tid]
                 ts = self.plate_timestamps[tid].get(plate, datetime.now())
-            else:
-                if hist:
-                    plate, _ = max(hist.items(), key=lambda x: x[1])
+                if plate and plate not in seen:
+                    seen.add(plate)
+                    count = hist.get(plate,1)
+                    rows.append({
+                        "Plate Number": plate,
+                        "Detected At": ts.strftime("%Y-%m-%d %H:%M:%S"),
+                        "OCR Count": count
+                    })
+        # Fallback: If no locked plates, include all plates above threshold
+        if not rows:
+            for tid, hist in self.plate_history.items():
+                for plate, count in hist.items():
+                    # Find the max confidence for this plate in this track
+                    # (Assume plate_timestamps was set when added)
                     ts = self.plate_timestamps[tid].get(plate, datetime.now())
-                else:
-                    continue
-
-            if plate and plate not in seen:
-                seen.add(plate)
-                count = hist.get(plate,1)
-                rows.append({
-                    "Plate Number": plate,
-                    "Detected At": ts.strftime("%Y-%m-%d %H:%M:%S"),
-                    "OCR Count": count
-                })
-
+                    # Only include if plate was ever seen with conf >= threshold
+                    # (We don't store conf per plate, so fallback to including all in hist)
+                    if plate and plate not in seen:
+                        seen.add(plate)
+                        rows.append({
+                            "Plate Number": plate,
+                            "Detected At": ts.strftime("%Y-%m-%d %H:%M:%S"),
+                            "OCR Count": count
+                        })
         # --- PATCH: If no rows but plate_history has entries, add most frequent plate for each track ---
         if not rows and self.plate_history:
             logger.warning("[PATCH] No locked plates, but plate_history has entries. Adding most frequent plates for each track.")
