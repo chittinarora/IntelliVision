@@ -209,6 +209,10 @@ def pothole_detection_image_view(request):
     else:
         final_output_path = output_path
 
+    # Check if output file exists before trying to open
+    if not os.path.exists(final_output_path):
+        return Response({'error': 'Detection failed, output file not found.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     # Convert to web-accessible path
     with open(final_output_path, 'rb') as out_f:
         saved_name = f"results/pothole_{uuid4()}.webp" if final_output_path.endswith('.webp') else f"results/pothole_{uuid4()}.jpg"
