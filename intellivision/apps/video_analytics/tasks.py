@@ -350,8 +350,12 @@ def process_video_job(job_id):
         raise
 
 @shared_task
-def analyze_youtube_video_task(job_type, youtube_url):
+def analyze_youtube_video_task(job_id, job_type, youtube_url):
     """Download a YouTube video and run the selected analytics job on it."""
+    # Get the job record and update status
+    job = VideoJob.objects.get(id=job_id)
+    job.status = 'processing'
+    job.save()
     import yt_dlp
     import tempfile
     import os
@@ -371,6 +375,9 @@ def analyze_youtube_video_task(job_type, youtube_url):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([youtube_url])
     except Exception as e:
+        job.status = 'failed'
+        job.results = {'error': f"YouTube download failed: {str(e)}", 'youtube_url': youtube_url, 'source': 'youtube'}
+        job.save()
         return {"success": False, "message": f"YouTube download failed: {str(e)}"}
     
     # Find the downloaded file
@@ -381,6 +388,9 @@ def analyze_youtube_video_task(job_type, youtube_url):
             break
     
     if not video_path or not os.path.exists(video_path):
+        job.status = 'failed'
+        job.results = {'error': 'Downloaded video file not found', 'youtube_url': youtube_url, 'source': 'youtube'}
+        job.save()
         return {"success": False, "message": "Downloaded video file not found"}
     
     # Verify the video can be opened by OpenCV
@@ -388,6 +398,9 @@ def analyze_youtube_video_task(job_type, youtube_url):
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         cap.release()
+        job.status = 'failed'
+        job.results = {'error': 'Downloaded video cannot be opened by OpenCV', 'youtube_url': youtube_url, 'source': 'youtube'}
+        job.save()
         return {"success": False, "message": "Downloaded video cannot be opened by OpenCV"}
     try:
         if job_type == 'car_count':
@@ -403,8 +416,42 @@ def analyze_youtube_video_task(job_type, youtube_url):
             result = run_crowd_analysis(video_path, zone_configs={})
         elif job_type == 'emergency_count':
             from .analytics.emergency_count import tracking_video as emergency_count_analyze
-            # Use a default output path and empty line config
-            result = emergency_count_analyze(video_path, output_path=video_path.replace('.mp4', '_out.mp4'), line_coords_dict={})
+            
+            # For YouTube videos, extract the first frame and save it for line drawing
+            import cv2
+            temp_cap = cv2.VideoCapture(video_path)
+            ret, first_frame = temp_cap.read()
+            width = int(temp_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(temp_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            temp_cap.release()
+            
+            if ret and first_frame is not None:
+                # Save first frame to media for frontend access
+                first_frame_filename = f"frame_{job_id}_first.jpg"
+                first_frame_path = os.path.join(settings.MEDIA_ROOT, 'outputs', first_frame_filename)
+                os.makedirs(os.path.dirname(first_frame_path), exist_ok=True)
+                cv2.imwrite(first_frame_path, first_frame)
+                
+                # Update job with first frame path for frontend line drawing
+                job.results = {
+                    **job.results,
+                    'first_frame_path': f'outputs/{first_frame_filename}',
+                    'video_width': width,
+                    'video_height': height,
+                    'needs_line_config': True,
+                    'youtube_url': youtube_url,
+                    'source': 'youtube'
+                }
+                job.status = 'pending_config'  # New status indicating it needs line configuration
+                job.save()
+                
+                # Return early - job will be completed when user configures lines
+                return {"success": True, "message": "First frame extracted. Please configure counting lines.", "needs_config": True}
+            else:
+                job.status = 'failed'
+                job.results = {'error': 'Could not extract first frame from YouTube video', 'youtube_url': youtube_url, 'source': 'youtube'}
+                job.save()
+                return {"success": False, "message": "Could not extract first frame from video"}
         elif job_type == 'room_readiness':
             from .analytics.room_readiness import analyze_room_video_multi_zone_only
             result = analyze_room_video_multi_zone_only(video_path)
@@ -421,17 +468,116 @@ def analyze_youtube_video_task(job_type, youtube_url):
             cap.release()
             import shutil
             shutil.rmtree(temp_dir)
+            job.status = 'failed'
+            job.results = {'error': f'Unsupported job type: {job_type}', 'youtube_url': youtube_url, 'source': 'youtube'}
+            job.save()
             return {"success": False, "message": f"Unsupported job type: {job_type}"}
     except Exception as e:
         cap.release()
         import shutil
         shutil.rmtree(temp_dir)
+        job.status = 'failed'
+        job.results = {'error': f'Analytics failed: {str(e)}', 'youtube_url': youtube_url, 'source': 'youtube'}
+        job.save()
         return {"success": False, "message": f"Analytics failed: {str(e)}"}
     
+    # Success - update job with results
     cap.release()
     import shutil
     shutil.rmtree(temp_dir)
+    
+    job.status = 'done'
+    job.results = {**result, 'youtube_url': youtube_url, 'source': 'youtube'}
+    job.save()
+    
     return {"success": True, "result": result, "message": "Analysis complete."}
+
+@shared_task
+def resume_youtube_emergency_count(job_id):
+    """Resume emergency count processing for a YouTube video after line configuration."""
+    job = VideoJob.objects.get(id=job_id)
+    
+    try:
+        # Get the original YouTube video path from the job's stored results
+        youtube_url = job.results.get('youtube_url')
+        if not youtube_url:
+            job.status = 'failed'
+            job.results = {**job.results, 'error': 'YouTube URL not found in job data'}
+            job.save()
+            return {"success": False, "message": "YouTube URL not found"}
+        
+        # Re-download the YouTube video (same logic as original task)
+        import yt_dlp
+        import tempfile
+        import os
+        temp_dir = tempfile.mkdtemp()
+        base_filename = 'youtube_video'
+        
+        ydl_opts = {
+            'outtmpl': os.path.join(temp_dir, f'{base_filename}.%(ext)s'),
+            'format': 'best[height<=720][ext=mp4]/best[height<=720]/best[ext=mp4]/best',
+            'merge_output_format': 'mp4',
+            'writeinfojson': False,
+            'writesubtitles': False,
+            'writeautomaticsub': False,
+        }
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([youtube_url])
+        
+        # Find the downloaded file
+        video_path = None
+        for file in os.listdir(temp_dir):
+            if file.startswith(base_filename) and file.endswith('.mp4'):
+                video_path = os.path.join(temp_dir, file)
+                break
+        
+        if not video_path or not os.path.exists(video_path):
+            job.status = 'failed'
+            job.results = {**job.results, 'error': 'Could not re-download YouTube video'}
+            job.save()
+            return {"success": False, "message": "Could not re-download YouTube video"}
+        
+        # Run emergency count with configured lines
+        from .analytics.emergency_count import tracking_video as emergency_count_analyze
+        
+        # Convert emergency_lines back to the expected format
+        line_coords_dict = {}
+        if job.emergency_lines:
+            for idx, line in enumerate(job.emergency_lines, start=1):
+                line_key = f"line{idx}"
+                line_coords_dict[line_key] = {
+                    "start_x": float(line.get("start_x", 0)),
+                    "start_y": float(line.get("start_y", 0)),
+                    "end_x": float(line.get("end_x", 0)),
+                    "end_y": float(line.get("end_y", 0)),
+                    "inDirection": line.get("inDirection", "UP")
+                }
+        
+        result = emergency_count_analyze(
+            video_path, 
+            output_path=video_path.replace('.mp4', '_out.mp4'), 
+            line_coords_dict=line_coords_dict,
+            video_width=job.video_width,
+            video_height=job.video_height
+        )
+        
+        # Update job with results
+        job.status = 'done'
+        job.results = {**result, 'youtube_url': youtube_url, 'source': 'youtube'}
+        job.save()
+        
+        # Cleanup
+        import shutil
+        shutil.rmtree(temp_dir)
+        
+        return {"success": True, "result": result, "message": "YouTube emergency count completed"}
+        
+    except Exception as e:
+        job.status = 'failed'
+        job.results = {**job.results, 'error': f'Processing failed: {str(e)}'}
+        job.save()
+        return {"success": False, "message": f"Processing failed: {str(e)}"}
 
 def ensure_api_media_url(url):
     # If the url is already absolute or starts with /api/media/, return as is

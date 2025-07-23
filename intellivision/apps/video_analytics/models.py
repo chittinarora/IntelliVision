@@ -21,6 +21,7 @@ class VideoJob(models.Model):
         ('processing', 'Processing'),
         ('done', 'Done'),
         ('failed', 'Failed'),
+        ('pending_config', 'Pending Configuration'),
     ]
 
     JOB_TYPE_CHOICES = [

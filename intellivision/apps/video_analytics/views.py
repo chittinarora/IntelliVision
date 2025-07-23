@@ -1,6 +1,7 @@
 from django.shortcuts import render
 from rest_framework import viewsets, permissions, serializers
 from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.decorators import action
 from django.contrib.auth import get_user_model
 
 from .models import VideoJob
@@ -20,6 +21,7 @@ from uuid import uuid4
 import os
 import tempfile
 import logging
+import json
 
 # Import the food waste estimation function
 from apps.video_analytics.analytics.food_waste_estimation import analyze_food_image, analyze_multiple_food_images
@@ -406,10 +408,59 @@ def emergency_count_view(request):
     """
     API endpoint for emergency counting from an uploaded video.
     Validates emergency_lines and triggers async processing.
+    Also handles YouTube line configuration updates.
     """
     User = get_user_model()
     user = request.user if request.user.is_authenticated else User.objects.first()
 
+    # Check if this is a YouTube configuration update
+    is_youtube_config = request.data.get('is_youtube_config') == 'true'
+    job_id = request.data.get('job_id')
+    
+    if is_youtube_config and job_id:
+        # Handle YouTube line configuration
+        try:
+            job = VideoJob.objects.get(id=job_id, user=user)
+        except VideoJob.DoesNotExist:
+            return Response({'error': 'Job not found or access denied.'}, status=status.HTTP_404_NOT_FOUND)
+        
+        if job.status != 'pending_config':
+            return Response({'error': 'Job is not in pending configuration state.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get and validate emergency_lines
+        emergency_lines = request.data.get("emergency_lines")
+        if isinstance(emergency_lines, str):
+            try:
+                emergency_lines = json.loads(emergency_lines)
+            except Exception:
+                return Response({'error': "'emergency_lines' must be valid JSON."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if not isinstance(emergency_lines, list) or len(emergency_lines) != 2:
+            return Response({'error': "'emergency_lines' must be a list of exactly 2 line configurations."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Update job with line configuration and resume processing
+        job.emergency_lines = emergency_lines
+        job.video_width = int(request.data.get('video_width', 1920))
+        job.video_height = int(request.data.get('video_height', 1080))
+        job.status = 'processing'
+        job.results = {
+            **job.results,
+            'emergency_lines': emergency_lines,
+            'configuration_completed': True
+        }
+        job.save()
+        
+        # Resume emergency count processing with the saved YouTube video
+        from .tasks import resume_youtube_emergency_count
+        resume_youtube_emergency_count.delay(job.id)
+        
+        return Response({
+            'message': 'Line configuration saved. Processing resumed.',
+            'job_id': job.id,
+            'status': job.status
+        })
+    
+    # Original emergency count logic for uploaded videos
     video_file = request.FILES.get('video')
     if not video_file:
         return Response({'error': 'No video file provided.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -597,6 +648,32 @@ class AnalyzeYouTubeView(APIView):
         youtube_url = request.data.get('youtube_url')
         if not job_type or not youtube_url:
             return Response({'success': False, 'message': 'job_type and youtube_url are required.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Create a VideoJob record for tracking
+        User = get_user_model()
+        user = request.user if request.user.is_authenticated else User.objects.first()
+        
+        # Create a dummy file entry for YouTube URL
+        from django.core.files.base import ContentFile
+        dummy_content = ContentFile(f"YouTube URL: {youtube_url}".encode(), name=f"youtube_{uuid4()}.txt")
+        
+        job = VideoJob.objects.create(
+            user=user,
+            status='pending',
+            input_video=dummy_content,
+            job_type=job_type,
+            created_at=timezone.now(),
+            updated_at=timezone.now(),
+            results={'youtube_url': youtube_url, 'source': 'youtube'}
+        )
+        
+        # Start the analysis task with the job ID
         from .tasks import analyze_youtube_video_task
-        task = analyze_youtube_video_task.delay(job_type, youtube_url)
-        return Response({'task_id': task.id})
+        analyze_youtube_video_task.delay(job.id, job_type, youtube_url)
+        
+        return Response({
+            'job_id': job.id,
+            'status': job.status,
+            'created_at': job.created_at,
+            'job_type': job.job_type,
+        })
