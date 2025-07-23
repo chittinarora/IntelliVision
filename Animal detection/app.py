@@ -13,10 +13,9 @@ import time
 output_dir = r"F:\animal-result"
 os.makedirs(output_dir, exist_ok=True)
 
-# ─── LOAD MODEL ────────────────────────────────────────
 @st.cache_resource
 def load_model():
-    model_path = r"C:\Users\Hp\runs\detect\animal_yolov11n_data_1\weights\best.pt"
+    model_path = r"C:\Users\Hp\runs\detect\animal_yolov11n_finetune_data_2\weights\best.pt"
     return YOLO(model_path)
 
 model = load_model()
