@@ -356,14 +356,39 @@ def analyze_youtube_video_task(job_type, youtube_url):
     import tempfile
     import os
     # Download video
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp:
-        ydl_opts = {'outtmpl': tmp.name, 'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/mp4'}
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([youtube_url])
-        except Exception as e:
-            return {"success": False, "message": f"YouTube download failed: {str(e)}"}
-        video_path = tmp.name
+    temp_dir = tempfile.mkdtemp()
+    base_filename = 'youtube_video'
+    
+    ydl_opts = {
+        'outtmpl': os.path.join(temp_dir, f'{base_filename}.%(ext)s'),
+        'format': 'best[height<=720][ext=mp4]/best[height<=720]/best[ext=mp4]/best',
+        'merge_output_format': 'mp4',
+        'writeinfojson': False,
+        'writesubtitles': False,
+        'writeautomaticsub': False,
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([youtube_url])
+    except Exception as e:
+        return {"success": False, "message": f"YouTube download failed: {str(e)}"}
+    
+    # Find the downloaded file
+    video_path = None
+    for file in os.listdir(temp_dir):
+        if file.startswith(base_filename) and file.endswith('.mp4'):
+            video_path = os.path.join(temp_dir, file)
+            break
+    
+    if not video_path or not os.path.exists(video_path):
+        return {"success": False, "message": "Downloaded video file not found"}
+    
+    # Verify the video can be opened by OpenCV
+    import cv2
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        cap.release()
+        return {"success": False, "message": "Downloaded video cannot be opened by OpenCV"}
     try:
         if job_type == 'car_count':
             from .analytics.car_count import analyze_video as car_count_analyze
@@ -393,12 +418,19 @@ def analyze_youtube_video_task(job_type, youtube_url):
             from .analytics.car_count import analyze_parking_video
             result = analyze_parking_video(video_path)
         else:
-            os.remove(video_path)
+            cap.release()
+            import shutil
+            shutil.rmtree(temp_dir)
             return {"success": False, "message": f"Unsupported job type: {job_type}"}
     except Exception as e:
-        os.remove(video_path)
+        cap.release()
+        import shutil
+        shutil.rmtree(temp_dir)
         return {"success": False, "message": f"Analytics failed: {str(e)}"}
-    os.remove(video_path)
+    
+    cap.release()
+    import shutil
+    shutil.rmtree(temp_dir)
     return {"success": True, "result": result, "message": "Analysis complete."}
 
 def ensure_api_media_url(url):
