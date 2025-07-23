@@ -27,8 +27,8 @@ except ImportError:
     def convert_to_web_mp4(input_path: str, output_path: str) -> bool:
         return False
 
-# Standardize MODELS_DIR
-BASE_DIR = Path(settings.BASE_DIR)
+# Revert BASE_DIR and MODELS_DIR to previous logic
+BASE_DIR = Path(__file__).resolve().parent.parent.parent  # project root
 MODELS_DIR = BASE_DIR / 'video_analytics' / 'models'
 plate_model = MODELS_DIR / 'best_car.pt'
 car_model = MODELS_DIR / 'yolo11m_car.pt'

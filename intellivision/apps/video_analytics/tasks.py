@@ -16,6 +16,8 @@ from PIL import Image
 import io
 from pathlib import Path
 import logging
+import yt_dlp
+import tempfile
 
 # Set up a logger for this module
 logger = logging.getLogger(__name__)
@@ -128,7 +130,7 @@ def process_video_job(job_id):
         # =============================
         elif job.job_type == "car_count":
             from apps.video_analytics.analytics.car_count import recognize_number_plates
-            MODELS_DIR = Path(settings.BASE_DIR) / 'video_analytics' / 'models'
+            MODELS_DIR = Path(__file__).resolve().parent / 'models'
             input_filename = os.path.basename(input_path)
             models_input_path = MODELS_DIR / input_filename
             if not models_input_path.exists():
@@ -168,7 +170,7 @@ def process_video_job(job_id):
         # =============================
         elif job.job_type == "parking_analysis":
             from apps.video_analytics.analytics.car_count import analyze_parking_video
-            MODELS_DIR = Path(settings.BASE_DIR) / 'video_analytics' / 'models'
+            MODELS_DIR = Path(__file__).resolve().parent / 'models'
             input_filename = os.path.basename(input_path)
             models_input_path = MODELS_DIR / input_filename
             if not models_input_path.exists():
@@ -346,6 +348,58 @@ def process_video_job(job_id):
         job.status = 'failed'
         job.save()
         raise
+
+@shared_task
+def analyze_youtube_video_task(job_type, youtube_url):
+    """Download a YouTube video and run the selected analytics job on it."""
+    import yt_dlp
+    import tempfile
+    import os
+    # Download video
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp:
+        ydl_opts = {'outtmpl': tmp.name, 'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/mp4'}
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([youtube_url])
+        except Exception as e:
+            return {"success": False, "message": f"YouTube download failed: {str(e)}"}
+        video_path = tmp.name
+    try:
+        if job_type == 'car_count':
+            from .analytics.car_count import analyze_video as car_count_analyze
+            result = car_count_analyze(video_path)
+        elif job_type == 'people_count':
+            from .analytics.people_count import tracking_video as people_count_analyze
+            # Use a default output path
+            result = people_count_analyze(video_path, output_path=video_path.replace('.mp4', '_out.mp4'))
+        elif job_type == 'lobby_detection':
+            from .analytics.lobby_detection import run_crowd_analysis
+            # Use empty/default zone configs
+            result = run_crowd_analysis(video_path, zone_configs={})
+        elif job_type == 'emergency_count':
+            from .analytics.emergency_count import tracking_video as emergency_count_analyze
+            # Use a default output path and empty line config
+            result = emergency_count_analyze(video_path, output_path=video_path.replace('.mp4', '_out.mp4'), line_coords_dict={})
+        elif job_type == 'room_readiness':
+            from .analytics.room_readiness import analyze_room_video_multi_zone_only
+            result = analyze_room_video_multi_zone_only(video_path)
+        elif job_type == 'pest_monitoring':
+            from .analytics.pest_monitoring import tracking_video as pest_monitoring_analyze
+            result = pest_monitoring_analyze(video_path, output_path=video_path.replace('.mp4', '_out.mp4'))
+        elif job_type == 'anpr':
+            from .analytics.car_count import recognize_number_plates
+            result = recognize_number_plates(video_path)
+        elif job_type == 'parking_analysis':
+            from .analytics.car_count import analyze_parking_video
+            result = analyze_parking_video(video_path)
+        else:
+            os.remove(video_path)
+            return {"success": False, "message": f"Unsupported job type: {job_type}"}
+    except Exception as e:
+        os.remove(video_path)
+        return {"success": False, "message": f"Analytics failed: {str(e)}"}
+    os.remove(video_path)
+    return {"success": True, "result": result, "message": "Analysis complete."}
 
 def ensure_api_media_url(url):
     # If the url is already absolute or starts with /api/media/, return as is

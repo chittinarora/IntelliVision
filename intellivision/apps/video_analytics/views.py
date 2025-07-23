@@ -153,13 +153,17 @@ def food_waste_estimation_view(request):
 
         # Add input images to results for frontend access
         if isinstance(result_data, list):
-            # Multiple images - add input_images to each result
+            # Multiple images - save each image to storage and get the correct path
+            input_image_paths = []
+            for i, image_content in enumerate(saved_files):
+                saved_path = default_storage.save(f"uploads/{image_content.name}", image_content)
+                input_image_paths.append(saved_path)
             for i, result in enumerate(result_data):
-                if i < len(saved_files):
-                    result['input_image'] = saved_files[i].name
+                if i < len(input_image_paths):
+                    result['input_image'] = input_image_paths[i]
         else:
-            # Single image - add input_image to result
-            result_data['input_image'] = saved_files[0].name
+            # Single image - use the path from the job's input_video field
+            result_data['input_image'] = job.input_video.name
 
         job.results = result_data
         job.status = 'done'
@@ -245,40 +249,6 @@ def pothole_detection_image_view(request):
         'results': job.results,
     })
 
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def pothole_detection_video_view(request):
-    """
-    API endpoint for pothole detection from an uploaded video.
-    Triggers asynchronous processing and returns the job info.
-    """
-    User = get_user_model()
-    user = request.user if request.user.is_authenticated else User.objects.first()
-
-    video_file = request.FILES.get('video')
-    if not video_file:
-        return Response({'error': 'No video file provided.'}, status=status.HTTP_400_BAD_REQUEST)
-
-    video_file.seek(0)
-    video_content = ContentFile(video_file.read(), name=f"pothole_{uuid4()}.mp4")
-
-    job = VideoJob.objects.create(
-        user=user,
-        status='pending',
-        input_video=video_content,
-        job_type='pothole_detection',
-        created_at=timezone.now(),
-        updated_at=timezone.now(),
-    )
-
-    process_video_job.delay(job.id)
-
-    return Response({
-        'job_id': job.id,
-        'status': job.status,
-        'created_at': job.created_at,
-        'job_type': job.job_type,
-    })
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -617,3 +587,15 @@ def lobby_detection_view(request):
         'created_at': job.created_at,
         'job_type': job.job_type,
     })
+
+class AnalyzeYouTubeView(APIView):
+    """API endpoint for analyzing a YouTube video with a selected job type."""
+    permission_classes = [AllowAny]
+    def post(self, request):
+        job_type = request.data.get('job_type')
+        youtube_url = request.data.get('youtube_url')
+        if not job_type or not youtube_url:
+            return Response({'success': False, 'message': 'job_type and youtube_url are required.'}, status=status.HTTP_400_BAD_REQUEST)
+        from .tasks import analyze_youtube_video_task
+        task = analyze_youtube_video_task.delay(job_type, youtube_url)
+        return Response({'task_id': task.id})

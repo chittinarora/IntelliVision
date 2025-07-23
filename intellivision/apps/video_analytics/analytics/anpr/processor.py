@@ -283,19 +283,18 @@ class ANPRProcessor:
                                             (int(rx1), int(max(ry1-10,0))),
                                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,0,0), 2)
                         except Exception as e:
-                            logger.error(f"OCR failed for plate at {rx1},{ry1}-{rx2}, {ry2}: {str(e)}")
+                            logger.error(f"OCR failed for plate at {rx1},{ry1}-{rx2},{ry2}: {str(e)}")
                             continue
 
-                        # Lock in a high-confidence read
-                        if conf_txt >= self.LOCK_CONF_THRESHOLD and tid not in self.locked_plate:
-                            self.locked_plate[tid] = text
-                            logger.info(f"Track {tid}: Locked plate: {text}")
-
-                        # If not locked, track frequency
-                        if text and tid not in self.locked_plate:
+                        # Always track ALL detected plates in history
+                        if text:
                             self.plate_history[tid][text] += 1
                             self.plate_timestamps[tid].setdefault(text, datetime.now())
-                            logger.debug(f"Track {tid}: Added plate candidate: {text}")
+                            # Lock in high-confidence reads
+                            if conf_txt >= self.LOCK_CONF_THRESHOLD and tid not in self.locked_plate:
+                                self.locked_plate[tid] = text
+                                logger.info(f"Track {tid}: Locked plate: {text}")
+                            logger.debug(f"Track {tid}: Added plate to history: {text} (conf={conf_txt:.2f}, locked={tid in self.locked_plate})")
 
                         # Decide final text and styling
                         if tid in self.locked_plate:
@@ -366,6 +365,14 @@ class ANPRProcessor:
         if processing_error:
             logger.error(f"Video processing failed: {error_details}")
             return None, {"error": "Video processing failed", "details": error_details}
+
+        # Debug logging before building summary
+        logger.info(f"=== SUMMARY DEBUG ===")
+        logger.info(f"locked_plate: {self.locked_plate}")
+        logger.info(f"plate_history keys: {list(self.plate_history.keys())}")
+        for tid, hist in self.plate_history.items():
+            logger.info(f"Track {tid} history: {dict(hist)}")
+        logger.info(f"plate_timestamps keys: {list(self.plate_timestamps.keys())}")
 
         # Summarize OCR results and persist
         rows, seen = [], set()
