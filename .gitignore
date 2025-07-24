@@ -77,3 +77,4 @@ coverage/
 
 # Local debug or test output
 *.log
+.env
