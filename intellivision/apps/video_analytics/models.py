@@ -7,15 +7,12 @@ from django.db import models
 from django.contrib.auth.models import User
 
 
-"""
-Database models for the tracker app. Defines the VideoJob model and its fields.
-"""
-
-
 class VideoJob(models.Model):
     """
-    Model representing a video processing job, including user, status, input/output videos, job type, results, and ROI.
+    Represents a single video or image processing job submitted by a user.
+    This model tracks the job's status, input/output files, and final results.
     """
+    # Choices for the job's current processing state.
     STATUS_CHOICES = [
         ('pending', 'Pending'),
         ('processing', 'Processing'),
@@ -23,30 +20,65 @@ class VideoJob(models.Model):
         ('failed', 'Failed'),
     ]
 
+    # Choices for the type of analytics to be performed.
+    # This list is aligned with the processors defined in tasks.py.
     JOB_TYPE_CHOICES = [
         ("people_count", "People Counting"),
         ("emergency_count", "Emergency Analysis"),
-        ("car_count", "Car Counting"),
+        ("car_count", "Car Counting / ANPR"),
+        ("parking_analysis", "Parking Lot Analysis"),
         ("pothole_detection", "Pothole Detection"),
         ("food_waste_estimation", "Food Waste Estimation"),
         ("room_readiness", "Room Readiness Analysis"),
-        ("wildlife_detection", "Wildlife Detection")
+        ("wildlife_detection", "Wildlife Detection"),
+        ("lobby_detection", "Lobby / Crowd Detection"),
     ]
 
-    user = models.ForeignKey(User, on_delete=models.CASCADE, help_text="User who submitted the job.")
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', help_text="Current status of the job.")
-    input_video = models.FileField(upload_to='uploads/', help_text="Input video file for processing.")
-    output_video = models.FileField(upload_to='outputs/', null=True, blank=True, help_text="Output video file after processing.")
-    output_image = models.ImageField(upload_to='outputs/', null=True, blank=True, help_text="Output image file after processing (if applicable).")
-    job_type = models.CharField(max_length=50, choices=JOB_TYPE_CHOICES, default="people_count", help_text="Type of analytics job.")
-    results = models.JSONField(null=True, blank=True, help_text="Results of the analytics job.")
-    created_at = models.DateTimeField(auto_now_add=True, help_text="Job creation timestamp.")
-    updated_at = models.DateTimeField(auto_now=True, help_text="Job last updated timestamp.")
-    # Line coordinates for emergency_count jobs (replaces ROI fields)
-    emergency_lines = models.JSONField(null=True, blank=True, help_text="List of lines for emergency_count, each as dict with start/end x/y")
-    video_width = models.IntegerField(null=True, blank=True, help_text="Width of the input video (optional)")
-    video_height = models.IntegerField(null=True, blank=True, help_text="Height of the input video (optional)")
-    lobby_zones = models.JSONField(null=True, blank=True, help_text="List of zones for lobby/crowd detection, each as dict with 'points' (list of [x, y]) and 'threshold' (int)")
+    # --- Core Job Fields ---
+    user = models.ForeignKey(User, on_delete=models.CASCADE, help_text="The user who submitted the job.")
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='pending',
+        help_text="The current status of the job (e.g., pending, processing)."
+    )
+    job_type = models.CharField(
+        max_length=50,
+        choices=JOB_TYPE_CHOICES,
+        default="people_count",
+        help_text="The type of analytics to be performed on the input file."
+    )
+    results = models.JSONField(null=True, blank=True, help_text="The JSON results returned by the analytics job.")
+
+    # --- File Fields ---
+    input_video = models.FileField(upload_to='uploads/', help_text="The input video or image file for processing.")
+    output_video = models.FileField(upload_to='outputs/', null=True, blank=True,
+                                    help_text="The resulting output video file after processing.")
+    output_image = models.ImageField(upload_to='outputs/', null=True, blank=True,
+                                     help_text="The resulting output image file after processing.")
+    youtube_url = models.URLField(
+        max_length=512, null=True, blank=True,
+        help_text="The source YouTube URL, if provided by the user."
+    )
+
+    # --- Timestamps ---
+    created_at = models.DateTimeField(auto_now_add=True, help_text="Timestamp when the job was created.")
+    updated_at = models.DateTimeField(auto_now=True, help_text="Timestamp when the job was last updated.")
+
+    # --- Job-Specific Parameters ---
+    emergency_lines = models.JSONField(
+        null=True, blank=True,
+        help_text="For 'emergency_count': A list of line definitions, each with start/end coordinates and direction."
+    )
+    lobby_zones = models.JSONField(
+        null=True, blank=True,
+        help_text="For 'lobby_detection': A list of zone definitions, each with points and a crowd threshold."
+    )
+    video_width = models.IntegerField(null=True, blank=True,
+                                      help_text="The width of the input video, used for scaling coordinates.")
+    video_height = models.IntegerField(null=True, blank=True,
+                                       help_text="The height of the input video, used for scaling coordinates.")
 
     def __str__(self):
-        return f"{self.job_type} (ID: {self.id})"
+        """String representation of the VideoJob model."""
+        return f"Job {self.id}: {self.get_job_type_display()} for {self.user.username} ({self.status})"
