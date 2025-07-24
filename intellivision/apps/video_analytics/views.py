@@ -189,6 +189,13 @@ def get_youtube_frame_view(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+def people_count_view(request):
+    """API endpoint for people counting from an uploaded video or YouTube URL."""
+    return _create_and_dispatch_job(request, 'people_count')
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def car_count_view(request):
     """API endpoint for car counting from an uploaded video or YouTube URL."""
     return _create_and_dispatch_job(request, 'car_count')

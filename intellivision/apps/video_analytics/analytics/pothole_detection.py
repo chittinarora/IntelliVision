@@ -16,7 +16,7 @@ Supports both video and image input.
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 
 ROBOFLOW_API_URL = "https://detect.roboflow.com/pothole-voxrl/1"
-ROBOFLOW_API_KEY = "vfMnQeFixryhPw18Thmz"
+ROBOFLOW_API_KEY = os.getenv("ROBOFLOW_API_KEY", "")
 
 MAX_SIZE = 1024
 

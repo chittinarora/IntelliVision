@@ -6,6 +6,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser
+from rest_framework import status
 from .tasks import register_face_user_task, login_face_user_task
 import tempfile
 from celery.result import AsyncResult
@@ -18,8 +19,15 @@ class RegisterFaceView(APIView):
 
     def post(self, request):
         """Accepts a username and image, starts a background registration task, and returns the task ID."""
-        username = request.data['username']
-        image = request.FILES['image']
+        try:
+            username = request.data['username']
+        except KeyError:
+            return Response({'error': 'Username is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            image = request.FILES['image']
+        except KeyError:
+            return Response({'error': 'Image file is required'}, status=status.HTTP_400_BAD_REQUEST)
         with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp:
             tmp.write(image.read())
             tmp.flush()
@@ -35,8 +43,15 @@ class LoginFaceView(APIView):
 
     def post(self, request):
         """Accepts a username and image, starts a background login task, and returns the task ID."""
-        username = request.data['username']
-        image = request.FILES['image']
+        try:
+            username = request.data['username']
+        except KeyError:
+            return Response({'error': 'Username is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            image = request.FILES['image']
+        except KeyError:
+            return Response({'error': 'Image file is required'}, status=status.HTTP_400_BAD_REQUEST)
         with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp:
             tmp.write(image.read())
             tmp.flush()
