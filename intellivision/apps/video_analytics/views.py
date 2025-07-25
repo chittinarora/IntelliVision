@@ -20,7 +20,7 @@ from rest_framework.response import Response
 
 from .models import VideoJob
 from .serializers import VideoJobSerializer
-from .tasks import process_video_job
+from .tasks import process_video_job, ensure_api_media_url
 
 # Import specific analytics functions for synchronous (non-Celery) tasks
 from .analytics.food_waste_estimation import analyze_food_image
@@ -73,7 +73,7 @@ def _create_and_dispatch_job(request, job_type: str, extra_data: dict = None) ->
 
             # Configure yt-dlp options
             ydl_opts = {
-                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                'format': 'bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/bestvideo[ext=mp4][vcodec!=av01]+bestaudio[ext=m4a]/best[ext=mp4][vcodec!=av01]/best',
                 'outtmpl': temp_video_path,
                 'quiet': True,
             }
@@ -139,7 +139,7 @@ def get_youtube_frame_view(request):
 
         temp_video_path = tempfile.mktemp(suffix=".mp4")
         ydl_opts = {
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'format': 'bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/bestvideo[ext=mp4][vcodec!=av01]+bestaudio[ext=m4a]/best[ext=mp4][vcodec!=av01]/best',
             'outtmpl': temp_video_path,
             'quiet': True,
         }
@@ -163,10 +163,25 @@ def get_youtube_frame_view(request):
         with open(temp_frame_path, 'rb') as f:
             frame_filename = f"thumbnails/yt_thumb_{uuid4().hex}.jpg"
             saved_path = default_storage.save(frame_filename, ContentFile(f.read()))
-            # Construct URL properly to avoid double slashes
-            media_url = settings.MEDIA_URL.rstrip('/')
-            file_path = saved_path.lstrip('/')
-            frame_url = request.build_absolute_uri(f"{media_url}/{file_path}")
+            
+            # Use Django's storage URL generation for proper path handling
+            relative_url = default_storage.url(saved_path)
+            
+            # Handle URL construction more robustly
+            if relative_url.startswith('http'):
+                # Storage already returned a full URL
+                frame_url = relative_url
+            else:
+                # Ensure we have a clean relative path
+                if relative_url.startswith('/'):
+                    relative_url = relative_url[1:]  # Remove only the first slash
+                
+                # Build the full URL with proper protocol and domain
+                frame_url = f"https://intellivision.aionos.co/{relative_url}"
+            
+            # Ensure the URL is properly formatted - safety net for malformed URLs
+            if 'https//' in frame_url:
+                frame_url = frame_url.replace('https//', 'https://')
 
         return Response({'frame_url': frame_url}, status=status.HTTP_200_OK)
 

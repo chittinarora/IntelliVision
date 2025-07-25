@@ -30,7 +30,7 @@ SECURE_REFERRER_POLICY = "strict-origin"
 # SECURE_CONTENT_TYPE_NOSNIFF = True
 # SECURE_BROWSER_XSS_FILTER = True
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-ALLOWED_HOSTS = ['intellivision.aionos.co', '34.100.200.148']
+ALLOWED_HOSTS = ['intellivision.aionos.co', '34.100.200.148', '35.190.199.96', 'localhost', '127.0.0.1']
 
 # 3. Database
 DATABASES = {
