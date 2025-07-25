@@ -82,13 +82,35 @@ def save_output_and_get_url(job: VideoJob, output_file_path: str) -> str:
 def process_video_job(job_id: int):
     """
     Celery task to process a video analytics job using a strategy pattern.
+    Enhanced with detailed progress logging and GPU monitoring.
     """
-    logger.info(f"--- Starting Celery job {job_id} ---")
+    logger.info(f"🚀 STARTING CELERY JOB {job_id} 🚀")
     job = VideoJob.objects.get(id=job_id)
+    
+    # Log initial job details
+    logger.info(f"📋 Job Details - ID: {job.id}, Type: {job.job_type}, User: {job.user.username}")
+    logger.info(f"📁 Input File: {job.input_video.name if job.input_video else 'None'}")
+    if job.youtube_url:
+        logger.info(f"🎬 YouTube URL: {job.youtube_url}")
+    
+    # GPU Memory Check
+    try:
+        import torch
+        if torch.cuda.is_available():
+            gpu_memory_allocated = torch.cuda.memory_allocated() / 1024**3  # GB
+            gpu_memory_reserved = torch.cuda.memory_reserved() / 1024**3   # GB
+            gpu_memory_total = torch.cuda.get_device_properties(0).total_memory / 1024**3  # GB
+            logger.info(f"🎮 GPU Memory - Allocated: {gpu_memory_allocated:.2f}GB, Reserved: {gpu_memory_reserved:.2f}GB, Total: {gpu_memory_total:.2f}GB")
+        else:
+            logger.info("💻 Running on CPU (no GPU available)")
+    except Exception as e:
+        logger.warning(f"⚠️ Could not check GPU memory: {e}")
 
     try:
+        logger.info(f"🔄 Updating job status to 'processing'...")
         job.status = 'processing'
         job.save()
+        logger.info(f"✅ Job {job.id} status updated to processing")
 
         # --- Strategy Pattern Implementation ---
         # This dictionary maps a job_type to its specific processing function and arguments.
@@ -136,11 +158,81 @@ def process_video_job(job_id: int):
         processor_func = processor_config["func"]
         processor_args = processor_config["args"]
 
-        logger.info(f"Job {job.id}: Executing '{processor_func.__name__}' for job type '{job.job_type}'.")
+        logger.info(f"🎯 Job {job.id}: STAGE 1 - Initializing '{processor_func.__name__}' for job type '{job.job_type}'")
+        logger.info(f"📊 Job {job.id}: Processing arguments: {len(processor_args)} args provided")
+        
+        # Log input file details
+        if job.input_video and os.path.exists(job.input_video.path):
+            file_size = os.path.getsize(job.input_video.path) / (1024*1024)  # MB
+            logger.info(f"📈 Job {job.id}: Input file size: {file_size:.2f} MB")
+            
+            # Try to get video info for video files
+            if job.input_video.name.lower().endswith(('.mp4', '.avi', '.mov', '.webm')):
+                try:
+                    import cv2
+                    cap = cv2.VideoCapture(job.input_video.path)
+                    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                    fps = cap.get(cv2.CAP_PROP_FPS)
+                    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    duration = total_frames / fps if fps > 0 else 0
+                    cap.release()
+                    
+                    logger.info(f"🎬 Job {job.id}: Video specs - {width}x{height}, {total_frames} frames, {fps:.1f} FPS, {duration:.1f}s duration")
+                    
+                    # Estimate processing time based on job type and video length
+                    if job.job_type in ['people_count', 'wildlife_detection']:
+                        estimated_time = duration * 2  # Rough estimate: 2x real-time
+                        logger.info(f"⏱️ Job {job.id}: Estimated processing time: {estimated_time:.1f} seconds")
+                except Exception as e:
+                    logger.warning(f"⚠️ Job {job.id}: Could not get video specs: {e}")
+
+        # GPU memory check before processing
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()  # Clear cache before processing
+                gpu_memory_before = torch.cuda.memory_allocated() / 1024**3
+                logger.info(f"🎮 Job {job.id}: GPU memory before processing: {gpu_memory_before:.2f}GB")
+        except:
+            pass
+
+        # Record start time for performance tracking
+        start_time = time.time()
+        logger.info(f"🚀 Job {job.id}: STAGE 2 - Starting analytics processing at {datetime.now().strftime('%H:%M:%S')}")
 
         # Execute the analytics function
         result_data = processor_func(*processor_args)
+        
+        # Record completion time
+        end_time = time.time()
+        processing_duration = end_time - start_time
+        logger.info(f"✅ Job {job.id}: STAGE 2 COMPLETE - Analytics processing finished in {processing_duration:.2f} seconds")
+        
+        # GPU memory check after processing
+        try:
+            import torch
+            if torch.cuda.is_available():
+                gpu_memory_after = torch.cuda.memory_allocated() / 1024**3
+                logger.info(f"🎮 Job {job.id}: GPU memory after processing: {gpu_memory_after:.2f}GB")
+        except:
+            pass
+            
+        # Log result summary
+        if isinstance(result_data, dict):
+            result_keys = list(result_data.keys())
+            logger.info(f"📊 Job {job.id}: Analytics returned {len(result_keys)} result fields: {result_keys}")
+            
+            # Log specific metrics if available
+            if 'count' in result_data:
+                logger.info(f"🔢 Job {job.id}: Detection count: {result_data['count']}")
+            if 'total_detections' in result_data:
+                logger.info(f"🔢 Job {job.id}: Total detections: {result_data['total_detections']}")
+        else:
+            logger.warning(f"⚠️ Job {job.id}: Analytics returned non-dict result: {type(result_data)}")
 
+        logger.info(f"🎯 Job {job.id}: STAGE 3 - Processing output files and saving results")
+        
         # --- Standardized Output Handling ---
         # The analytics functions should return a dictionary. We look for specific keys
         # to find the path of the generated output file.
@@ -148,25 +240,95 @@ def process_video_job(job_id: int):
         output_file_path = result_data.get(output_path_key)
 
         if output_file_path:
+            logger.info(f"📁 Job {job.id}: Found output file at: {output_file_path}")
+            
+            # Check if output file exists and get its size
+            if os.path.exists(output_file_path):
+                output_size = os.path.getsize(output_file_path) / (1024*1024)  # MB
+                logger.info(f"📊 Job {job.id}: Output file size: {output_size:.2f} MB")
+            else:
+                logger.warning(f"⚠️ Job {job.id}: Output file does not exist at path: {output_file_path}")
+                
             final_output_url = save_output_and_get_url(job, output_file_path)
             if final_output_url:
                 # Update the result data with the final, web-accessible URL
                 result_data[output_path_key] = final_output_url
                 result_data['output_path'] = final_output_url  # Ensure a consistent key for the frontend
-                logger.info(f"Job {job.id}: Saved output to {final_output_url}")
+                logger.info(f"✅ Job {job.id}: STAGE 3 COMPLETE - Output saved and accessible at: {final_output_url}")
+            else:
+                logger.error(f"❌ Job {job.id}: Failed to save output file to storage")
+        else:
+            logger.info(f"ℹ️ Job {job.id}: No output file generated (this may be normal for some job types)")
+
+        # Final GPU memory cleanup
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                final_gpu_memory = torch.cuda.memory_allocated() / 1024**3
+                logger.info(f"🎮 Job {job.id}: Final GPU memory after cleanup: {final_gpu_memory:.2f}GB")
+        except:
+            pass
+
+        # Calculate total job duration
+        total_duration = time.time() - start_time
+        logger.info(f"⏱️ Job {job.id}: Total job duration: {total_duration:.2f} seconds")
 
         # Save results and finalize job
         job.results = result_data
         job.status = 'done'
-        logger.info(f"--- Finished Celery job {job.id} successfully ---")
+        job.save()
+        
+        logger.info(f"🎉 SUCCESS: Job {job.id} ({job.job_type}) completed successfully for user {job.user.username}")
+        logger.info(f"🏁 CELERY JOB {job_id} FINISHED 🏁")
 
     except Exception as e:
-        logger.error(f"--- ERROR in Celery job {job.id} ---", exc_info=True)
+        # Enhanced error logging with context
+        error_time = datetime.now().strftime('%H:%M:%S')
+        logger.error(f"❌ CRITICAL ERROR in Celery job {job.id} at {error_time} ❌")
+        logger.error(f"💥 Error Type: {type(e).__name__}")
+        logger.error(f"💥 Error Message: {str(e)}")
+        logger.error(f"💥 Job Type: {job.job_type}")
+        logger.error(f"💥 User: {job.user.username}")
+        logger.error(f"💥 Input File: {job.input_video.name if job.input_video else 'None'}")
+        
+        # Log GPU state on error
+        try:
+            import torch
+            if torch.cuda.is_available():
+                error_gpu_memory = torch.cuda.memory_allocated() / 1024**3
+                logger.error(f"💥 GPU Memory at Error: {error_gpu_memory:.2f}GB")
+                torch.cuda.empty_cache()  # Try to free memory
+        except:
+            pass
+            
+        logger.error(f"💥 Full Stack Trace:", exc_info=True)
+        
         job.status = 'failed'
-        job.results = {"error": str(e), "traceback": traceback.format_exc()}
+        job.results = {
+            "error": str(e), 
+            "error_type": type(e).__name__,
+            "error_time": error_time,
+            "traceback": traceback.format_exc()
+        }
+        
+        logger.error(f"🚫 JOB {job.id} FAILED - Status updated to 'failed' 🚫")
+        
         # Re-raise the exception to let Celery know the task failed
         raise
 
     finally:
         # This block will always run, even if the task fails
-        job.save()
+        try:
+            job.save()
+            logger.info(f"💾 Job {job.id} final state saved to database")
+        except Exception as save_error:
+            logger.error(f"❌ Failed to save job {job.id} final state: {save_error}")
+            
+        # Final cleanup attempt
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except:
+            pass

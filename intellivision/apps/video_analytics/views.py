@@ -66,7 +66,8 @@ def _create_and_dispatch_job(request, job_type: str, extra_data: dict = None) ->
 
     try:
         if youtube_url:
-            logger.info(f"Downloading video from YouTube URL using yt-dlp: {youtube_url}")
+            logger.info(f"🎬 YOUTUBE DOWNLOAD STARTED: {youtube_url}")
+            logger.info(f"📋 Job Type: {job_type} | User: {user.username}")
 
             # Create a temporary file path for yt-dlp to download to
             temp_video_path = tempfile.mktemp(suffix=".mp4")
@@ -80,18 +81,41 @@ def _create_and_dispatch_job(request, job_type: str, extra_data: dict = None) ->
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([youtube_url])
+                
+            # Log download success and file info
+            if os.path.exists(temp_video_path):
+                file_size = os.path.getsize(temp_video_path) / (1024*1024)  # MB
+                logger.info(f"✅ YouTube download complete: {file_size:.2f} MB")
+                
+                # Get video properties
+                try:
+                    import cv2
+                    cap = cv2.VideoCapture(temp_video_path)
+                    if cap.isOpened():
+                        fps = cap.get(cv2.CAP_PROP_FPS)
+                        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                        duration = frame_count / fps if fps > 0 else 0
+                        cap.release()
+                        logger.info(f"🎬 Video properties: {width}x{height}, {fps:.1f} FPS, {duration:.1f}s, {frame_count} frames")
+                except Exception as e:
+                    logger.warning(f"Could not get video properties: {e}")
 
             # Create a ContentFile from the downloaded video
             with open(temp_video_path, 'rb') as f:
                 file_name = f"yt_{job_type}_{uuid4().hex}.mp4"
                 input_file_content = ContentFile(f.read(), name=file_name)
+                logger.info(f"📁 Created ContentFile: {file_name}")
 
             job_data['youtube_url'] = youtube_url
 
         else:  # A file was uploaded
+            logger.info(f"📁 FILE UPLOAD: {file_obj.name} ({file_obj.size} bytes)")
             ext = os.path.splitext(file_obj.name)[1] or '.tmp'
             file_name = f"{job_type}_{uuid4().hex}{ext}"
             input_file_content = ContentFile(file_obj.read(), name=file_name)
+            logger.info(f"📁 Processed upload as: {file_name}")
 
         job_data['input_video'] = input_file_content
 

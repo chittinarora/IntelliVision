@@ -141,7 +141,7 @@ CORS_ALLOWED_ORIGINS = ["https://intellivision.aionos.co", "http://34.100.200.14
 # 12. Celery - Optimized for Tesla P100 GPU + 6 vCPU + 27GB RAM (4 concurrent jobs)
 CELERY_BROKER_URL = os.environ.get('REDIS_URL', 'redis://redis:6379/0')
 CELERY_RESULT_BACKEND = os.environ.get('REDIS_URL', 'redis://redis:6379/0')
-CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # Reduced for GPU memory management
+CELERY_WORKER_PREFETCH_MULTIPLIER = 2  # Reduced for GPU memory management
 CELERY_TASK_ACKS_LATE = True
 CELERY_WORKER_MAX_TASKS_PER_CHILD = 50  # Lower for GPU memory cleanup
 CELERY_WORKER_MAX_MEMORY_PER_CHILD = 1500000  # 1.5GB per worker (4 workers * 1.5GB = 6GB total)
