@@ -41,10 +41,7 @@ DATABASES = {
         'PASSWORD': os.environ.get('POSTGRES_PASSWORD', 'IntelliVisionAIonOS'),
         'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
         'PORT': os.environ.get('POSTGRES_PORT', '5432'),
-        'OPTIONS': {
-            'MAX_CONNS': 50,  # Higher connection pool for concurrent processing
-        },
-        'CONN_MAX_AGE': 600,  # 10 minutes connection reuse
+        'CONN_MAX_AGE': 600,  # 10 minutes connection reuse for performance
     }
 }
 # For development, you can use SQLite by uncommenting below:
@@ -141,16 +138,16 @@ CORS_ALLOW_HEADERS = list(default_headers) + [
 ]
 CORS_ALLOWED_ORIGINS = ["https://intellivision.aionos.co", "http://34.100.200.148"]
 
-# 12. Celery - Optimized for Tesla P100 GPU + 6 vCPU + 27GB RAM
+# 12. Celery - Optimized for Tesla P100 GPU + 6 vCPU + 27GB RAM (4 concurrent jobs)
 CELERY_BROKER_URL = os.environ.get('REDIS_URL', 'redis://redis:6379/0')
 CELERY_RESULT_BACKEND = os.environ.get('REDIS_URL', 'redis://redis:6379/0')
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # Reduced for GPU memory management
 CELERY_TASK_ACKS_LATE = True
 CELERY_WORKER_MAX_TASKS_PER_CHILD = 50  # Lower for GPU memory cleanup
-CELERY_WORKER_MAX_MEMORY_PER_CHILD = 2000000  # 2GB per worker (higher for GPU tasks)
+CELERY_WORKER_MAX_MEMORY_PER_CHILD = 1500000  # 1.5GB per worker (4 workers * 1.5GB = 6GB total)
 CELERY_TASK_TIME_LIMIT = 7200  # 2 hours for complex GPU processing
 CELERY_TASK_SOFT_TIME_LIMIT = 6600  # 110 minutes soft limit
-CELERY_WORKER_CONCURRENCY = 2  # Reduced to allow GPU memory per task (Tesla P100 has 16GB)
+CELERY_WORKER_CONCURRENCY = 4  # 4 concurrent jobs (4GB GPU memory per task)
 CELERY_TASK_ALWAYS_EAGER = False  # Ensure tasks run in background
 CELERY_WORKER_DISABLE_RATE_LIMITS = True  # Disable rate limiting for ML tasks
 CELERY_TASK_ROUTES = {
@@ -158,6 +155,8 @@ CELERY_TASK_ROUTES = {
 }
 CELERY_WORKER_HIJACK_ROOT_LOGGER = False
 CELERY_WORKER_LOG_FORMAT = '[%(asctime)s: %(levelname)s/%(processName)s] %(message)s'
+CELERY_TASK_TRACK_STARTED = True  # Enable task tracking for revocation
+CELERY_TASK_SEND_SENT_EVENT = True  # Send task-sent events for monitoring
 
 # 13. Logging
 LOG_DIR = os.path.join(BASE_DIR, 'logs')
@@ -242,18 +241,14 @@ FRAME_SKIP_THRESHOLD = 2  # Process every 2nd frame for performance
 # 17. Miscellaneous
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# 18. Session and Cache Settings - Optimized for high-performance
-SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
-SESSION_CACHE_ALIAS = 'default'
+# 18. Session and Cache Settings - Using Django's default cache for now
 CACHES = {
     'default': {
-        'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': os.environ.get('REDIS_URL', 'redis://redis:6379/1'),
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'unique-snowflake',
         'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-            'CONNECTION_POOL_KWARGS': {
-                'max_connections': 100,  # Higher for concurrent processing
-            }
+            'MAX_ENTRIES': 10000,
+            'CULL_FREQUENCY': 3,
         }
     }
 }

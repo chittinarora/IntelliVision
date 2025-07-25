@@ -96,8 +96,13 @@ def _create_and_dispatch_job(request, job_type: str, extra_data: dict = None) ->
         job_data['input_video'] = input_file_content
 
         job = VideoJob.objects.create(**job_data)
-        process_video_job.delay(job.id)
-        logger.info(f"Dispatched async job {job.id} ({job_type}) for user {user.username}")
+        
+        # Start the Celery task and store the task ID for potential revocation
+        task = process_video_job.delay(job.id)
+        job.task_id = task.id
+        job.save()
+        
+        logger.info(f"Dispatched async job {job.id} ({job_type}) with task ID {task.id} for user {user.username}")
 
         # Serialize the job object to include all its details in the response
         serializer = VideoJobSerializer(job)
@@ -388,7 +393,7 @@ def pothole_detection_image_view(request):
 
 class VideoJobViewSet(viewsets.ModelViewSet):
     """
-    ViewSet for managing VideoJob objects (listing, retrieving).
+    ViewSet for managing VideoJob objects with proper task termination and cleanup.
     Provides a standard RESTful interface for the VideoJob model.
     """
     queryset = VideoJob.objects.all()
@@ -401,6 +406,64 @@ class VideoJobViewSet(viewsets.ModelViewSet):
         for the currently authenticated user.
         """
         return VideoJob.objects.filter(user=self.request.user).order_by('-created_at')
+    
+    def destroy(self, request, *args, **kwargs):
+        """
+        Custom delete method that properly terminates Celery tasks and cleans up resources.
+        """
+        job = self.get_object()
+        
+        logger.info(f"Starting deletion of job {job.id} (status: {job.status}, task_id: {job.task_id})")
+        
+        # Step 1: Revoke Celery task if it exists and is running
+        if job.task_id and job.status in ['pending', 'processing']:
+            try:
+                from celery import current_app
+                # Revoke the task with terminate=True to forcefully stop GPU processes
+                current_app.control.revoke(job.task_id, terminate=True, signal='SIGKILL')
+                logger.info(f"Revoked Celery task {job.task_id} for job {job.id}")
+            except Exception as e:
+                logger.warning(f"Failed to revoke task {job.task_id} for job {job.id}: {e}")
+        
+        # Step 2: Clean up temporary files
+        temp_files_to_clean = [
+            f"/tmp/output_{job.id}.mp4",
+            f"/tmp/output_{job.id}.jpg",
+            f"/tmp/output_{job.id}.png",
+            f"/tmp/yt_thumb_{job.id}.jpg"
+        ]
+        
+        cleaned_files = 0
+        for temp_file in temp_files_to_clean:
+            if os.path.exists(temp_file):
+                try:
+                    os.unlink(temp_file)
+                    cleaned_files += 1
+                    logger.info(f"Cleaned up temporary file: {temp_file}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete temporary file {temp_file}: {e}")
+        
+        if cleaned_files > 0:
+            logger.info(f"Cleaned up {cleaned_files} temporary files for job {job.id}")
+        
+        # Step 3: Log deletion details
+        job_info = {
+            'job_id': job.id,
+            'job_type': job.job_type,
+            'status': job.status,
+            'user': job.user.username if job.user else 'Unknown',
+            'task_id': job.task_id,
+            'had_running_task': job.task_id and job.status in ['pending', 'processing']
+        }
+        
+        logger.info(f"DELETING JOB {job.id} | Type: {job_info['job_type']} | Status: {job_info['status']} | User: {job_info['user']} | Task Terminated: {job_info['had_running_task']}")
+        
+        # Step 4: Perform the actual deletion
+        response = super().destroy(request, *args, **kwargs)
+        
+        logger.info(f"Successfully deleted job {job.id} and cleaned up all resources")
+        
+        return response
 
 
 @api_view(['GET'])

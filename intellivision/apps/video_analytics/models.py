@@ -64,6 +64,12 @@ class VideoJob(models.Model):
     # --- Timestamps ---
     created_at = models.DateTimeField(auto_now_add=True, help_text="Timestamp when the job was created.")
     updated_at = models.DateTimeField(auto_now=True, help_text="Timestamp when the job was last updated.")
+    
+    # --- Task Management ---
+    task_id = models.CharField(
+        max_length=255, null=True, blank=True,
+        help_text="The Celery task ID for this job, used for task revocation and monitoring."
+    )
 
     # --- Job-Specific Parameters ---
     emergency_lines = models.JSONField(
