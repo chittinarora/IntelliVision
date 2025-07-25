@@ -9,6 +9,7 @@ from uuid import uuid4
 import cv2
 import yt_dlp
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
@@ -98,12 +99,9 @@ def _create_and_dispatch_job(request, job_type: str, extra_data: dict = None) ->
         process_video_job.delay(job.id)
         logger.info(f"Dispatched async job {job.id} ({job_type}) for user {user.username}")
 
-        return Response({
-            'job_id': job.id,
-            'status': job.status,
-            'created_at': job.created_at,
-            'job_type': job.job_type,
-        }, status=status.HTTP_202_ACCEPTED)
+        # Serialize the job object to include all its details in the response
+        serializer = VideoJobSerializer(job)
+        return Response(serializer.data, status=status.HTTP_202_ACCEPTED)
 
     except Exception as e:
         logger.error(f"Error during job creation: {e}", exc_info=True)
@@ -165,7 +163,10 @@ def get_youtube_frame_view(request):
         with open(temp_frame_path, 'rb') as f:
             frame_filename = f"thumbnails/yt_thumb_{uuid4().hex}.jpg"
             saved_path = default_storage.save(frame_filename, ContentFile(f.read()))
-            frame_url = default_storage.url(saved_path)
+            # Construct URL properly to avoid double slashes
+            media_url = settings.MEDIA_URL.rstrip('/')
+            file_path = saved_path.lstrip('/')
+            frame_url = request.build_absolute_uri(f"{media_url}/{file_path}")
 
         return Response({'frame_url': frame_url}, status=status.HTTP_200_OK)
 
