@@ -27,7 +27,7 @@ from celery import shared_task
 
 # Try to import convert function, handle gracefully if not available
 try:
-    from .convert import convert_to_web_mp4
+    from ..convert import convert_to_web_mp4
 except ImportError:
     logger = logging.getLogger(__name__)
     logger.warning("convert_to_web_mp4 not available. Video conversion will be skipped.")

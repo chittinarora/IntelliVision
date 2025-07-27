@@ -27,7 +27,7 @@ from celery import shared_task
 from boxmot import BotSort
 from tqdm import tqdm
 
-from .utils import load_yolo_model
+from ..utils import load_yolo_model
 
 # ======================================
 # Logger and Constants
@@ -505,7 +505,7 @@ def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, custo
             output_url = default_storage.url(output_filename)
 
             # Convert to web-friendly MP4
-            from .convert import convert_to_web_mp4
+            from ..convert import convert_to_web_mp4
             web_output_filename = output_filename.replace('.mp4', '_web.mp4')
             if convert_to_web_mp4(tmp_out.name, web_output_filename):
                 output_url = default_storage.url(web_output_filename)

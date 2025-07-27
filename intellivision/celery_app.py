@@ -1,4 +1,4 @@
-# /intellivision/intellivision/celery.py
+# /intellivision/intellivision/celery_app.py
 
 """
 =====================================
@@ -11,6 +11,7 @@ import os
 import platform
 import multiprocessing as mp
 import logging
+from celery import Celery
 
 """
 =====================================

@@ -37,9 +37,6 @@ COPY --from=builder /usr/lib /usr/lib
 COPY intellivision /app/intellivision
 COPY requirements.txt /app/
 
-# Remove nested directories
-RUN rm -rf /app/intellivision/intelli-vision /app/intellivision/intellivision
-
 # Ensure logs, media, and static directories exist
 RUN mkdir -p intellivision/logs intellivision/media/outputs intellivision/media/alerts intellivision/media/anpr_outputs intellivision/media/results intellivision/media/uploads intellivision/staticfiles
 

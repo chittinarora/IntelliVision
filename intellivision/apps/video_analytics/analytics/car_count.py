@@ -24,7 +24,7 @@ from django.utils import timezone
 import mimetypes
 from celery import shared_task
 from .anpr.processor import ANPRProcessor, ParkingProcessor
-from .convert import convert_to_web_mp4
+from ..convert import convert_to_web_mp4
 
 # ======================================
 # Logger and Constants

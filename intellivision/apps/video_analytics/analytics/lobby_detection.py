@@ -30,7 +30,7 @@ from celery import shared_task
 
 # Try to import utility functions, handle gracefully if not available
 try:
-    from .utils import load_yolo_model
+    from ..utils import load_yolo_model
 except ImportError:
     logger = logging.getLogger(__name__)
     logger.warning("load_yolo_model not available. Using YOLO directly.")
@@ -39,7 +39,7 @@ except ImportError:
         return YOLO(model_path)
 
 try:
-    from .convert import convert_to_web_mp4
+    from ..convert import convert_to_web_mp4
 except ImportError:
     logger = logging.getLogger(__name__)
     logger.warning("convert_to_web_mp4 not available. Video conversion will be skipped.")

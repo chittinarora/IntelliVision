@@ -9,7 +9,7 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework import status
 from .tasks import register_face_user_task, login_face_user_task
 import tempfile
-from celery.result import AsyncResult
+from celery import AsyncResult
 
 
 class RegisterFaceView(APIView):

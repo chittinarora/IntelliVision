@@ -43,7 +43,7 @@ except ImportError:
     MONGODB_AVAILABLE = False
 
 try:
-    from .convert import convert_to_web_mp4
+    from ..convert import convert_to_web_mp4
 except ImportError:
     logger = logging.getLogger(__name__)
     logger.warning("convert_to_web_mp4 not available. Video conversion will be skipped.")

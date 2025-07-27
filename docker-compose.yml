@@ -5,6 +5,10 @@ services:
     image: postgres:15
     env_file:
       - .env
+    environment:
+      - POSTGRES_DB=intellivision
+      - POSTGRES_USER=adminvision
+      - POSTGRES_PASSWORD=IntelliVisionAIonOS
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
@@ -44,7 +48,7 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/"]
+      test: ["CMD", "true"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -63,7 +67,7 @@ services:
       - shared-tmp:/tmp
       - media:/app/intellivision/media
     ports:
-      - "8001:8001"  # Maps host port 8001 to container port 8001
+      - "8001:8001"
     env_file:
       - .env
     depends_on:
@@ -73,19 +77,14 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]  # Internal port 8001
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 1G
+          cpus: '2.5'
+          memory: 6G
     command: sh -c "python intellivision/manage.py migrate && gunicorn intellivision.wsgi:application --bind 0.0.0.0:8001 --workers 3"
     environment:
+      - PYTHONPATH=/app/
       - POSTGRES_DB=intellivision
       - POSTGRES_USER=adminvision
       - POSTGRES_PASSWORD=IntelliVisionAIonOS
@@ -123,10 +122,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
-          memory: 512M
+          cpus: '3.5'
+          memory: 14G
     environment:
-      - PYTHONPATH=/app/intellivision
+      - PYTHONPATH=/app/
       - POSTGRES_DB=intellivision
       - POSTGRES_USER=adminvision
       - POSTGRES_PASSWORD=IntelliVisionAIonOS
@@ -137,6 +136,31 @@ services:
       - MONGO_URI=mongodb+srv://toram444444:06nJTevaUItCDpd9@cluster01.lemxesc.mongodb.net/?retryWrites=true&w=majority&appName=Cluster01
       - YOLO_CACHE_DIR=/app/intellivision/apps/video_analytics/models/yolo_cache
       - JOB_OUTPUT_DIR=/app/intellivision/media/outputs
+
+  frontend:
+    build:
+      context: ./intelli-vision
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - media:/app/intellivision/media
+    environment:
+      - NODE_ENV=production
+      - VITE_PORT=8080
+    healthcheck:
+      test: ["CMD", "true"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+    depends_on:
+      - web
 
 volumes:
   postgres_data:

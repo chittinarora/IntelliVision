@@ -25,8 +25,8 @@ from ultralytics import RTDETR
 from boxmot import BotSort
 import torch.nn.functional as F
 
-from .utils import load_yolo_model
-from .convert import convert_to_web_mp4
+from ..utils import load_yolo_model
+from ..convert import convert_to_web_mp4
 
 # Import scipy with fallback
 try:
