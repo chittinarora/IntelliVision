@@ -1,63 +1,98 @@
 # /apps/video_analytics/views.py
 
+"""
+=====================================
+Imports
+=====================================
+Import necessary modules for Django REST Framework views, authentication, and permissions.
+"""
+
 import json
 import logging
 import os
 import tempfile
+import time
 from uuid import uuid4
+from typing import Dict, Any
 
 import cv2
 import yt_dlp
-
-from django.conf import settings
-from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from rest_framework import permissions, status, viewsets
-from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
+import mimetypes
+from django.utils import timezone
 
 from .models import VideoJob
 from .serializers import VideoJobSerializer
 from .tasks import process_video_job, ensure_api_media_url
 
-# Import specific analytics functions for synchronous (non-Celery) tasks
-from .analytics.food_waste_estimation import analyze_food_image
-from .analytics.pothole_detection import run_pothole_image_detection
-
 logger = logging.getLogger(__name__)
 
+# Valid file extensions and size limit
+VALID_EXTENSIONS = {'.mp4', '.jpg', '.jpeg', '.png'}
+MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
 
-# =================================
-# Helper Function for Async Job Creation (Now handles YouTube URLs)
-# =================================
+"""
+=====================================
+Helper Function
+=====================================
+Defines utility function for creating and dispatching jobs.
+All error responses use standardized format (Issue #10).
+"""
 
-def _create_and_dispatch_job(request, job_type: str, extra_data: dict = None) -> Response:
+def _create_and_dispatch_job(request, job_type: str, extra_data: Dict[str, Any] = None) -> Response:
     """
-    Helper function to create a VideoJob instance, save the file (from upload or URL),
-    and dispatch the processing task to Celery for asynchronous execution.
+    Create a VideoJob, save file (upload or YouTube), and dispatch to Celery.
+
+    Args:
+        request: HTTP request object
+        job_type: Type of analytics job
+        extra_data: Additional job parameters
+
+    Returns:
+        Response with standardized format:
+        {
+            'status': 'pending' | 'failed',
+            'job_type': str,
+            'output_image': None,
+            'output_video': None,
+            'data': {'job_id': int, ...},
+            'meta': {'timestamp': str, 'request_time': float},
+            'error': dict | None
+        }
     """
+    start_time = time.time()
     user = request.user
     file_obj = request.FILES.get('video') or request.FILES.get('image')
     youtube_url = request.data.get('youtube_url')
 
     if not file_obj and not youtube_url:
-        return Response(
-            {'error': "You must provide either a file to upload or a YouTube URL."},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-    if file_obj and youtube_url:
-        return Response(
-            {'error': "Please provide either a file or a YouTube URL, not both."},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return Response({
+            'status': 'failed',
+            'job_type': job_type,
+            'output_image': None,
+            'output_video': None,
+            'data': {},
+            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+            'error': {'message': 'Provide either a file or YouTube URL', 'code': 'MISSING_INPUT'}
+        }, status=status.HTTP_400_BAD_REQUEST)
 
-    job_data = {
-        'user': user,
-        'status': 'pending',
-        'job_type': job_type,
-    }
+    if file_obj and youtube_url:
+        return Response({
+            'status': 'failed',
+            'job_type': job_type,
+            'output_image': None,
+            'output_video': None,
+            'data': {},
+            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+            'error': {'message': 'Provide either a file or YouTube URL, not both', 'code': 'INVALID_INPUT_COMBINATION'}
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    job_data = {'user': user, 'status': 'pending', 'job_type': job_type}
     if extra_data:
         job_data.update(extra_data)
 
@@ -66,439 +101,601 @@ def _create_and_dispatch_job(request, job_type: str, extra_data: dict = None) ->
 
     try:
         if youtube_url:
-            logger.info(f"🎬 YOUTUBE DOWNLOAD STARTED: {youtube_url}")
-            logger.info(f"📋 Job Type: {job_type} | User: {user.username}")
-
-            # Create a temporary file path for yt-dlp to download to
+            logger.info(f"🎬 Downloading YouTube: {youtube_url} for {job_type} (user: {user.username})")
             temp_video_path = tempfile.mktemp(suffix=".mp4")
-
-            # Configure yt-dlp options
             ydl_opts = {
-                'format': 'bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/bestvideo[ext=mp4][vcodec!=av01]+bestaudio[ext=m4a]/best[ext=mp4][vcodec!=av01]/best',
+                'format': 'bestvideo[ext=mp4][vcodec=h264]+bestaudio[ext=m4a]/best[ext=mp4][vcodec=h264]/best[ext=mp4]',
                 'outtmpl': temp_video_path,
                 'quiet': True,
             }
-
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([youtube_url])
-                
-            # Log download success and file info
-            if os.path.exists(temp_video_path):
-                file_size = os.path.getsize(temp_video_path) / (1024*1024)  # MB
-                logger.info(f"✅ YouTube download complete: {file_size:.2f} MB")
-                
-                # Get video properties
-                try:
-                    import cv2
-                    cap = cv2.VideoCapture(temp_video_path)
-                    if cap.isOpened():
-                        fps = cap.get(cv2.CAP_PROP_FPS)
-                        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                        duration = frame_count / fps if fps > 0 else 0
-                        cap.release()
-                        logger.info(f"🎬 Video properties: {width}x{height}, {fps:.1f} FPS, {duration:.1f}s, {frame_count} frames")
-                except Exception as e:
-                    logger.warning(f"Could not get video properties: {e}")
 
-            # Create a ContentFile from the downloaded video
+            if not os.path.exists(temp_video_path):
+                return Response({
+                    'status': 'failed',
+                    'job_type': job_type,
+                    'output_image': None,
+                    'output_video': None,
+                    'data': {},
+                    'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+                    'error': {'message': 'Failed to download YouTube video', 'code': 'DOWNLOAD_FAILED'}
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Validate file
+            ext = '.mp4'
+            size = os.path.getsize(temp_video_path)
+            if size > MAX_FILE_SIZE:
+                return Response({
+                    'status': 'failed',
+                    'job_type': job_type,
+                    'output_image': None,
+                    'output_video': None,
+                    'data': {},
+                    'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+                    'error': {'message': f"File size {size / (1024*1024):.2f}MB exceeds 500MB limit", 'code': 'FILE_TOO_LARGE'}
+                }, status=status.HTTP_400_BAD_REQUEST)
+
             with open(temp_video_path, 'rb') as f:
                 file_name = f"yt_{job_type}_{uuid4().hex}.mp4"
                 input_file_content = ContentFile(f.read(), name=file_name)
-                logger.info(f"📁 Created ContentFile: {file_name}")
-
             job_data['youtube_url'] = youtube_url
+            logger.info(f"✅ Downloaded YouTube video: {file_name} ({size / (1024*1024):.2f}MB)")
 
-        else:  # A file was uploaded
-            logger.info(f"📁 FILE UPLOAD: {file_obj.name} ({file_obj.size} bytes)")
-            ext = os.path.splitext(file_obj.name)[1] or '.tmp'
+        else:
+            ext = os.path.splitext(file_obj.name)[1].lower()
+            if ext not in VALID_EXTENSIONS:
+                return Response({
+                    'status': 'failed',
+                    'job_type': job_type,
+                    'output_image': None,
+                    'output_video': None,
+                    'data': {},
+                    'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+                    'error': {'message': f"Invalid file type: {ext}. Allowed: {', '.join(VALID_EXTENSIONS)}", 'code': 'INVALID_FILE_TYPE'}
+                }, status=status.HTTP_400_BAD_REQUEST)
+            if file_obj.size > MAX_FILE_SIZE:
+                return Response({
+                    'status': 'failed',
+                    'job_type': job_type,
+                    'output_image': None,
+                    'output_video': None,
+                    'data': {},
+                    'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+                    'error': {'message': f"File size {file_obj.size / (1024*1024):.2f}MB exceeds 500MB limit", 'code': 'FILE_TOO_LARGE'}
+                }, status=status.HTTP_400_BAD_REQUEST)
+
             file_name = f"{job_type}_{uuid4().hex}{ext}"
             input_file_content = ContentFile(file_obj.read(), name=file_name)
-            logger.info(f"📁 Processed upload as: {file_name}")
+            logger.info(f"📁 Uploaded: {file_name} ({file_obj.size / (1024*1024):.2f}MB)")
 
         job_data['input_video'] = input_file_content
-
         job = VideoJob.objects.create(**job_data)
-        
-        # Start the Celery task and store the task ID for potential revocation
         task = process_video_job.delay(job.id)
         job.task_id = task.id
         job.save()
-        
-        logger.info(f"Dispatched async job {job.id} ({job_type}) with task ID {task.id} for user {user.username}")
+        logger.info(f"🚀 Dispatched job {job.id} ({job_type}) with task ID {task.id}")
 
-        # Serialize the job object to include all its details in the response
         serializer = VideoJobSerializer(job)
-        return Response(serializer.data, status=status.HTTP_202_ACCEPTED)
+        return Response({
+            'status': 'pending',
+            'job_type': job_type,
+            'output_image': None,
+            'output_video': None,
+            'data': serializer.data,
+            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+            'error': None
+        }, status=status.HTTP_202_ACCEPTED)
 
+    except yt_dlp.utils.DownloadError as e:
+        logger.error(f"YouTube download failed for {job_type}: {e}", exc_info=True)
+        return Response({
+            'status': 'failed',
+            'job_type': job_type,
+            'output_image': None,
+            'output_video': None,
+            'data': {},
+            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+            'error': {'message': f"Failed to download YouTube video: {str(e)}", 'code': 'DOWNLOAD_ERROR'}
+        }, status=status.HTTP_400_BAD_REQUEST)
     except Exception as e:
-        logger.error(f"Error during job creation: {e}", exc_info=True)
-        # Check for specific yt-dlp download error
-        if isinstance(e, yt_dlp.utils.DownloadError):
-            return Response({'error': f"Failed to download video from URL. Please check the link. Error: {str(e)}"},
-                            status=status.HTTP_400_BAD_REQUEST)
-        return Response({'error': f"An unexpected error occurred: {str(e)}"},
-                        status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        logger.error(f"Job creation failed for {job_type}: {e}", exc_info=True)
+        return Response({
+            'status': 'failed',
+            'job_type': job_type,
+            'output_image': None,
+            'output_video': None,
+            'data': {},
+            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+            'error': {'message': f"Unexpected error: {str(e)}", 'code': 'SERVER_ERROR'}
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     finally:
-        # Clean up the temporary downloaded file
         if temp_video_path and os.path.exists(temp_video_path):
             os.unlink(temp_video_path)
 
-
-# =================================
-# NEW VIEW for YouTube Frame Extraction
-# =================================
+"""
+=====================================
+YouTube Frame Extraction
+=====================================
+Handles extraction of the first frame from a YouTube video URL.
+All error responses use standardized format (Issue #10).
+"""
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def get_youtube_frame_view(request):
     """
-    Accepts a YouTube URL, downloads the video using yt-dlp, extracts the first frame,
-    saves it, and returns its public URL. Used for interactive canvas setup.
+    Extract first frame from a YouTube URL and return its URL.
+
+    Args:
+        request: HTTP request with youtube_url
+
+    Returns:
+        Response with standardized format:
+        {
+            'status': 'completed' | 'failed',
+            'job_type': 'youtube_frame_extraction',
+            'output_image': str | None,
+            'output_video': None,
+            'data': {'frame_url': str},
+            'meta': {'timestamp': str, 'request_time': float},
+            'error': dict | None
+        }
     """
+    start_time = time.time()
     youtube_url = request.data.get('youtube_url')
     if not youtube_url:
-        return Response({'error': 'youtube_url is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            'status': 'failed',
+            'job_type': 'youtube_frame_extraction',
+            'output_image': None,
+            'output_video': None,
+            'data': {},
+            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+            'error': {'message': 'youtube_url is required', 'code': 'MISSING_URL'}
+        }, status=status.HTTP_400_BAD_REQUEST)
 
     temp_video_path = None
     temp_frame_path = None
     try:
-        logger.info(f"Fetching frame for YouTube URL using yt-dlp: {youtube_url}")
-
+        logger.info(f"🎬 Fetching frame for YouTube URL: {youtube_url}")
         temp_video_path = tempfile.mktemp(suffix=".mp4")
         ydl_opts = {
-            'format': 'bestvideo[ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]/bestvideo[ext=mp4][vcodec!=av01]+bestaudio[ext=m4a]/best[ext=mp4][vcodec!=av01]/best',
+            'format': 'bestvideo[ext=mp4][vcodec=h264]+bestaudio[ext=m4a]/best[ext=mp4][vcodec=h264]/best[ext=mp4]',
             'outtmpl': temp_video_path,
             'quiet': True,
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([youtube_url])
 
-        # Use OpenCV to capture the first frame
+        if not os.path.exists(temp_video_path):
+            return Response({
+                'status': 'failed',
+                'job_type': 'youtube_frame_extraction',
+                'output_image': None,
+                'output_video': None,
+                'data': {},
+                'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+                'error': {'message': 'Failed to download video', 'code': 'DOWNLOAD_FAILED'}
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        size = os.path.getsize(temp_video_path)
+        if size > MAX_FILE_SIZE:
+            return Response({
+                'status': 'failed',
+                'job_type': 'youtube_frame_extraction',
+                'output_image': None,
+                'output_video': None,
+                'data': {},
+                'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+                'error': {'message': f"File size {size / (1024*1024):.2f}MB exceeds 500MB limit", 'code': 'FILE_TOO_LARGE'}
+            }, status=status.HTTP_400_BAD_REQUEST)
+
         cap = cv2.VideoCapture(temp_video_path)
         success, frame = cap.read()
         cap.release()
-
         if not success:
-            return Response({'error': 'Could not extract a frame from the video.'},
-                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({
+                'status': 'failed',
+                'job_type': 'youtube_frame_extraction',
+                'output_image': None,
+                'output_video': None,
+                'data': {},
+                'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+                'error': {'message': 'Could not extract frame', 'code': 'FRAME_EXTRACT_FAILED'}
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # Save the frame to a temporary image file
         temp_frame_path = tempfile.mktemp(suffix=".jpg")
         cv2.imwrite(temp_frame_path, frame)
 
-        # Save the frame to Django's default storage to get a permanent URL
         with open(temp_frame_path, 'rb') as f:
             frame_filename = f"thumbnails/yt_thumb_{uuid4().hex}.jpg"
             saved_path = default_storage.save(frame_filename, ContentFile(f.read()))
-            
-            # Use Django's storage URL generation for proper path handling
-            relative_url = default_storage.url(saved_path)
-            
-            # Handle URL construction more robustly
-            if relative_url.startswith('http'):
-                # Storage already returned a full URL
-                frame_url = relative_url
-            else:
-                # Ensure we have a clean relative path
-                if relative_url.startswith('/'):
-                    relative_url = relative_url[1:]  # Remove only the first slash
-                
-                # Build the full URL with proper protocol and domain
-                frame_url = f"https://intellivision.aionos.co/{relative_url}"
-            
-            # Ensure the URL is properly formatted - safety net for malformed URLs
-            if 'https//' in frame_url:
-                frame_url = frame_url.replace('https//', 'https://')
+            frame_url = ensure_api_media_url(default_storage.url(saved_path))
 
-        return Response({'frame_url': frame_url}, status=status.HTTP_200_OK)
+        logger.info(f"✅ Extracted frame: {frame_url}")
+        return Response({
+            'status': 'completed',
+            'job_type': 'youtube_frame_extraction',
+            'output_image': frame_url,
+            'output_video': None,
+            'data': {'frame_url': frame_url},
+            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+            'error': None
+        }, status=status.HTTP_200_OK)
 
+    except yt_dlp.utils.DownloadError as e:
+        logger.error(f"YouTube frame extraction failed: {e}", exc_info=True)
+        return Response({
+            'status': 'failed',
+            'job_type': 'youtube_frame_extraction',
+            'output_image': None,
+            'output_video': None,
+            'data': {},
+            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+            'error': {'message': f"Failed to download video: {str(e)}", 'code': 'DOWNLOAD_ERROR'}
+        }, status=status.HTTP_400_BAD_REQUEST)
     except Exception as e:
-        logger.error(f"Error fetching YouTube frame: {e}", exc_info=True)
-        if isinstance(e, yt_dlp.utils.DownloadError):
-            return Response({'error': f"Failed to download video from URL. Please check the link. Error: {str(e)}"},
-                            status=status.HTTP_400_BAD_REQUEST)
-        return Response({'error': f'An error occurred: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        logger.error(f"YouTube frame extraction error: {e}", exc_info=True)
+        return Response({
+            'status': 'failed',
+            'job_type': 'youtube_frame_extraction',
+            'output_image': None,
+            'output_video': None,
+            'data': {},
+            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+            'error': {'message': f"Unexpected error: {str(e)}", 'code': 'SERVER_ERROR'}
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     finally:
-        # Clean up temporary files
-        if temp_video_path and os.path.exists(temp_video_path):
-            os.unlink(temp_video_path)
-        if temp_frame_path and os.path.exists(temp_frame_path):
-            os.unlink(temp_frame_path)
+        for path in [temp_video_path, temp_frame_path]:
+            if path and os.path.exists(path):
+                os.unlink(path)
 
-
-# =================================
-# Asynchronous API Views (Updated to use the new helper)
-# =================================
+"""
+=====================================
+Asynchronous API Views
+=====================================
+API views for submitting various analytics jobs, all requiring authentication.
+All error responses use standardized format (Issue #10).
+"""
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def people_count_view(request):
-    """API endpoint for people counting from an uploaded video or YouTube URL."""
-    return _create_and_dispatch_job(request, 'people_count')
-
+    """Submit people counting job."""
+    return _create_and_dispatch_job(request, 'people-count')
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def car_count_view(request):
-    """API endpoint for car counting from an uploaded video or YouTube URL."""
-    return _create_and_dispatch_job(request, 'car_count')
-
+    """Submit car counting job."""
+    return _create_and_dispatch_job(request, 'car-count')
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def parking_analysis_view(request):
-    """API endpoint for parking analysis from an uploaded video or YouTube URL."""
-    return _create_and_dispatch_job(request, 'parking_analysis')
-
+    """Submit parking analysis job."""
+    return _create_and_dispatch_job(request, 'parking-analysis')
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def wildlife_detection_video_view(request):
-    """API endpoint for wildlife detection from an uploaded video or YouTube URL."""
-    return _create_and_dispatch_job(request, 'wildlife_detection')
-
+    """Submit wildlife detection video job."""
+    return _create_and_dispatch_job(request, 'wildlife-detection')
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def wildlife_detection_image_view(request):
-    """API endpoint for wildlife detection from an uploaded image."""
-    return _create_and_dispatch_job(request, 'wildlife_detection')
-
+    """Submit wildlife detection image job."""
+    return _create_and_dispatch_job(request, 'wildlife-detection')
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def room_readiness_view(request):
-    """API endpoint for room readiness analysis from an uploaded image or video."""
-    return _create_and_dispatch_job(request, 'room_readiness')
-
+    """Submit room readiness analysis job."""
+    return _create_and_dispatch_job(request, 'room-readiness')
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def emergency_count_view(request):
-    """API endpoint for emergency counting, requiring line coordinates."""
+    """Submit emergency counting job with line coordinates."""
+    start_time = time.time()
     emergency_lines_str = request.data.get("emergency_lines")
     if not emergency_lines_str:
-        return Response({'error': "'emergency_lines' is a required field."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            'status': 'failed',
+            'job_type': 'emergency-count',
+            'output_image': None,
+            'output_video': None,
+            'data': {},
+            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+            'error': {'message': "'emergency_lines' is required", 'code': 'MISSING_EMERGENCY_LINES'}
+        }, status=status.HTTP_400_BAD_REQUEST)
     try:
         emergency_lines = json.loads(emergency_lines_str)
     except json.JSONDecodeError:
-        return Response({'error': "Invalid JSON format in 'emergency_lines'."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            'status': 'failed',
+            'job_type': 'emergency-count',
+            'output_image': None,
+            'output_video': None,
+            'data': {},
+            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+            'error': {'message': "Invalid JSON in 'emergency_lines'", 'code': 'INVALID_JSON'}
+        }, status=status.HTTP_400_BAD_REQUEST)
 
     extra_data = {
         'emergency_lines': emergency_lines,
         'video_width': request.data.get('video_width'),
         'video_height': request.data.get('video_height'),
     }
-    return _create_and_dispatch_job(request, 'emergency_count', extra_data)
-
+    return _create_and_dispatch_job(request, 'emergency-count', extra_data)
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def lobby_detection_view(request):
-    """API endpoint for lobby/crowd detection, requiring zone definitions."""
+    """Submit lobby/crowd detection job with zone definitions."""
+    start_time = time.time()
     lobby_zones_str = request.data.get("lobby_zones")
     if not lobby_zones_str:
-        return Response({'error': "'lobby_zones' is a required field."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            'status': 'failed',
+            'job_type': 'lobby-detection',
+            'output_image': None,
+            'output_video': None,
+            'data': {},
+            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+            'error': {'message': "'lobby_zones' is required", 'code': 'MISSING_LOBBY_ZONES'}
+        }, status=status.HTTP_400_BAD_REQUEST)
     try:
         lobby_zones = json.loads(lobby_zones_str)
     except json.JSONDecodeError:
-        return Response({'error': "Invalid JSON format in 'lobby_zones'."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            'status': 'failed',
+            'job_type': 'lobby-detection',
+            'output_image': None,
+            'output_video': None,
+            'data': {},
+            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+            'error': {'message': "Invalid JSON in 'lobby_zones'", 'code': 'INVALID_JSON'}
+        }, status=status.HTTP_400_BAD_REQUEST)
 
     extra_data = {
         'lobby_zones': lobby_zones,
         'video_width': request.data.get('video_width'),
         'video_height': request.data.get('video_height'),
     }
-    return _create_and_dispatch_job(request, 'lobby_detection', extra_data)
+    return _create_and_dispatch_job(request, 'lobby-detection', extra_data)
 
-
-# =================================
-# Synchronous API Views (No changes needed)
-# =================================
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def food_waste_estimation_view(request):
     """
-    API endpoint for food waste estimation from a single uploaded image.
-    This is a synchronous operation that calls the Azure OpenAI API.
+    Submit food waste estimation job for an image.
+
+    Args:
+        request: HTTP request with image file
+
+    Returns:
+        Response with standardized format:
+        {
+            'status': 'pending' | 'failed',
+            'job_type': 'food-waste-estimation',
+            'output_image': None,
+            'output_video': None,
+            'data': {'job_id': int, ...},
+            'meta': {'timestamp': str, 'request_time': float},
+            'error': dict | None
+        }
     """
+    start_time = time.time()
     image_file = request.FILES.get('image')
     if not image_file:
-        return Response({'error': 'No image file provided.'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            'status': 'failed',
+            'job_type': 'food-waste-estimation',
+            'output_image': None,
+            'output_video': None,
+            'data': {},
+            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+            'error': {'message': 'No image file provided', 'code': 'MISSING_IMAGE'}
+        }, status=status.HTTP_400_BAD_REQUEST)
 
-    # Use a temporary file to get a path for the analytics function
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp_in:
-        for chunk in image_file.chunks():
-            tmp_in.write(chunk)
-        input_path = tmp_in.name
+    ext = os.path.splitext(image_file.name)[1].lower()
+    if ext not in {'.jpg', '.jpeg', '.png'}:
+        return Response({
+            'status': 'failed',
+            'job_type': 'food-waste-estimation',
+            'output_image': None,
+            'output_video': None,
+            'data': {},
+            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+            'error': {'message': f"Invalid file type: {ext}. Allowed: .jpg, .jpeg, .png", 'code': 'INVALID_FILE_TYPE'}
+        }, status=status.HTTP_400_BAD_REQUEST)
+    if image_file.size > MAX_FILE_SIZE:
+        return Response({
+            'status': 'failed',
+            'job_type': 'food-waste-estimation',
+            'output_image': None,
+            'output_video': None,
+            'data': {},
+            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+            'error': {'message': f"File size {image_file.size / (1024*1024):.2f}MB exceeds 500MB limit", 'code': 'FILE_TOO_LARGE'}
+        }, status=status.HTTP_400_BAD_REQUEST)
 
-    try:
-        # The analytics function handles the API call and returns a result dictionary
-        result = analyze_food_image(input_path)
-
-        if result.get('status') == 'failed':
-            error_msg = result.get('error', 'Unknown error from analytics function')
-            logger.error(f"Food waste estimation failed: {error_msg}")
-            return Response({'error': error_msg}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        # Return the 'data' part of the result directly to the client
-        return Response(result.get('data', {}), status=status.HTTP_200_OK)
-
-    except Exception as e:
-        logger.error(f"Error in food_waste_estimation_view: {e}", exc_info=True)
-        return Response({'error': 'An unexpected server error occurred.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    finally:
-        # Ensure the temporary file is always cleaned up
-        if os.path.exists(input_path):
-            os.unlink(input_path)
-
+    return _create_and_dispatch_job(request, 'food-waste-estimation')
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def pothole_detection_image_view(request):
     """
-    API endpoint for pothole detection from a single uploaded image.
-    This is a synchronous operation.
+    Submit pothole detection job for an image.
+
+    Args:
+        request: HTTP request with image file
+
+    Returns:
+        Response with standardized format:
+        {
+            'status': 'pending' | 'failed',
+            'job_type': 'pothole-detection',
+            'output_image': None,
+            'output_video': None,
+            'data': {'job_id': int, ...},
+            'meta': {'timestamp': str, 'request_time': float},
+            'error': dict | None
+        }
     """
+    start_time = time.time()
     image_file = request.FILES.get('image')
     if not image_file:
-        return Response({'error': 'No image file provided.'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            'status': 'failed',
+            'job_type': 'pothole-detection',
+            'output_image': None,
+            'output_video': None,
+            'data': {},
+            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+            'error': {'message': 'No image file provided', 'code': 'MISSING_IMAGE'}
+        }, status=status.HTTP_400_BAD_REQUEST)
 
-    # Create temporary files for input and output
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp_in:
-        for chunk in image_file.chunks():
-            tmp_in.write(chunk)
-        input_path = tmp_in.name
+    ext = os.path.splitext(image_file.name)[1].lower()
+    if ext not in {'.jpg', '.jpeg', '.png'}:
+        return Response({
+            'status': 'failed',
+            'job_type': 'pothole-detection',
+            'output_image': None,
+            'output_video': None,
+            'data': {},
+            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+            'error': {'message': f"Invalid file type: {ext}. Allowed: .jpg, .jpeg, .png", 'code': 'INVALID_FILE_TYPE'}
+        }, status=status.HTTP_400_BAD_REQUEST)
+    if image_file.size > MAX_FILE_SIZE:
+        return Response({
+            'status': 'failed',
+            'job_type': 'pothole-detection',
+            'output_image': None,
+            'output_video': None,
+            'data': {},
+            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+            'error': {'message': f"File size {image_file.size / (1024*1024):.2f}MB exceeds 500MB limit", 'code': 'FILE_TOO_LARGE'}
+        }, status=status.HTTP_400_BAD_REQUEST)
 
-    output_path = tempfile.mktemp(suffix=".jpg")
+    return _create_and_dispatch_job(request, 'pothole-detection')
 
-    try:
-        # Run the synchronous analytics function
-        result = run_pothole_image_detection(input_path, output_path)
-
-        # Check if the analytics function returned an error
-        if 'error' in result:
-            logger.error(f"Pothole detection analytics failed: {result['error']}")
-            return Response({'error': result['error']}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        # The analytics function saves the annotated image to output_path.
-        # Now, we save it to Django's storage to get a web-accessible URL.
-        if os.path.exists(output_path):
-            with open(output_path, 'rb') as f:
-                # Create a unique name for the stored file
-                output_filename = f"outputs/pothole_{uuid4().hex}.jpg"
-                saved_path = default_storage.save(output_filename, ContentFile(f.read()))
-                output_url = default_storage.url(saved_path)
-                # Add the final URL to the result dictionary
-                result['output_url'] = output_url
-        else:
-            # This case should ideally not happen if the analytics function is successful
-            logger.warning(f"Pothole detection ran but output file not found at {output_path}")
-            result['output_url'] = None
-
-        return Response(result, status=status.HTTP_200_OK)
-
-    except Exception as e:
-        logger.error(f"Error in pothole_detection_image_view: {e}", exc_info=True)
-        return Response({'error': 'An unexpected server error occurred.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    finally:
-        # Ensure temporary files are always cleaned up
-        if os.path.exists(input_path):
-            os.unlink(input_path)
-        if os.path.exists(output_path):
-            os.unlink(output_path)
-
-
-# =================================
-# Standard ViewSet and User Info
-# =================================
+"""
+=====================================
+Standard ViewSet and User Info
+=====================================
+ViewSet for managing VideoJob objects and retrieving user information.
+Added error handling for DoesNotExist to use standardized error format (Issue #10).
+"""
 
 class VideoJobViewSet(viewsets.ModelViewSet):
     """
-    ViewSet for managing VideoJob objects with proper task termination and cleanup.
-    Provides a standard RESTful interface for the VideoJob model.
+    ViewSet for managing VideoJob objects with task termination and cleanup.
     """
     queryset = VideoJob.objects.all()
     serializer_class = VideoJobSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        """
-        This view should return a list of all the jobs
-        for the currently authenticated user.
-        """
+        """Return jobs for the authenticated user."""
         return VideoJob.objects.filter(user=self.request.user).order_by('-created_at')
-    
+
     def destroy(self, request, *args, **kwargs):
         """
-        Custom delete method that properly terminates Celery tasks and cleans up resources.
+        Delete a job, terminate its Celery task, and clean up resources.
+
+        Args:
+            request: HTTP request object
+
+        Returns:
+            Response with standardized format
         """
-        job = self.get_object()
-        
-        logger.info(f"Starting deletion of job {job.id} (status: {job.status}, task_id: {job.task_id})")
-        
-        # Step 1: Revoke Celery task if it exists and is running
+        start_time = time.time()
+        try:
+            job = self.get_object()
+        except VideoJob.DoesNotExist:
+            return Response({
+                'status': 'failed',
+                'job_type': 'job_deletion',
+                'output_image': None,
+                'output_video': None,
+                'data': {},
+                'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+                'error': {'message': 'Job not found', 'code': 'JOB_NOT_FOUND'}
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        logger.info(f"Deleting job {job.id} (status: {job.status}, task_id: {job.task_id})")
+
         if job.task_id and job.status in ['pending', 'processing']:
             try:
                 from celery import current_app
-                # Revoke the task with terminate=True to forcefully stop GPU processes
                 current_app.control.revoke(job.task_id, terminate=True, signal='SIGKILL')
-                logger.info(f"Revoked Celery task {job.task_id} for job {job.id}")
+                logger.info(f"Revoked task {job.task_id} for job {job.id}")
             except Exception as e:
-                logger.warning(f"Failed to revoke task {job.task_id} for job {job.id}: {e}")
-        
-        # Step 2: Clean up temporary files
-        temp_files_to_clean = [
+                logger.warning(f"Failed to revoke task {job.task_id}: {e}")
+
+        temp_files = [
             f"/tmp/output_{job.id}.mp4",
             f"/tmp/output_{job.id}.jpg",
             f"/tmp/output_{job.id}.png",
             f"/tmp/yt_thumb_{job.id}.jpg"
         ]
-        
-        cleaned_files = 0
-        for temp_file in temp_files_to_clean:
+        for temp_file in temp_files:
             if os.path.exists(temp_file):
                 try:
                     os.unlink(temp_file)
-                    cleaned_files += 1
-                    logger.info(f"Cleaned up temporary file: {temp_file}")
+                    logger.info(f"Cleaned up: {temp_file}")
                 except Exception as e:
-                    logger.warning(f"Failed to delete temporary file {temp_file}: {e}")
-        
-        if cleaned_files > 0:
-            logger.info(f"Cleaned up {cleaned_files} temporary files for job {job.id}")
-        
-        # Step 3: Log deletion details
-        job_info = {
-            'job_id': job.id,
-            'job_type': job.job_type,
-            'status': job.status,
-            'user': job.user.username if job.user else 'Unknown',
-            'task_id': job.task_id,
-            'had_running_task': job.task_id and job.status in ['pending', 'processing']
-        }
-        
-        logger.info(f"DELETING JOB {job.id} | Type: {job_info['job_type']} | Status: {job_info['status']} | User: {job_info['user']} | Task Terminated: {job_info['had_running_task']}")
-        
-        # Step 4: Perform the actual deletion
-        response = super().destroy(request, *args, **kwargs)
-        
-        logger.info(f"Successfully deleted job {job.id} and cleaned up all resources")
-        
-        return response
+                    logger.warning(f"Failed to delete {temp_file}: {e}")
 
+        response = super().destroy(request, *args, **kwargs)
+        logger.info(f"Deleted job {job.id}")
+        return Response({
+            'status': 'completed',
+            'job_type': 'job_deletion',
+            'output_image': None,
+            'output_video': None,
+            'data': {'job_id': job.id},
+            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+            'error': None
+        }, status=status.HTTP_204_NO_CONTENT)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def current_user_view(request):
     """
-    API endpoint to retrieve the current authenticated user's info.
+    Retrieve current user's info.
+
+    Args:
+        request: HTTP request object
+
+    Returns:
+        Response with standardized format:
+        {
+            'status': 'completed',
+            'job_type': 'user_info',
+            'output_image': None,
+            'output_video': None,
+            'data': {'id': int, 'username': str, 'email': str},
+            'meta': {'timestamp': str, 'request_time': float},
+            'error': None
+        }
     """
+    start_time = time.time()
     user = request.user
     return Response({
-        "id": user.id,
-        "username": user.username,
-        "email": user.email
-    })
+        'status': 'completed',
+        'job_type': 'user_info',
+        'output_image': None,
+        'output_video': None,
+        'data': {
+            'id': user.id,
+            'username': user.username,
+            'email': user.email
+        },
+        'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+        'error': None
+    }, status=status.HTTP_200_OK)

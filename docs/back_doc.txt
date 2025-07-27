@@ -1,0 +1,490 @@
+{
+  "backend_api_documentation": {
+    "job_processing_mechanism": {
+      "async_processing": {
+        "technology": "Celery",
+        "description": "All analytics tasks are processed asynchronously using Celery workers",
+        "task_function": "process_video_job",
+        "task_binding": "shared_task(bind=True)"
+      },
+      "processing_flow": {
+        "1_api_call": "POST request to specific analytics endpoint (e.g., /api/car-count/)",
+        "2_job_creation": "VideoJob instance created in PostgreSQL database",
+        "3_file_storage": "Input file saved to Django default storage (likely local filesystem or cloud)",
+        "4_task_dispatch": "Celery task dispatched with job ID",
+        "5_worker_execution": "Celery worker processes job using strategy pattern",
+        "6_result_storage": "Results saved to VideoJob.results (JSONField)",
+        "7_output_storage": "Output files saved to 'outputs/' directory via Django storage",
+        "8_status_update": "Job status updated to 'done' or 'failed'"
+      },
+      "job_types": {
+        "car-count": {
+          "initiation_endpoint": "/api/car-count/",
+          "method": "POST",
+          "processor_function": "recognize_number_plates",
+          "input_args": ["filename"],
+          "description": "ANPR car counting and license plate recognition"
+        },
+        "emergency-count": {
+          "initiation_endpoint": "/api/emergency-count/",
+          "method": "POST", 
+          "processor_function": "tracking_video (emergency_count)",
+          "input_args": ["input_path", "output_path", "emergency_lines", "video_width", "video_height"],
+          "description": "Emergency situation counting with line crossing detection"
+        },
+        "food-waste-estimation": {
+          "initiation_endpoint": "/api/food-waste-estimation/",
+          "method": "POST",
+          "processor_function": "analyze_food_image",
+          "input_args": ["image_path"],
+          "description": "Food waste analysis for images"
+        },
+        "parking-analysis": {
+          "initiation_endpoint": "/api/parking-analysis/",
+          "method": "POST",
+          "processor_function": "analyze_parking_video", 
+          "input_args": ["filename"],
+          "description": "Parking lot analysis and space detection"
+        },
+        "people-count": {
+          "initiation_endpoint": "/api/people-count/",
+          "method": "POST",
+          "processor_function": "tracking_video (people_count)",
+          "input_args": ["input_path", "output_path"],
+          "description": "People counting and tracking in videos"
+        },
+        "pothole-detection": {
+          "initiation_endpoint": "/api/pothole-detection/image/",
+          "method": "POST",
+          "processor_function": "run_pothole_image_detection OR tracking_video",
+          "input_args": ["input_path", "output_path"],
+          "description": "Pothole detection for images and videos"
+        },
+        "room-readiness": {
+          "initiation_endpoint": "/api/room-readiness/",
+          "method": "POST",
+          "processor_function": "analyze_room_image OR analyze_room_video_multi_zone_only",
+          "input_args": ["input_path"],
+          "description": "Room readiness analysis with zone detection"
+        },
+        "wildlife-detection": {
+          "initiation_endpoint_image": "/api/wildlife-detection/image/",
+          "initiation_endpoint_video": "/api/wildlife-detection/video/",
+          "method": "POST",
+          "processor_function": "tracking_video (pest_monitoring)",
+          "input_args": ["input_path", "output_path"],
+          "description": "Wildlife and pest detection"
+        },
+        "lobby-detection": {
+          "initiation_endpoint": "/api/lobby-detection/",
+          "method": "POST",
+          "processor_function": "run_crowd_analysis",
+          "input_args": ["input_path", "lobby_zones", "output_path"],
+          "description": "Lobby crowd analysis with zone definitions"
+        }
+      }
+    },
+    "status_retrieval": {
+      "polling_mechanism": {
+        "primary_method": "HTTP polling via REST API",
+        "job_specific_endpoints": "/api/jobs/{id}/",
+        "method": "GET",
+        "auth_required": true,
+        "polling_interval_recommendation": "2-3 seconds",
+        "timeout_recommendation": "60 seconds"
+      },
+      "websocket_support": {
+        "available": false,
+        "real_time_updates": "Not implemented",
+        "note": "Only ANPR events have basic WebSocket structure in events.py, but not fully implemented"
+      },
+      "anpr_websocket": {
+        "basic_structure_exists": true,
+        "file_location": "apps/video_analytics/analytics/anpr/routes.py",
+        "implementation_status": "FastAPI-based implementation exists but NOT integrated with Django",
+        "connection_setup": "WebSocket endpoint exists at /ws in FastAPI router but not exposed via Django URLs",
+        "reality_check": "This is a separate FastAPI module that is NOT connected to the main Django application",
+        "client_expectation": "Connecting to /api/anpr/ws will result in 404 - endpoint does not exist in Django"
+      }
+    },
+    "endpoint_details": {
+      "job_management": {
+        "list_jobs": {
+          "endpoint": "/api/jobs/",
+          "method": "GET",
+          "auth_required": true,
+          "description": "List all jobs for authenticated user",
+          "response_format": "Array of VideoJob objects"
+        },
+        "get_job": {
+          "endpoint": "/api/jobs/{id}/",
+          "method": "GET", 
+          "auth_required": true,
+          "description": "Get specific job details and status",
+          "response_format": "VideoJob object with results"
+        },
+        "delete_job": {
+          "endpoint": "/api/jobs/{id}/",
+          "method": "DELETE",
+          "auth_required": true,
+          "description": "Delete job and terminate Celery task",
+          "additional_actions": "Revokes running Celery task with SIGKILL"
+        }
+      },
+      "analytics_endpoints": {
+        "common_input_format": {
+          "content_type": "multipart/form-data",
+          "required_fields": "video OR image OR youtube_url",
+          "optional_fields": "emergency_lines, lobby_zones, video_width, video_height",
+          "file_size_limit": "500MB",
+          "supported_formats": [".mp4", ".jpg", ".jpeg", ".png"]
+        },
+        "youtube_support": {
+          "available": true,
+          "parameter": "youtube_url",
+          "download_format": "bestvideo[ext=mp4][vcodec=h264]+bestaudio[ext=m4a]/best[ext=mp4][vcodec=h264]/best[ext=mp4]",
+          "size_validation": "Same 500MB limit applies after download"
+        },
+        "youtube_frame_extraction": {
+          "endpoint": "/api/get-youtube-frame/",
+          "method": "POST",
+          "input": "youtube_url",
+          "output": "First frame as image URL",
+          "auth_required": true
+        }
+      },
+      "user_endpoints": {
+        "current_user": {
+          "endpoint": "/api/me/",
+          "method": "GET",
+          "auth_required": true,
+          "description": "Get current user information"
+        }
+      }
+    },
+    "response_format": {
+      "standardized_response": {
+        "structure": {
+          "status": "String - 'accepted'|'processing'|'done'|'failed'",
+          "job_type": "String - Type of analytics job",
+          "output_image": "String|null - URL to output image",
+          "output_video": "String|null - URL to output video", 
+          "data": "Object - Job-specific data and serialized VideoJob",
+          "meta": "Object - Metadata with timestamp and processing info",
+          "error": "Object|null - Error details if failed"
+        },
+        "initial_submission_response": {
+          "status": "accepted",
+          "job_type": "String",
+          "output_image": null,
+          "output_video": null,
+          "data": "VideoJobSerializer data including job_id",
+          "meta": {
+            "timestamp": "ISO timestamp",
+            "request_time": "Float - request processing time in seconds"
+          },
+          "error": null
+        },
+        "job_polling_response": {
+          "status": "pending|processing|done|failed",
+          "job_type": "String",
+          "output_image": "URL or null",
+          "output_video": "URL or null",
+          "data": "Complete VideoJob serialized data + results",
+          "meta": {
+            "timestamp": "ISO timestamp",
+            "processing_time_seconds": "Float - total processing time",
+            "fps": "Float - video FPS if applicable",
+            "frame_count": "Integer - total frames if video"
+          },
+          "error": {
+            "message": "Error description",
+            "code": "Error code",
+            "error_type": "Exception type",
+            "traceback": "Full traceback if available"
+          }
+        }
+      },
+      "task_specific_data_examples": {
+        "emergency_count": {
+          "unique_people": "Integer - number of unique individuals",
+          "total_crossings": "Integer - total line crossings detected", 
+          "final_counts": "Object - detailed counting results",
+          "output_video": "URL to annotated video"
+        },
+        "people_count": {
+          "total_people": "Integer - total people detected",
+          "tracking_data": "Array - tracking information",
+          "output_video": "URL to annotated video"
+        },
+        "car_count": {
+          "license_plates": "Array - detected plates with text",
+          "vehicle_count": "Integer - total vehicles",
+          "anpr_results": "Object - detailed ANPR data"
+        },
+        "room_readiness": {
+          "zones_analyzed": "Array - zone analysis results",
+          "readiness_score": "Float - overall readiness score",
+          "recommendations": "Array - improvement suggestions"
+        },
+        "food_waste_estimation": {
+          "waste_percentage": "Float - estimated waste percentage",
+          "food_items": "Array - detected food items",
+          "analysis_confidence": "Float - confidence score"
+        }
+      },
+      "error_codes": {
+        "MISSING_INPUT": "No file or YouTube URL provided",
+        "INVALID_INPUT_COMBINATION": "Both file and YouTube URL provided",
+        "INVALID_FILE_TYPE": "Unsupported file extension",
+        "FILE_TOO_LARGE": "File exceeds 500MB limit",
+        "DOWNLOAD_FAILED": "YouTube download failed",
+        "DOWNLOAD_ERROR": "YouTube download error with details",
+        "SERVER_ERROR": "Unexpected server error",
+        "MISSING_URL": "YouTube URL required but not provided",
+        "FRAME_EXTRACT_FAILED": "Could not extract frame from video"
+      }
+    },
+    "media_urls": {
+      "pattern": "/api/media/{path}",
+      "generation": "Django default_storage.url() with ensure_api_media_url() normalization",
+      "output_directory": "outputs/",
+      "upload_directory": "uploads/",
+      "url_format": "Absolute URLs starting with /api/media/",
+      "file_naming": "{job_type}_{uuid}.{ext} for uploads, original name for outputs"
+    },
+    "storage_configuration": {
+      "storage_backend": "Django FileSystemStorage (DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage')",
+      "media_root": "/app/intellivision/media (Docker container path)",
+      "docker_volume_mapping": "media:/app/intellivision/media (shared between web and celery containers)",
+      "directory_structure": {
+        "base": "/app/intellivision/media/",
+        "uploads": "/app/intellivision/media/uploads/ (user uploaded files)",
+        "outputs": "/app/intellivision/media/outputs/ (processed results)",
+        "alerts": "/app/intellivision/media/alerts/ (alert-related files)",
+        "anpr_outputs": "/app/intellivision/media/anpr_outputs/ (ANPR specific outputs)",
+        "results": "/app/intellivision/media/results/ (general results)"
+      },
+      "url_serving": {
+        "method": "Django serves files directly (not nginx/apache in current setup)",
+        "static_url": "/api/static/ (for CSS/JS assets)",
+        "media_url_pattern": "Generated by Django storage with custom ensure_api_media_url() function",
+        "accessibility": "Files accessible via direct HTTP requests to media URLs"
+      },
+      "docker_considerations": {
+        "shared_volumes": "Both web and celery containers mount same media volume",
+        "persistence": "Files persist across container restarts via Docker named volume",
+        "temp_files": "Processing uses /tmp (shared-tmp volume) then moves to media/outputs",
+        "cleanup": "Automatic temp file cleanup in try/finally blocks"
+      },
+      "file_lifecycle": {
+        "upload": "File uploaded → saved to media/uploads/ → job created",
+        "processing": "Celery worker copies to /tmp → processes → saves output to media/outputs/",
+        "serving": "Django storage generates URLs → frontend accesses via HTTP",
+        "cleanup": "Temp files automatically deleted, media files persist until job deletion"
+      }
+    },
+    "authentication": {
+      "jwt_handling": {
+        "technology": "django-rest-framework-simplejwt",
+        "authentication_class": "JWTAuthentication",
+        "token_storage": "Client-side (localStorage recommended)",
+        "refresh_mechanism": "Standard JWT refresh token flow",
+        "expiry_handling": "Client must handle token refresh"
+      },
+      "face_auth_flow": {
+        "register_endpoint": "/api/faceauth/register-face/",
+        "login_endpoint": "/api/faceauth/login-face/",
+        "task_status_endpoint": "/api/faceauth/task-status/{task_id}/",
+        "method": "POST for register/login, GET for status",
+        "input_format": "multipart/form-data with username and image",
+        "output": "task_id for async processing",
+        "polling_required": true,
+        "final_result": "JWT token on successful authentication"
+      },
+      "endpoint_protection": {
+        "all_analytics_endpoints": "JWT required (IsAuthenticated)",
+        "face_auth_endpoints": "No auth required (AllowAny)",
+        "user_specific_data": "Jobs filtered by authenticated user"
+      }
+    },
+    "database_storage": {
+      "primary_database": "PostgreSQL",
+      "job_model": "VideoJob",
+      "results_storage": "JSONField in VideoJob.results",
+      "file_storage": "Django default_storage (configurable - filesystem or cloud)",
+      "cloudinary_integration": "Present in face_auth app for face embeddings"
+    },
+    "polling_best_practices": {
+      "recommended_interval": "2000-3000ms (2-3 seconds)",
+      "recommended_timeout": "60000ms (60 seconds)",
+      "exponential_backoff": "Increase interval by 500ms per poll (not implemented in backend)",
+      "status_transitions": "pending → processing → done/failed",
+      "error_handling": "Check response.ok before parsing JSON",
+      "connection_errors": "Implement retry logic with exponential backoff"
+    },
+    "celery_configuration": {
+      "task_decorator": "@shared_task(bind=True)",
+      "task_revocation": "Supports SIGKILL termination for running tasks",
+      "gpu_monitoring": "Basic GPU memory logging if PyTorch available",
+      "error_handling": "Full exception logging with traceback",
+      "result_backend": "Likely Redis or database (not explicitly configured in views)"
+    },
+    "file_processing": {
+      "validation": {
+        "extensions": [".mp4", ".jpg", ".jpeg", ".png"],
+        "size_limit": "500MB",
+        "validation_function": "validate_input_file()"
+      },
+      "processing": {
+        "temp_files": "Generated in /tmp/ for processing",
+        "output_naming": "output_{job_id}.{ext}",
+        "cleanup": "Automatic temp file cleanup in finally blocks"
+      }
+    },
+    "frontend_integration_guide": {
+      "quick_start": {
+        "base_url": "http://localhost:8000 (development) or your deployed URL",
+        "docker_port_mapping": "Host port 8000 maps to container port 8001",
+        "cors_headers": "Configured - no additional setup needed",
+        "content_type": "multipart/form-data for file uploads, application/json for other requests"
+      },
+      "authentication_flow": {
+        "step_1": "POST /api/faceauth/register-face/ with username and face image",
+        "step_2": "Poll GET /api/faceauth/task-status/{task_id}/ until complete",
+        "step_3": "On success, extract JWT tokens from response",
+        "step_4": "Store tokens in localStorage/sessionStorage",
+        "step_5": "Include 'Authorization: Bearer {access_token}' in all API requests"
+      },
+      "file_upload_implementation": {
+        "javascript_example": {
+          "form_data_creation": "const formData = new FormData(); formData.append('video', fileInput.files[0]);",
+          "fetch_request": "fetch('/api/car-count/', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token }, body: formData })",
+          "response_handling": "const result = await response.json(); const jobId = result.data.id;"
+        },
+        "file_constraints": {
+          "max_size": "500MB",
+          "supported_formats": "MP4 (video), JPG/JPEG/PNG (images)",
+          "validation": "Check file.size and file.type before upload"
+        }
+      },
+      "job_status_polling": {
+        "implementation_pattern": {
+          "initial_delay": "1000ms before first poll",
+          "polling_interval": "2000-3000ms",
+          "timeout": "60000ms total",
+          "status_checks": "response.status === 'done' || response.status === 'failed'"
+        },
+        "javascript_example": {
+          "polling_function": "const pollJob = async (jobId) => { const response = await fetch(`/api/jobs/${jobId}/`, { headers: { 'Authorization': 'Bearer ' + token } }); const job = await response.json(); return job.status; }",
+          "implementation": "Use setInterval or setTimeout with recursive calls"
+        }
+      },
+      "real_time_features": {
+        "websockets": "Not available - use HTTP polling only",
+        "anpr_events": "Partial WebSocket structure exists but not functional",
+        "recommendation": "Implement client-side polling for all real-time updates"
+      },
+      "error_handling": {
+        "network_errors": "Implement retry logic with exponential backoff",
+        "authentication_errors": "401 responses indicate token refresh needed", 
+        "validation_errors": "400 responses contain detailed error messages in 'error' field",
+        "server_errors": "5xx responses should trigger user notification and retry"
+      },
+      "youtube_integration": {
+        "parameter": "youtube_url instead of file upload",
+        "frame_preview": "Use /api/get-youtube-frame/ to show video thumbnail",
+        "size_validation": "YouTube videos still subject to 500MB limit after download"
+      },
+      "ui_considerations": {
+        "job_submission": "Show immediate confirmation with job ID",
+        "progress_indication": "Use status field: pending → processing → done/failed",
+        "result_display": "Check output_image and output_video URLs in response",
+        "download_links": "All media URLs are absolute and directly accessible"
+      },
+      "common_workflows": {
+        "video_analytics": {
+          "flow": "1. Upload video → 2. Get job ID → 3. Poll status → 4. Display results",
+          "endpoints": "/api/{car-count|people-count|emergency-count|pothole-detection}/",
+          "output": "Annotated video + analytics data"
+        },
+        "image_analytics": {
+          "flow": "1. Upload image → 2. Get job ID → 3. Poll status → 4. Display results", 
+          "endpoints": "/api/{room-readiness|food-waste-estimation|wildlife-detection}/image/",
+          "output": "Analyzed image + detection data"
+        },
+        "job_management": {
+          "list_all": "GET /api/jobs/ - paginated list of user's jobs",
+          "get_details": "GET /api/jobs/{id}/ - full job data with results",
+          "delete": "DELETE /api/jobs/{id}/ - removes job and stops processing"
+        }
+      },
+      "performance_optimization": {
+        "file_compression": "Compress large videos before upload when possible",
+        "concurrent_uploads": "Limit to 3-5 simultaneous uploads to prevent server overload",
+        "caching": "Cache job results client-side to avoid re-polling completed jobs",
+        "progress_ui": "Use status transitions to show meaningful progress indicators"
+      },
+      "debugging_tips": {
+        "network_tab": "Monitor Network tab for failed requests and response codes",
+        "response_inspection": "Check 'meta' field for processing times and technical details",
+        "error_details": "Failed jobs include full traceback in error.traceback field",
+        "job_logs": "Server logs contain Celery task execution details"
+      }
+    },
+    "documentation_clarifications": {
+      "websocket_discrepancy_explanation": {
+        "reality": "No WebSocket endpoints are available in the Django application",
+        "fastapi_confusion": "There is a separate FastAPI router file (anpr/routes.py) with WebSocket code, but it is NOT integrated with the Django app",
+        "client_behavior": "Any attempt to connect to /api/anpr/ws or /api/ws will result in HTTP 404",
+        "recommendation": "Use HTTP polling exclusively - WebSockets are not functional"
+      },
+      "polling_interval_definitive": {
+        "production_recommendation": "2-3 seconds (2000-3000ms)",
+        "rationale": "Balance between responsiveness and server load",
+        "client_side_backoff": "STRONGLY RECOMMENDED - implement exponential backoff to prevent rate limiting",
+        "backoff_pattern": "Start at 2s, increase by 500ms each retry, max 10s interval",
+        "concurrent_polling": "Limit to 1 poll per job ID to prevent request flooding"
+      },
+      "backend_architecture_inclusion_rationale": {
+        "target_audience": "Both frontend developers and backend developers",
+        "frontend_relevance": {
+          "storage_paths": "Frontend doesn't need to know internal paths, only the URLs returned by API",
+          "docker_volumes": "Helps frontend team understand file persistence and availability",
+          "celery_details": "Explains why jobs are async and why polling is necessary"
+        },
+        "practical_purpose": "Understanding architecture helps debug issues and set proper expectations",
+        "separation_note": "Frontend should ONLY interact with provided URLs, never construct paths manually"
+      },
+      "processor_function_details_purpose": {
+        "significance": "Internal reference for backend developers and system architects",
+        "client_interaction": "Clients CANNOT select or override processors - these are fixed per endpoint",
+        "debugging_value": "Helps identify which processing logic is used for troubleshooting",
+        "implementation_transparency": "Shows the underlying processing strategy for each job type",
+        "frontend_relevance": "Minimal - frontend teams can ignore these details"
+      },
+      "documentation_scope_explanation": {
+        "comprehensive_approach": "This documentation serves multiple audiences",
+        "frontend_focus_sections": [
+          "frontend_integration_guide",
+          "endpoint_details", 
+          "response_format",
+          "authentication",
+          "polling_best_practices"
+        ],
+        "backend_focus_sections": [
+          "job_processing_mechanism",
+          "celery_configuration", 
+          "storage_configuration",
+          "database_storage"
+        ],
+        "shared_sections": [
+          "media_urls",
+          "file_processing",
+          "error_codes"
+        ],
+        "usage_guideline": "Frontend teams should focus on 'frontend_integration_guide' and 'endpoint_details' sections"
+      }
+    }
+  }
+}

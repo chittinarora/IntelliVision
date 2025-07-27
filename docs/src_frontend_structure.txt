@@ -1,0 +1,140 @@
+.
+├── App.css
+├── App.tsx
+├── components
+│   ├── auth
+│   │   └── WebcamCapture.tsx
+│   ├── common
+│   │   ├── Common.tsx
+│   │   └── TaskTypeSelector.tsx
+│   ├── features
+│   │   ├── current
+│   │   │   ├── CSVDownloadButton.tsx
+│   │   │   └── LastUploadPreview.tsx
+│   │   ├── dashboard
+│   │   │   ├── AnimatedBackground.tsx
+│   │   │   ├── StatsOverview.tsx
+│   │   │   ├── TaskSelector.tsx
+│   │   │   └── WelcomeSection.tsx
+│   │   ├── jobs
+│   │   │   ├── JobCard.tsx
+│   │   │   ├── JobModal.tsx
+│   │   │   ├── JobResults
+│   │   │   │   ├── FoodWasteResult.tsx
+│   │   │   │   ├── JobResultRenderer.tsx
+│   │   │   │   ├── ResultBlock.tsx
+│   │   │   │   └── RoomReadinessResult.tsx
+│   │   │   ├── JobUI
+│   │   │   │   ├── ActionButtons.tsx
+│   │   │   │   └── JobInfoDisplay.tsx
+│   │   │   ├── JobViews
+│   │   │   │   ├── DoneView.tsx
+│   │   │   │   ├── FailedView.tsx
+│   │   │   │   └── ProcessingView.tsx
+│   │   │   └── JobsSection.tsx
+│   │   └── upload
+│   │       ├── UnifiedUploadSection.tsx
+│   │       ├── UploadHeader.tsx
+│   │       ├── UploadPageHeader.tsx
+│   │       ├── drawing
+│   │       │   ├── LineDrawingTool.tsx
+│   │       │   ├── PolygonZoneTool.tsx
+│   │       │   ├── ROISelector.tsx
+│   │       │   └── SharedDrawingLayout.tsx
+│   │       ├── image
+│   │       │   ├── ImageDropzone.tsx
+│   │       │   ├── ImagePreview.tsx
+│   │       │   ├── ImageUploadForm.tsx
+│   │       │   └── ImageUploadSection.tsx
+│   │       └── video
+│   │           ├── VideoDropzone.tsx
+│   │           ├── VideoPlayer.tsx
+│   │           ├── VideoPreview.tsx
+│   │           ├── VideoUploadForm.tsx
+│   │           └── VideoUploadSection.tsx
+│   ├── layout
+│   │   └── Navbar.tsx
+│   └── ui
+│       ├── accordion.tsx
+│       ├── alert-dialog.tsx
+│       ├── alert.tsx
+│       ├── app-button.tsx
+│       ├── aspect-ratio.tsx
+│       ├── avatar.tsx
+│       ├── badge.tsx
+│       ├── breadcrumb.tsx
+│       ├── button.tsx
+│       ├── calendar.tsx
+│       ├── card.tsx
+│       ├── carousel.tsx
+│       ├── chart.tsx
+│       ├── checkbox.tsx
+│       ├── collapsible.tsx
+│       ├── command.tsx
+│       ├── context-menu.tsx
+│       ├── dialog.tsx
+│       ├── drawer.tsx
+│       ├── dropdown-menu.tsx
+│       ├── form.tsx
+│       ├── hover-card.tsx
+│       ├── input-otp.tsx
+│       ├── input.tsx
+│       ├── label.tsx
+│       ├── menubar.tsx
+│       ├── navigation-menu.tsx
+│       ├── pagination.tsx
+│       ├── popover.tsx
+│       ├── progress.tsx
+│       ├── radio-group.tsx
+│       ├── resizable.tsx
+│       ├── scroll-area.tsx
+│       ├── select.tsx
+│       ├── separator.tsx
+│       ├── sheet.tsx
+│       ├── sidebar.tsx
+│       ├── skeleton.tsx
+│       ├── slider.tsx
+│       ├── sonner.tsx
+│       ├── switch.tsx
+│       ├── table.tsx
+│       ├── tabs.tsx
+│       ├── textarea.tsx
+│       ├── toast.tsx
+│       ├── toaster.tsx
+│       ├── toggle-group.tsx
+│       ├── toggle.tsx
+│       ├── tooltip.tsx
+│       └── use-toast.ts
+├── constants
+│   └── api.ts
+├── hooks
+│   ├── use-mobile.tsx
+│   ├── use-toast.ts
+│   ├── useEmergencyJobPolling.ts
+│   ├── useJobPolling.ts
+│   ├── useJobs.ts
+│   └── useRoomReadinessPolling.ts
+├── index.css
+├── lib
+│   ├── jobUtils.ts
+│   ├── mediaFormatUtils.ts
+│   ├── utils.ts
+│   └── videoUtils.ts
+├── main.tsx
+├── pages
+│   ├── Dashboard.tsx
+│   ├── Index.tsx
+│   ├── Login.tsx
+│   ├── NotFound.tsx
+│   ├── Register.tsx
+│   └── Upload.tsx
+├── types
+│   └── job.ts
+├── utils
+│   ├── auth
+│   │   └── faceAuth.ts
+│   ├── authFetch.ts
+│   └── glassMorphism.ts
+└── vite-env.d.ts
+
+24 directories, 114 files

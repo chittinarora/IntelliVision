@@ -1,14 +1,13 @@
-"""
-apps.py - Video Analytics App
-App configuration for video analytics Django app.
-"""
+# /apps/video_analytics/apps.py
 
 from django.apps import AppConfig
 
+"""
+App configuration for the video analytics Django app.
+"""
 
 class TrackerConfig(AppConfig):
-    """
-    AppConfig for the video analytics app.
-    """
+    """Configuration for the video analytics app."""
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'apps.video_analytics'
+    verbose_name = 'Video Analytics'

@@ -1,58 +1,72 @@
 """
 Food waste estimation analytics using Azure OpenAI GPT-4o-2 API.
-Provides functions to analyze food images and estimate calories and waste.
-
-Requires the environment variable AZURE_OPENAI_API_KEY to be set in a .env file.
-
-Dependencies:
-- requests
-- python-dotenv
-Install with: pip install requests python-dotenv
+Analyzes food images to identify items, estimate portions, calories, and waste.
 """
 
-# === Standard Library Imports ===
-import os
 import json
-import re
 import logging
-from typing import List, Dict
+# ======================================
+# Imports and Setup
+# ======================================
+import os
+import re
+import time
 from io import BytesIO
+from pathlib import Path
+from typing import List, Dict, Union
 
 import requests
 from PIL import Image
+from celery import shared_task
 from django.conf import settings
+from django.core.files.storage import default_storage
+from django.utils import timezone
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-# Canonical models directory for all analytics jobs
-from pathlib import Path
-MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
-
-# --- Set up logger for this module ---
+# ======================================
+# Logger and Constants
+# ======================================
 logger = logging.getLogger(__name__)
+VALID_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
+MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
+OUTPUT_DIR = Path(settings.JOB_OUTPUT_DIR)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# --- Environment Setup ---
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    raise ImportError("python-dotenv is required. Install it with: pip install python-dotenv")
-
-# --- Azure OpenAI API Setup ---
+# Azure OpenAI API Setup
 AZURE_OPENAI_ENDPOINT = "https://ai-labadministrator7921ai913285980324.openai.azure.com/openai/deployments/gpt-4o-2/chat/completions?api-version=2025-01-01-preview"
 API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
 if not API_KEY:
-    raise EnvironmentError("AZURE_OPENAI_API_KEY not set in environment. Please add it to your .env file.")
+    logger.warning("AZURE_OPENAI_API_KEY not set. Using mock response.")
 
 HEADERS = {
     "Content-Type": "application/json",
-    "api-key": API_KEY,
+    "api-key": API_KEY or "mock-key",
 }
 
-# --- JSON Parsing Helper ---
+
+# ======================================
+# Helper Functions
+# ======================================
+
+def validate_input_file(file_path: str) -> tuple[bool, str]:
+    """Validate file type and size."""
+    file_path = Path(file_path).name
+    if not default_storage.exists(file_path):
+        return False, f"File not found: {file_path}"
+
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext not in VALID_EXTENSIONS:
+        return False, f"Invalid file type: {ext}. Allowed: {', '.join(VALID_EXTENSIONS)}"
+
+    size = default_storage.size(file_path)
+    if size > MAX_FILE_SIZE:
+        return False, f"File size {size / (1024 * 1024):.2f}MB exceeds 500MB limit"
+
+    return True, ""
+
+
 def parse_json_from_response(text: str) -> Dict:
-    """
-    Parse a JSON object from the model's response text.
-    Handles markdown-wrapped and plain JSON.
-    """
+    """Parse JSON from model response."""
     try:
         json_match = re.search(r"```json\n(\{.*?\})\n```", text, re.DOTALL)
         if json_match:
@@ -67,15 +81,64 @@ def parse_json_from_response(text: str) -> Dict:
     except Exception as e:
         return {"error": f"Parsing error: {str(e)}", "raw_response": text}
 
-# --- Main Analysis ---
+
+# ======================================
+# Mock Response for API Failure
+# ======================================
+
+def get_mock_response() -> Dict:
+    """Return mock response for Azure OpenAI API failure."""
+    logger.warning("Using mock response due to API failure")
+    return {
+        'status': 'failed',
+        'job_type': 'food_waste_estimation',
+        'output_image': None,
+        'output_video': None,
+        'data': {'alerts': [], 'error': 'API unavailable'},
+        'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': 0.0},
+        'error': {'message': 'Azure OpenAI API unavailable', 'code': 'API_UNAVAILABLE'}
+    }
+
+
+# ======================================
+# Main Analysis Functions
+# ======================================
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    retry=retry_if_exception_type((requests.exceptions.RequestException,)),
+    reraise=True
+)
 def analyze_food_image(image_path: str) -> Dict:
     """
-    Analyze a food image to identify items, estimate portions and calories, and tag properties.
-    Returns a unified result structure.
+    Analyze a food image to identify items, estimate portions, calories, and waste.
+
+    Args:
+        image_path: Path to input image
+
+    Returns:
+        Standardized response dictionary
     """
+    start_time = time.time()
+    image_path = Path(image_path).name
+    is_valid, error_msg = validate_input_file(image_path)
+    if not is_valid:
+        logger.error(f"Invalid input: {error_msg}")
+        return {
+            'status': 'failed',
+            'job_type': 'food_waste_estimation',
+            'output_image': None,
+            'output_video': None,
+            'data': {'alerts': [], 'error': error_msg},
+            'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
+            'error': {'message': error_msg, 'code': 'INVALID_INPUT'}
+        }
+
     try:
-        # Resize image to 512px width while maintaining aspect ratio
-        with Image.open(image_path) as img:
+        # Open image with default_storage
+        with default_storage.open(image_path, 'rb') as f:
+            img = Image.open(f).convert('RGB')
             img.thumbnail((512, 512))
             buffer = BytesIO()
             img.save(buffer, format="JPEG")
@@ -84,31 +147,42 @@ def analyze_food_image(image_path: str) -> Dict:
         import base64
         image_b64 = base64.b64encode(image_data).decode('utf-8')
 
-
         prompt = (
-            "Identify all visible food items in this photo.\n"
-                "For each item, return:\n"
-                "- name\n"
-                "- estimated portion in grams as an integer (e.g., 150, 50)\n"
-                "- estimated calories as an integer (e.g., 120)\n"
-                "- tags like spicy, oily, fried, etc., if applicable\n\n"
-                "Output strictly in JSON, inside a markdown block, without any explanation or extra text.\n"
-                "Example format:\n"
-                "```json\n"
-                "{\n"
-                "  \"items\": [\n"
-                "    {\"name\": \"White rice\", \"estimated_portion\": 150, \"estimated_calories\": 200, \"tags\": [\"plain\"]},\n"
-                "    {\"name\": \"Cooked vegetables\", \"estimated_portion\": 50, \"estimated_calories\": 50, \"tags\": [\"stir-fried\"]}\n"
-                "  ],\n"
-                "  \"total_calories\": 250\n"
-                "}\n"
-                "```"
+            "You are an expert nutritionist specializing in food waste analysis.\n"
+            "Analyze the provided image of a meal. Identify all visible food items and estimate waste for each.\n\n"
+            "For every food item, provide these fields:\n"
+            "- name: Name of the food item (string).\n"
+            "- estimated_portion_grams: Total served portion size in grams (integer).\n"
+            "- estimated_calories: Calories for the served portion (integer).\n"
+            "- percent_uneaten: Percentage of the item left uneaten (integer, 0-100).\n"
+            "- confidence_score: Confidence in this estimation (float, 0.0-1.0).\n"
+            "- tags: List of relevant food descriptors (e.g., [\"fried\", \"spicy\", \"vegan\"]). Leave empty if no tags apply.\n\n"
+            "Also, in the main JSON object, include these summary fields:\n"
+            "- total_calories_served: The sum of all calories served.\n"
+            "- total_calories_wasted: The total estimated calories that were wasted.\n"
+            "- overall_waste_percentage: The overall percentage of the meal that was wasted.\n\n"
+            "Respond ONLY with a strictly valid JSON object inside a markdown code block labeled 'json'. Do not include any explanations, apologies, or comments outside the code block.\n"
+            "Here is the format to use:\n"
+            "```json\n"
+            "{\n"
+            "  \"items\": [\n"
+            "    {\"name\": \"White rice\", \"estimated_portion_grams\": 150, \"estimated_calories\": 200, \"percent_uneaten\": 50, \"confidence_score\": 0.9, \"tags\": [\"plain\"]},\n"
+            "    {\"name\": \"Chicken curry\", \"estimated_portion_grams\": 120, \"estimated_calories\": 250, \"percent_uneaten\": 10, \"confidence_score\": 0.85, \"tags\": [\"spicy\", \"fried\"]}\n"
+            "  ],\n"
+            "  \"total_calories_served\": 450,\n"
+            "  \"total_calories_wasted\": 125,\n"
+            "  \"overall_waste_percentage\": 28\n"
+            "}\n"
+            "```\n"
         )
 
+        if not API_KEY:
+            return get_mock_response()
 
         payload = {
             "messages": [
-                {"role": "system", "content": "You are a helpful assistant that analyzes food images and returns structured JSON results."},
+                {"role": "system",
+                 "content": "You are an expert nutritionist that analyzes food images and returns structured JSON results."},
                 {"role": "user", "content": [
                     {"type": "text", "text": prompt},
                     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}}
@@ -119,64 +193,122 @@ def analyze_food_image(image_path: str) -> Dict:
         }
 
         response = requests.post(AZURE_OPENAI_ENDPOINT, headers=HEADERS, data=json.dumps(payload))
-        if response.status_code != 200:
-            return {
-                'status': 'failed',
-                'job_type': 'food_waste_estimation',
-                'output_image': None,
-                'results': {'alerts': [], 'error': f"OpenAI API error: {response.status_code} {response.text}"},
-                'meta': {},
-                'error': f"OpenAI API error: {response.status_code} {response.text}"
-            }
+        response.raise_for_status()
         data = response.json()
-        try:
-            text = data["choices"][0]["message"]["content"]
-        except Exception as e:
+        text = data["choices"][0]["message"]["content"]
+        parsed = parse_json_from_response(text)
+
+        if "error" in parsed:
+            logger.error(f"API response parsing failed: {parsed['error']}")
             return {
                 'status': 'failed',
                 'job_type': 'food_waste_estimation',
                 'output_image': None,
-                'results': {'alerts': [], 'error': f"Unexpected API response: {str(e)}"},
-                'meta': {},
-                'error': f"Unexpected API response: {str(e)}"
+                'output_video': None,
+                'data': {'alerts': [], 'error': parsed['error']},
+                'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
+                'error': {'message': parsed['error'], 'code': 'API_PARSING_ERROR'}
             }
-        parsed = parse_json_from_response(text)
-        # Convert image_path to a URL for output_image
-        rel_path = os.path.relpath(image_path, settings.MEDIA_ROOT)
-        output_image_url = settings.MEDIA_URL + rel_path.replace(os.sep, '/')
-        if not output_image_url.startswith('/api/media/'):
-            output_image_url = '/api/media/' + rel_path.replace(os.sep, '/')
+
+        # Save output image
+        output_filename = f"outputs/food_waste_{image_path}"
+        with default_storage.open(image_path, 'rb') as f:
+            default_storage.save(output_filename, f)
+        output_url = default_storage.url(output_filename)
+
         return {
             'status': 'completed',
             'job_type': 'food_waste_estimation',
-            'output_image': output_image_url,
+            'output_image': output_url,
+            'output_video': None,
             'data': {**parsed, 'alerts': []},
-            'meta': {},
+            'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
             'error': None
         }
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Azure OpenAI API failed: {str(e)}")
+        return get_mock_response()
     except Exception as e:
-        logging.exception("OpenAI image analysis failed")
+        logger.exception(f"Food waste analysis failed: {str(e)}")
         return {
             'status': 'failed',
             'job_type': 'food_waste_estimation',
             'output_image': None,
-            'results': {'alerts': [], 'error': str(e)},
-            'meta': {},
-            'error': str(e)
+            'output_video': None,
+            'data': {'alerts': [], 'error': str(e)},
+            'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
+            'error': {'message': str(e), 'code': 'PROCESSING_ERROR'}
         }
 
-# --- Batch Function ---
-def analyze_multiple_food_images(image_paths: List[str]) -> List[Dict] | Dict:
+
+@shared_task(bind=True)
+def tracking_image(self, input_path: str, job_id: str) -> Dict:
     """
-    Analyze multiple food images and return:
-    - A single dict if only one image is provided
-    - A list of dicts if multiple images are provided
+    Celery task for food waste estimation.
+
+    Args:
+        self: Celery task instance
+        input_path: Path to input image
+        job_id: VideoJob ID
+
+    Returns:
+        Standardized response dictionary
     """
-    results = [analyze_food_image(path) for path in image_paths]
-    if len(image_paths) == 1:
-        return results[0]
-    return results
+    start_time = time.time()
+    logger.info(f"🚀 Starting food waste estimation job {job_id}")
+
+    result = analyze_food_image(input_path)
+
+    # Update Celery task state
+    self.update_state(
+        state='PROGRESS',
+        meta={
+            'progress': 100.0,
+            'time_remaining': 0,
+            'frame': 1,
+            'total_frames': 1,
+            'status': result['status'],
+            'job_id': job_id
+        }
+    )
+
+    processing_time = time.time() - start_time
+    result['meta']['processing_time_seconds'] = processing_time
+    result['meta']['timestamp'] = timezone.now().isoformat()
+
+    logger.info(f"**Job {job_id}**: Progress **100.0%** (1/1), Status: {result['status']}...")
+    logger.info(
+        f"[##########] Done: {int(processing_time // 60):02d}:{int(processing_time % 60):02d} | Left: 00:00 | Avg FPS: N/A")
+
+    return result
 
 
-OUTPUT_DIR = settings.JOB_OUTPUT_DIR
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+def analyze_multiple_food_images(image_paths: List[str]) -> Union[List[Dict], Dict]:
+    """
+    Analyze multiple food images.
+
+    Args:
+        image_paths: List of image paths
+
+    Returns:
+        Single dict for one image, list of dicts for multiple
+    """
+    start_time = time.time()
+    total_images = len(image_paths)
+    results = []
+
+    for idx, image_path in enumerate(image_paths, 1):
+        result = analyze_food_image(image_path)
+        results.append(result)
+
+        # Periodic logging every 5 seconds or per image
+        elapsed_time = time.time() - start_time
+        if elapsed_time >= 5 or idx == total_images:
+            progress = (idx / total_images) * 100
+            time_remaining = (elapsed_time / idx) * (total_images - idx) if idx > 0 else 0
+            logger.info(f"**Job batch**: Progress **{progress:.1f}%** ({idx}/{total_images}), Status: Processing...")
+            logger.info(
+                f"[{'#' * int(progress // 10)}{'-' * (10 - int(progress // 10))}] Done: {int(elapsed_time // 60):02d}:{int(elapsed_time % 60):02d} | Left: {int(time_remaining // 60):02d}:{int(time_remaining % 60):02d} | Avg FPS: N/A")
+
+    return results[0] if len(image_paths) == 1 else results

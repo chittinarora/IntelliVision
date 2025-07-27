@@ -1,18 +1,36 @@
-# ======================================
-# Django settings for intellivision
-# ======================================
+# /intellivision/intellivision/settings.py
 
-# 1. Path & Environment
+"""
+=====================================
+Django Settings
+=====================================
+Configuration for the IntelliVision Django project.
+"""
+
 import os
 from pathlib import Path
 from dotenv import load_dotenv
 from corsheaders.defaults import default_headers
 from datetime import timedelta
 
+"""
+=====================================
+Path & Environment
+=====================================
+Sets up base directory and loads environment variables.
+Removed duplicate BASE_DIR definition (Issue #5).
+"""
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / '.env')  # Loads .env from project root
 
-# 2. Security
+"""
+=====================================
+Security
+=====================================
+Configures security settings, including SSL and HSTS.
+"""
+
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-aq_x8cykh&3r_q9df@b%n(p(dv5&3gt$=17m#u-ir$kzl-(mjm')
 DEBUG = os.environ.get("DJANGO_DEBUG", "False") == "True"
 
@@ -21,38 +39,41 @@ if not DEBUG:
     SECURE_SSL_REDIRECT = True
 else:
     SECURE_SSL_REDIRECT = False
-SESSION_COOKIE_SECURE = True
-CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_SECURE = True  # Related to Issue #3, kept as is per user instruction
+CSRF_COOKIE_SECURE = True    # Related to Issue #3, kept as is per user instruction
 SECURE_HSTS_SECONDS = 31536000  # 1 year
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
 SECURE_REFERRER_POLICY = "strict-origin"
-# SECURE_CONTENT_TYPE_NOSNIFF = True
-# SECURE_BROWSER_XSS_FILTER = True
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 ALLOWED_HOSTS = ['intellivision.aionos.co', '34.100.200.148', '35.190.199.96', 'localhost', '127.0.0.1']
 
-# 3. Database - Optimized for 27GB RAM
+"""
+=====================================
+Database
+=====================================
+Configures PostgreSQL with connection reuse for performance.
+"""
+
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': os.environ.get('POSTGRES_DB', 'intellivision'),
         'USER': os.environ.get('POSTGRES_USER', 'adminvision'),
         'PASSWORD': os.environ.get('POSTGRES_PASSWORD', 'IntelliVisionAIonOS'),
-        'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
+        'HOST': os.environ.get('POSTGRES_HOST', 'db'),
         'PORT': os.environ.get('POSTGRES_PORT', '5432'),
-        'CONN_MAX_AGE': 600,  # 10 minutes connection reuse for performance
+        'CONN_MAX_AGE': 600,  # 10 minutes connection reuse
     }
 }
-# For development, you can use SQLite by uncommenting below:
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.sqlite3',
-#         'NAME': BASE_DIR / 'db.sqlite3',
-#     }
-# }
 
-# 4. Installed Apps
+"""
+=====================================
+Application Definition
+=====================================
+Defines installed apps, including Django, DRF, and CORS headers.
+"""
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -67,7 +88,13 @@ INSTALLED_APPS = [
     'apps.face_auth',
 ]
 
-# 5. Middleware
+"""
+=====================================
+Middleware
+=====================================
+Configures middleware, ensuring CORS is handled first.
+"""
+
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
@@ -79,7 +106,13 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-# 6. Templates
+"""
+=====================================
+Templates
+=====================================
+Configures Django templates.
+"""
+
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -95,17 +128,48 @@ TEMPLATES = [
     },
 ]
 
-# 7. WSGI/ASGI
+"""
+=====================================
+WSGI/ASGI
+=====================================
+Configures WSGI application.
+"""
+
 ROOT_URLCONF = 'intellivision.urls'
 WSGI_APPLICATION = 'intellivision.wsgi.application'
 
-# 8. Static & Media Files
-STATIC_URL = '/api/static/'
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')  # For collectstatic, serve with Nginx in production
-MEDIA_URL = '/api/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')         # Serve with Nginx in production
+"""
+=====================================
+Static & Media Files
+=====================================
+Configures storage for static and media files, optimized for Docker.
+Updated MEDIA_ROOT to use Docker-compatible path.
+"""
 
-# 9. Authentication & Password Validation
+STATIC_URL = '/api/static/'
+STATIC_ROOT = '/app/intellivision/staticfiles'  # Docker-compatible path
+MEDIA_URL = '/api/media/'
+MEDIA_ROOT = '/app/intellivision/media'  # Docker-compatible path
+DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
+
+"""
+=====================================
+Analytics Output Directory
+=====================================
+Configures directory for analytics job outputs.
+Updated to use Docker-compatible path.
+"""
+
+JOB_OUTPUT_DIR = os.environ.get('JOB_OUTPUT_DIR', '/app/intellivision/media/outputs')
+os.makedirs(JOB_OUTPUT_DIR, exist_ok=True)
+
+"""
+=====================================
+Authentication & Password Validation
+=====================================
+Configures password validation rules.
+"""
+
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
@@ -113,13 +177,27 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
-# 10. Internationalization
+"""
+=====================================
+Internationalization
+=====================================
+Configures language and timezone settings.
+"""
+
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
-# 11. REST Framework & CORS
+"""
+=====================================
+REST Framework & CORS
+=====================================
+Configures DRF authentication and CORS settings.
+Updated CORS_ALLOWED_ORIGINS to include localhost origins for development
+when DEBUG=True, fixing CORS configuration mismatch (Issue #4).
+"""
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -136,30 +214,52 @@ CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = list(default_headers) + [
     "ngrok-skip-browser-warning",
 ]
-CORS_ALLOWED_ORIGINS = ["https://intellivision.aionos.co", "http://34.100.200.148"]
+CORS_ALLOWED_ORIGINS = [
+    "https://intellivision.aionos.co",
+    "http://34.100.200.148",
+    "http://localhost:8080"
+]
+if DEBUG:
+    CORS_ALLOWED_ORIGINS.extend([
+        "http://localhost:3000",      # Development frontend (React/Vite)
+        "http://127.0.0.1:3000",      # Alternative localhost
+        "http://localhost:8080",
+    ])
 
-# 12. Celery - Optimized for Tesla P100 GPU + 6 vCPU + 27GB RAM (4 concurrent jobs)
+"""
+=====================================
+Celery
+=====================================
+Configures Celery for task processing, optimized for Tesla P100 GPU, 6 vCPUs, 27GB RAM.
+"""
+
 CELERY_BROKER_URL = os.environ.get('REDIS_URL', 'redis://redis:6379/0')
 CELERY_RESULT_BACKEND = os.environ.get('REDIS_URL', 'redis://redis:6379/0')
 CELERY_WORKER_PREFETCH_MULTIPLIER = 2  # Reduced for GPU memory management
 CELERY_TASK_ACKS_LATE = True
 CELERY_WORKER_MAX_TASKS_PER_CHILD = 50  # Lower for GPU memory cleanup
-CELERY_WORKER_MAX_MEMORY_PER_CHILD = 1500000  # 1.5GB per worker (4 workers * 1.5GB = 6GB total)
+CELERY_WORKER_MAX_MEMORY_PER_CHILD = 2000000  # 2GB per worker (4 workers * 2GB = 8GB)
 CELERY_TASK_TIME_LIMIT = 7200  # 2 hours for complex GPU processing
 CELERY_TASK_SOFT_TIME_LIMIT = 6600  # 110 minutes soft limit
-CELERY_WORKER_CONCURRENCY = 4  # 4 concurrent jobs (4GB GPU memory per task)
-CELERY_TASK_ALWAYS_EAGER = False  # Ensure tasks run in background
-CELERY_WORKER_DISABLE_RATE_LIMITS = True  # Disable rate limiting for ML tasks
+CELERY_WORKER_CONCURRENCY = 4  # 4 concurrent jobs for 6 vCPUs
+CELERY_TASK_ALWAYS_EAGER = False
+CELERY_WORKER_DISABLE_RATE_LIMITS = True
 CELERY_TASK_ROUTES = {
     'apps.video_analytics.tasks.*': {'queue': 'gpu_queue'},  # Route GPU tasks to dedicated queue
 }
 CELERY_WORKER_HIJACK_ROOT_LOGGER = False
 CELERY_WORKER_LOG_FORMAT = '[%(asctime)s: %(levelname)s/%(processName)s] %(message)s'
-CELERY_TASK_TRACK_STARTED = True  # Enable task tracking for revocation
-CELERY_TASK_SEND_SENT_EVENT = True  # Send task-sent events for monitoring
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_SEND_SENT_EVENT = True
 
-# 13. Logging
-LOG_DIR = os.path.join(BASE_DIR, 'logs')
+"""
+=====================================
+Logging
+=====================================
+Configures logging for Docker environment.
+"""
+
+LOG_DIR = '/app/intellivision/logs'
 os.makedirs(LOG_DIR, exist_ok=True)
 LOGGING = {
     'version': 1,
@@ -181,7 +281,7 @@ LOGGING = {
         },
         'file': {
             'class': 'logging.FileHandler',
-            'filename': os.path.join(BASE_DIR, 'logs', 'django.log'),
+            'filename': os.path.join(LOG_DIR, 'django.log'),
             'formatter': 'verbose',
             'level': 'WARNING',
         },
@@ -204,7 +304,13 @@ LOGGING = {
     },
 }
 
-# 14. Third-Party Service Credentials
+"""
+=====================================
+Third-Party Service Credentials
+=====================================
+Loads credentials from .env for external services.
+"""
+
 MONGO_URI = os.environ.get('MONGO_URI')
 QDRANT_URL = os.environ.get('QDRANT_URL')
 QDRANT_API_KEY = os.environ.get('QDRANT_API_KEY')
@@ -212,13 +318,13 @@ CLOUDINARY_CLOUD_NAME = os.environ.get('CLOUDINARY_CLOUD_NAME')
 CLOUDINARY_API_KEY = os.environ.get('CLOUDINARY_API_KEY')
 CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET')
 
-# 15. Analytics Output Directory
-# All analytics jobs (people_count, car_count, anpr, etc.) should save outputs here.
-# Set JOB_OUTPUT_DIR in your .env to override, or use the default below.
-JOB_OUTPUT_DIR = os.environ.get('JOB_OUTPUT_DIR', str(BASE_DIR / 'media' / 'outputs'))
+"""
+=====================================
+GPU and High-Performance Computing
+=====================================
+Optimizes for Tesla P100 GPU, 6 vCPUs, 27GB RAM.
+"""
 
-# 16. GPU and High-Performance Computing Settings
-# Tesla P100 GPU with CUDA 12.2 optimizations
 CUDA_VISIBLE_DEVICES = "0"  # Use the first (and only) GPU
 TORCH_CUDA_ARCH_LIST = "6.0"  # Pascal architecture for Tesla P100
 CUDA_CACHE_PATH = os.path.join(BASE_DIR, 'cuda_cache')
@@ -238,10 +344,14 @@ VIDEO_PROCESSING_BATCH_SIZE = 32  # Higher batch size for Tesla P100
 MAX_VIDEO_RESOLUTION = (1920, 1080)  # Limit to prevent memory overflow
 FRAME_SKIP_THRESHOLD = 2  # Process every 2nd frame for performance
 
-# 17. Miscellaneous
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+"""
+=====================================
+Cache and File Uploads
+=====================================
+Configures caching and file upload limits.
+Confirms use of django.core.files.storage.FileSystemStorage for local storage.
+"""
 
-# 18. Session and Cache Settings - Using Django's default cache for now
 CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
@@ -253,19 +363,6 @@ CACHES = {
     }
 }
 
-# === .env Usage ===
-# Place all secrets and sensitive config in your .env file (never commit to git):
-# DJANGO_SECRET_KEY=your-secret-key
-# DJANGO_DEBUG=False
-# POSTGRES_DB=your_db
-# POSTGRES_USER=your_user
-# POSTGRES_PASSWORD=your_password
-# POSTGRES_HOST=localhost
-# POSTGRES_PORT=5432
-# ... other secrets ...
-
-# === Static/Media File Serving (Nginx Example) ===
-# In production, serve /static/ and /media/ with Nginx, not Django.
-# Example Nginx config:
-# location /static/ { alias /path/to/staticfiles/; }
-# location /media/  { alias /path/to/media/; }
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+FILE_UPLOAD_MAX_MEMORY_SIZE = 524288000  # 500MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 524288000  # 500MB
