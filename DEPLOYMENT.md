@@ -9,11 +9,12 @@ This project uses Apache2 as a reverse proxy with Docker containers for the back
 - **Apache2**: Reverse proxy running on the host
   - `/api/` and `/api/media/` → Django backend (localhost:8001)
   - Everything else → React frontend (localhost:8080)
-- **Django Backend**: Docker container on port 8001
+- **Django Backend**: Docker container on port 8001 (GPU-optimized)
 - **React Frontend**: Development server on port 8080
-- **Database**: PostgreSQL container
-- **Cache**: Redis container
-- **Vector DB**: Qdrant container
+- **Database**: PostgreSQL container (optimized for 27GB RAM)
+- **Cache**: Redis container (2GB memory limit)
+- **Vector DB**: Qdrant container (optimized for ML workloads)
+- **GPU**: Tesla P100-PCIE-16GB for ML acceleration
 
 ## Apache2 Configuration
 
@@ -134,8 +135,23 @@ IntelliVision-1/
 
 ## Notes
 
-- The Django backend runs on port 8001 inside Docker
+- The Django backend runs on port 8001 inside Docker with GPU support
 - Apache2 proxies requests to localhost:8001
 - Media files are served directly by Apache2 from `/home/aditya_dubey/IntelliVision/intellivision/media/`
 - Static files are collected to `intellivision/staticfiles/` and served by Django
 - CORS is configured to allow requests from the Apache2 proxy
+- GPU acceleration is enabled for YOLO models, face recognition, and video processing
+- Celery workers are optimized for 6 CPU cores and 27GB RAM
+- PostgreSQL is configured with 2GB shared buffers and 8GB effective cache
+
+## Performance Monitoring
+```bash
+# Monitor GPU and system resources
+python scripts/monitor_gpu.py
+
+# Check Docker container stats
+docker stats
+
+# Monitor Celery workers
+celery -A intellivision inspect active
+```

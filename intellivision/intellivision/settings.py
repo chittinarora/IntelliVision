@@ -147,18 +147,25 @@ CORS_ALLOWED_ORIGINS = [
     "https://localhost"
 ]
 
-# 12. Celery
+# 12. Celery - Optimized for Tesla P100 VM (6 cores, 27GB RAM)
 CELERY_BROKER_URL = os.environ.get('REDIS_URL', 'redis://redis:6379/0')
 CELERY_RESULT_BACKEND = os.environ.get('REDIS_URL', 'redis://redis:6379/0')
-CELERY_WORKER_PREFETCH_MULTIPLIER = 2
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # Reduced for better memory management
 CELERY_TASK_ACKS_LATE = True
-CELERY_WORKER_MAX_TASKS_PER_CHILD = 100  # Restart worker after 100 tasks
-CELERY_WORKER_MAX_MEMORY_PER_CHILD = 500000  # 500MB memory limit per worker
-CELERY_TASK_TIME_LIMIT = 3600  # 1 hour time limit
-CELERY_TASK_SOFT_TIME_LIMIT = 3000  # 50 minutes soft limit
-CELERY_WORKER_CONCURRENCY = 4  # Four worker processes for parallel jobs
+CELERY_WORKER_MAX_TASKS_PER_CHILD = 50  # Restart worker after 50 tasks (reduced for stability)
+CELERY_WORKER_MAX_MEMORY_PER_CHILD = 1000000  # 1GB memory limit per worker (increased for ML tasks)
+CELERY_TASK_TIME_LIMIT = 7200  # 2 hours time limit (increased for video processing)
+CELERY_TASK_SOFT_TIME_LIMIT = 6000  # 100 minutes soft limit
+CELERY_WORKER_CONCURRENCY = 6  # Six worker processes (matches CPU cores)
 CELERY_TASK_ALWAYS_EAGER = False  # Ensure tasks run in background
 CELERY_WORKER_DISABLE_RATE_LIMITS = True  # Disable rate limiting for ML tasks
+CELERY_WORKER_MAX_MEMORY_PER_CHILD = 1000000  # 1GB per worker for ML tasks
+CELERY_TASK_ROUTES = {
+    'apps.video_analytics.tasks.*': {'queue': 'video_processing'},
+    'apps.face_auth.tasks.*': {'queue': 'face_processing'},
+}
+CELERY_TASK_DEFAULT_QUEUE = 'default'
+CELERY_TASK_CREATE_MISSING_QUEUES = True
 
 # 13. Logging
 LOG_DIR = os.path.join(BASE_DIR, 'logs')
@@ -218,6 +225,37 @@ CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET')
 # All analytics jobs (people_count, car_count, anpr, etc.) should save outputs here.
 # Set JOB_OUTPUT_DIR in your .env to override, or use the default below.
 JOB_OUTPUT_DIR = os.environ.get('JOB_OUTPUT_DIR', str(BASE_DIR / 'media' / 'outputs'))
+
+# 16. GPU and ML Optimizations for Tesla P100
+import torch
+if torch.cuda.is_available():
+    # GPU Configuration for Tesla P100
+    CUDA_VISIBLE_DEVICES = os.environ.get('CUDA_VISIBLE_DEVICES', '0')
+    TORCH_CUDA_ARCH_LIST = "6.0"  # Tesla P100 architecture
+    TORCH_CUDA_ARCH_FLAGS = "-arch=sm_60"
+
+    # YOLO and ML Model Settings
+    YOLO_DEVICE = 'cuda:0'  # Use GPU for YOLO models
+    YOLO_HALF_PRECISION = True  # Use FP16 for better performance
+    YOLO_BATCH_SIZE = 4  # Optimized for P100 memory
+
+    # Face Recognition Settings
+    FACE_RECOGNITION_DEVICE = 'cuda:0'
+    FACE_RECOGNITION_BATCH_SIZE = 8
+
+    # Video Processing Settings
+    VIDEO_PROCESSING_DEVICE = 'cuda:0'
+    VIDEO_PROCESSING_BATCH_SIZE = 2
+
+else:
+    # Fallback to CPU
+    YOLO_DEVICE = 'cpu'
+    YOLO_HALF_PRECISION = False
+    YOLO_BATCH_SIZE = 1
+    FACE_RECOGNITION_DEVICE = 'cpu'
+    FACE_RECOGNITION_BATCH_SIZE = 4
+    VIDEO_PROCESSING_DEVICE = 'cpu'
+    VIDEO_PROCESSING_BATCH_SIZE = 1
 
 # 16. Miscellaneous
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

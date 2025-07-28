@@ -7,15 +7,34 @@ services:
       POSTGRES_DB: intellivision
       POSTGRES_USER: adminvision
       POSTGRES_PASSWORD: IntelliVisionAIonOS
+      # Optimize PostgreSQL for VM specs (with headroom)
+      POSTGRES_SHARED_BUFFERS: 1GB
+      POSTGRES_EFFECTIVE_CACHE_SIZE: 4GB
+      POSTGRES_WORK_MEM: 128MB
+      POSTGRES_MAINTENANCE_WORK_MEM: 256MB
+      POSTGRES_MAX_CONNECTIONS: 150
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+        reservations:
+          memory: 1.5G
 
   redis:
     image: redis:7
     ports:
       - "6379:6379"
+    command: redis-server --maxmemory 1.5gb --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -23,10 +42,22 @@ services:
       - "6333:6333"
     volumes:
       - qdrant_data:/qdrant/storage
+    environment:
+      # Optimize Qdrant for VM specs (with headroom)
+      QDRANT__SERVICE__HTTP_PORT: 6333
+      QDRANT__SERVICE__GRPC_PORT: 6334
+      QDRANT__STORAGE__PERFORMANCE__MAX_SEARCH_THREADS: 3
+      QDRANT__STORAGE__PERFORMANCE__MAX_INDEXING_THREADS: 2
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+        reservations:
+          memory: 1.5G
 
   web:
     build: .
-    command: python intellivision/manage.py runserver 0.0.0.0:8001
+    command: gunicorn intellivision.wsgi:application --bind 0.0.0.0:8001 --workers 3 --worker-class sync --max-requests 1000 --max-requests-jitter 100 --timeout 120 --keep-alive 5
     volumes:
       - .:/app
       - shared-tmp:/tmp
@@ -45,6 +76,16 @@ services:
       - YOLO_CACHE_DIR=/app/intellivision/apps/video_analytics/models
       - JOB_OUTPUT_DIR=/app/intellivision/media/outputs
       - DJANGO_DEBUG=False
+      - CUDA_VISIBLE_DEVICES=0
+      - NVIDIA_VISIBLE_DEVICES=all
+    deploy:
+      resources:
+        limits:
+          memory: 5G
+          cpus: "2.0"
+        reservations:
+          memory: 2.5G
+          cpus: "1.0"
     depends_on:
       - db
       - redis
@@ -52,7 +93,7 @@ services:
 
   celery:
     build: .
-    command: celery -A intellivision worker --loglevel=info --concurrency=4
+    command: celery -A intellivision worker --loglevel=info --concurrency=6 --max-tasks-per-child=50 --max-memory-per-child=1000000
     volumes:
       - .:/app
       - shared-tmp:/tmp
@@ -68,6 +109,16 @@ services:
       - MONGO_URI=mongodb+srv://toram444444:06nJTevaUItCDpd9@cluster01.lemxesc.mongodb.net/?retryWrites=true&w=majority&appName=Cluster01
       - YOLO_CACHE_DIR=/app/intellivision/apps/video_analytics/models
       - JOB_OUTPUT_DIR=/app/intellivision/media/outputs
+      - CUDA_VISIBLE_DEVICES=0
+      - NVIDIA_VISIBLE_DEVICES=all
+    deploy:
+      resources:
+        limits:
+          memory: 10G
+          cpus: "4.0"
+        reservations:
+          memory: 5G
+          cpus: "2.0"
     depends_on:
       - db
       - redis
