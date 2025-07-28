@@ -379,14 +379,6 @@ LOGGING = {
             'formatter': 'performance',
             'level': 'INFO',
         },
-        'frontend_logs': {
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': os.path.join(LOG_DIR, 'frontend.log'),
-            'maxBytes': 25 * 1024 * 1024,  # 25MB
-            'backupCount': 3,
-            'formatter': 'json',
-            'level': 'ERROR',
-        },
     },
     'root': {
         'handlers': ['console', 'file_general', 'file_error'],
@@ -431,11 +423,6 @@ LOGGING = {
         'apps.face_auth': {
             'handlers': ['console', 'file_api', 'file_security'],
             'level': 'INFO',
-            'propagate': False,
-        },
-        'frontend_logger': {
-            'handlers': ['frontend_logs', 'file_error'],
-            'level': 'ERROR',
             'propagate': False,
         },
         'security_logger': {

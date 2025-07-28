@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Test script for backend logging functionality
+Test script for independent backend logging functionality
 
 Run with: python test_backend_logging.py
+Note: Backend logging is completely independent and does NOT receive frontend logs
 """
 
 import os
@@ -200,6 +201,7 @@ def main():
         print()
         
         print("🎉 All backend logging tests completed successfully!")
+        print("ℹ️  Backend logging is independent and does NOT receive frontend logs")
         
     except Exception as e:
         print(f"❌ Test failed with error: {e}")
