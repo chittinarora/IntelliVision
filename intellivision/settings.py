@@ -258,49 +258,199 @@ CELERY_TASK_SEND_SENT_EVENT = True
 =====================================
 Logging
 =====================================
-Configures logging for Docker environment.
+Configures comprehensive logging for Docker environment with multiple handlers,
+structured formatting, and separate log files for different components.
 """
 
 LOG_DIR = '/app/intellivision/logs'
 os.makedirs(LOG_DIR, exist_ok=True)
+
+# Create subdirectories for organized logging
+CELERY_LOG_DIR = os.path.join(LOG_DIR, 'celery')
+API_LOG_DIR = os.path.join(LOG_DIR, 'api')
+SECURITY_LOG_DIR = os.path.join(LOG_DIR, 'security')
+PERFORMANCE_LOG_DIR = os.path.join(LOG_DIR, 'performance')
+
+for log_subdir in [CELERY_LOG_DIR, API_LOG_DIR, SECURITY_LOG_DIR, PERFORMANCE_LOG_DIR]:
+    os.makedirs(log_subdir, exist_ok=True)
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'formatters': {
         'verbose': {
-            'format': '[{asctime}] {levelname} {name} {message}',
+            'format': '[{asctime}] {levelname} {name} {process:d} {thread:d} {message}',
             'style': '{',
         },
         'simple': {
             'format': '{levelname} {message}',
             'style': '{',
         },
+        'json': {
+            'format': '{"timestamp": "{asctime}", "level": "{levelname}", "logger": "{name}", "process": {process}, "thread": {thread}, "message": "{message}", "module": "{module}", "funcName": "{funcName}", "lineno": {lineno}}',
+            'style': '{',
+        },
+        'celery': {
+            'format': '[{asctime}] {levelname} {processName} [{name}] {funcName}:{lineno} {message}',
+            'style': '{',
+        },
+        'security': {
+            'format': '[{asctime}] SECURITY {levelname} {name} | IP: {extra[client_ip]:-} | User: {extra[user_id]:-} | Action: {extra[action]:-} | {message}',
+            'style': '{',
+        },
+        'performance': {
+            'format': '[{asctime}] PERF {levelname} {name} | Duration: {extra[duration]:-}ms | Operation: {extra[operation]:-} | {message}',
+            'style': '{',
+        },
+    },
+    'filters': {
+        'require_debug_false': {
+            '()': 'django.utils.log.RequireDebugFalse',
+        },
+        'require_debug_true': {
+            '()': 'django.utils.log.RequireDebugTrue',
+        },
     },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
+            'level': 'INFO',
         },
-        'file': {
-            'class': 'logging.FileHandler',
-            'filename': os.path.join(LOG_DIR, 'django.log'),
+        'console_debug': {
+            'class': 'logging.StreamHandler',
             'formatter': 'verbose',
-            'level': 'WARNING',
+            'level': 'DEBUG',
+            'filters': ['require_debug_true'],
+        },
+        'file_general': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(LOG_DIR, 'django.log'),
+            'maxBytes': 50 * 1024 * 1024,  # 50MB
+            'backupCount': 5,
+            'formatter': 'verbose',
+            'level': 'INFO',
+        },
+        'file_error': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(LOG_DIR, 'errors.log'),
+            'maxBytes': 100 * 1024 * 1024,  # 100MB
+            'backupCount': 10,
+            'formatter': 'json',
+            'level': 'ERROR',
+        },
+        'file_celery': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(CELERY_LOG_DIR, 'celery.log'),
+            'maxBytes': 100 * 1024 * 1024,  # 100MB
+            'backupCount': 5,
+            'formatter': 'celery',
+            'level': 'INFO',
+        },
+        'file_celery_error': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(CELERY_LOG_DIR, 'celery_errors.log'),
+            'maxBytes': 50 * 1024 * 1024,  # 50MB
+            'backupCount': 5,
+            'formatter': 'json',
+            'level': 'ERROR',
+        },
+        'file_api': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(API_LOG_DIR, 'api.log'),
+            'maxBytes': 100 * 1024 * 1024,  # 100MB
+            'backupCount': 7,
+            'formatter': 'json',
+            'level': 'INFO',
+        },
+        'file_security': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(SECURITY_LOG_DIR, 'security.log'),
+            'maxBytes': 50 * 1024 * 1024,  # 50MB
+            'backupCount': 10,
+            'formatter': 'security',
+            'level': 'INFO',
+        },
+        'file_performance': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(PERFORMANCE_LOG_DIR, 'performance.log'),
+            'maxBytes': 50 * 1024 * 1024,  # 50MB
+            'backupCount': 5,
+            'formatter': 'performance',
+            'level': 'INFO',
+        },
+        'frontend_logs': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(LOG_DIR, 'frontend.log'),
+            'maxBytes': 25 * 1024 * 1024,  # 25MB
+            'backupCount': 3,
+            'formatter': 'json',
+            'level': 'ERROR',
         },
     },
     'root': {
-        'handlers': ['console', 'file'],
+        'handlers': ['console', 'file_general', 'file_error'],
         'level': 'INFO',
     },
     'loggers': {
         'django': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console', 'file_general'],
             'level': 'INFO',
             'propagate': False,
         },
         'django.request': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console', 'file_api', 'file_error'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'django.security': {
+            'handlers': ['console', 'file_security', 'file_error'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'django.db.backends': {
+            'handlers': ['console_debug'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'celery': {
+            'handlers': ['console', 'file_celery'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'celery.task': {
+            'handlers': ['console', 'file_celery', 'file_celery_error'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'apps.video_analytics': {
+            'handlers': ['console', 'file_celery', 'file_performance'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'apps.face_auth': {
+            'handlers': ['console', 'file_api', 'file_security'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'frontend_logger': {
+            'handlers': ['frontend_logs', 'file_error'],
             'level': 'ERROR',
+            'propagate': False,
+        },
+        'security_logger': {
+            'handlers': ['file_security', 'console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'performance_logger': {
+            'handlers': ['file_performance'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'api_logger': {
+            'handlers': ['file_api', 'console'],
+            'level': 'INFO',
             'propagate': False,
         },
     },

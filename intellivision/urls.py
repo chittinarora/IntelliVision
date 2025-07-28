@@ -28,10 +28,11 @@ def root(request):
 
 urlpatterns = [
     path('', root),
-                  path('admin/', admin.site.urls),
-                  path('api/', include('apps.video_analytics.urls')),
-                  path('api/faceauth/', include('apps.face_auth.urls')),
-              ]
+    path('admin/', admin.site.urls),
+    path('api/', include('apps.video_analytics.urls')),
+    path('api/faceauth/', include('apps.face_auth.urls')),
+    path('api/frontend-logs/', include('apps.frontend_logs.urls')),
+]
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
