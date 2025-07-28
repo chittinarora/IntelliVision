@@ -30,7 +30,7 @@ SECURE_REFERRER_POLICY = "strict-origin"
 # SECURE_CONTENT_TYPE_NOSNIFF = True
 # SECURE_BROWSER_XSS_FILTER = True
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-ALLOWED_HOSTS = ['intellivision.aionos.co', '34.100.200.148']
+ALLOWED_HOSTS = ['intellivision.aionos.co', '34.100.200.148', 'localhost', '127.0.0.1']
 
 # 3. Database
 DATABASES = {
@@ -98,11 +98,11 @@ TEMPLATES = [
 ROOT_URLCONF = 'intellivision.urls'
 WSGI_APPLICATION = 'intellivision.wsgi.application'
 
-# 8. Static & Media Files
+# 8. Static & Media Files - Updated for Apache2 reverse proxy
 STATIC_URL = '/api/static/'
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')  # For collectstatic, serve with Nginx in production
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')  # For collectstatic, serve with Apache in production
 MEDIA_URL = '/api/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')         # Serve with Nginx in production
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')         # Serve with Apache in production
 
 # 9. Authentication & Password Validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -118,7 +118,7 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
-# 11. REST Framework & CORS
+# 11. REST Framework & CORS - Updated for Apache2 reverse proxy
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -135,7 +135,17 @@ CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = list(default_headers) + [
     "ngrok-skip-browser-warning",
 ]
-CORS_ALLOWED_ORIGINS = ["https://intellivision.aionos.co", "http://34.100.200.148"]
+# Updated CORS settings for Apache2 reverse proxy
+CORS_ALLOWED_ORIGINS = [
+    "https://intellivision.aionos.co",
+    "http://34.100.200.148",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+    "https://localhost:8080",
+    "https://127.0.0.1:8080",
+    "http://localhost",
+    "https://localhost"
+]
 
 # 12. Celery
 CELERY_BROKER_URL = os.environ.get('REDIS_URL', 'redis://redis:6379/0')
@@ -223,8 +233,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # POSTGRES_PORT=5432
 # ... other secrets ...
 
-# === Static/Media File Serving (Nginx Example) ===
-# In production, serve /static/ and /media/ with Nginx, not Django.
-# Example Nginx config:
-# location /static/ { alias /path/to/staticfiles/; }
-# location /media/  { alias /path/to/media/; }
+# === Static/Media File Serving (Apache2 Example) ===
+# In production, serve /api/static/ and /api/media/ with Apache2, not Django.
+# Example Apache2 config:
+# Alias /api/static/ /path/to/staticfiles/
+# Alias /api/media/ /path/to/media/

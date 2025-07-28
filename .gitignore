@@ -16,6 +16,8 @@ __pycache__/
 # Environment files
 intellivision/media/
 
+intelli-vision-old/
+
 # SQLite and Redis
 db.sqlite3
 dump.rdb

@@ -30,6 +30,7 @@ services:
     volumes:
       - .:/app
       - shared-tmp:/tmp
+      - ./intellivision/media:/app/intellivision/media
     ports:
       - "8001:8001"
     environment:
@@ -43,6 +44,7 @@ services:
       - MONGO_URI=mongodb+srv://toram444444:06nJTevaUItCDpd9@cluster01.lemxesc.mongodb.net/?retryWrites=true&w=majority&appName=Cluster01
       - YOLO_CACHE_DIR=/app/intellivision/apps/video_analytics/models
       - JOB_OUTPUT_DIR=/app/intellivision/media/outputs
+      - DJANGO_DEBUG=False
     depends_on:
       - db
       - redis
