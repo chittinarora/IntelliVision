@@ -23,17 +23,8 @@ import mimetypes
 
 from .models import VideoJob
 
-# Analytics Function Imports (Strategy Pattern)
-from .analytics.people_count import tracking_video as process_people_count
-from .analytics.emergency_count import tracking_video as process_emergency_count
-from .analytics.car_count import recognize_number_plates as process_car_count, \
-    analyze_parking_video as process_parking_analysis
-from .analytics.pothole_detection import tracking_video as process_pothole_video, \
-    run_pothole_image_detection as process_pothole_image
-from .analytics.food_waste_estimation import analyze_food_image as process_food_waste
-from .analytics.room_readiness import analyze_room_image, analyze_room_video_multi_zone_only
-from .analytics.pest_monitoring import tracking_video as process_wildlife_detection
-from .analytics.lobby_detection import run_crowd_analysis as process_lobby_detection
+# Analytics Function Imports - Using lazy imports to prevent eager model loading
+# Models will only be loaded when the specific task is executed, not on worker startup
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -162,40 +153,77 @@ def process_video_job(self, job_id: int) -> None:
         job.status = 'processing'
         job.save()
 
-        # Strategy pattern for job processing
+        # Strategy pattern for job processing with lazy imports
+        def get_processor_func(job_type: str):
+            """Lazy import analytics functions to prevent model loading on worker startup."""
+            if job_type == "people-count":
+                from .analytics.people_count import tracking_video
+                return tracking_video
+            elif job_type == "car-count":
+                from .analytics.car_count import recognize_number_plates
+                return recognize_number_plates
+            elif job_type == "parking-analysis":
+                from .analytics.car_count import analyze_parking_video
+                return analyze_parking_video
+            elif job_type == "wildlife-detection":
+                from .analytics.pest_monitoring import tracking_video
+                return tracking_video
+            elif job_type == "food-waste-estimation":
+                from .analytics.food_waste_estimation import analyze_food_image
+                return analyze_food_image
+            elif job_type == "room-readiness":
+                from .analytics.room_readiness import analyze_room_video_multi_zone_only
+                return analyze_room_video_multi_zone_only
+            elif job_type == "room-readiness-image":
+                from .analytics.room_readiness import analyze_room_image
+                return analyze_room_image
+            elif job_type == "lobby-detection":
+                from .analytics.lobby_detection import run_crowd_analysis
+                return run_crowd_analysis
+            elif job_type == "emergency-count":
+                from .analytics.emergency_count import tracking_video
+                return tracking_video
+            elif job_type == "pothole-detection":
+                from .analytics.pothole_detection import tracking_video
+                return tracking_video
+            elif job_type == "pothole-detection-image":
+                from .analytics.pothole_detection import run_pothole_image_detection
+                return run_pothole_image_detection
+            else:
+                raise ValueError(f"Unknown job type: {job_type}")
+
         JOB_PROCESSORS = {
-            "people-count": {"func": process_people_count, "args": [job.input_video.path, f"/tmp/output_{job_id}.mp4"]},
-            "car-count": {"func": process_car_count, "args": [os.path.basename(job.input_video.path)]},
-            "parking-analysis": {"func": process_parking_analysis, "args": [os.path.basename(job.input_video.path)]},
-            "wildlife-detection": {"func": process_wildlife_detection,
-                                   "args": [job.input_video.path, f"/tmp/output_{job_id}.mp4"]},
-            "food-waste-estimation": {"func": process_food_waste, "args": [job.input_video.path]},
-            "room-readiness": {"func": analyze_room_video_multi_zone_only, "args": [job.input_video.path]},
-            "lobby-detection": {"func": process_lobby_detection,
-                                "args": [job.input_video.path, job.lobby_zones, f"/tmp/output_{job_id}.mp4"]},
-            "emergency-count": {"func": process_emergency_count,
-                                "args": [job.input_video.path, f"/tmp/output_{job_id}.mp4", job.emergency_lines,
+            "people-count": {"args": [job.input_video.path, f"/tmp/output_{job_id}.mp4"]},
+            "car-count": {"args": [os.path.basename(job.input_video.path)]},
+            "parking-analysis": {"args": [os.path.basename(job.input_video.path)]},
+            "wildlife-detection": {"args": [job.input_video.path, f"/tmp/output_{job_id}.mp4"]},
+            "food-waste-estimation": {"args": [job.input_video.path]},
+            "room-readiness": {"args": [job.input_video.path]},
+            "lobby-detection": {"args": [job.input_video.path, job.lobby_zones, f"/tmp/output_{job_id}.mp4"]},
+            "emergency-count": {"args": [job.input_video.path, f"/tmp/output_{job_id}.mp4", job.emergency_lines,
                                          job.video_width, job.video_height]},
-            "pothole-detection": {"func": process_pothole_video,
-                                  "args": [job.input_video.path, f"/tmp/output_{job_id}.mp4"]},
+            "pothole-detection": {"args": [job.input_video.path, f"/tmp/output_{job_id}.mp4"]},
         }
 
-        # Handle image inputs
+        # Handle image inputs - override function for special cases
         ext = os.path.splitext(job.input_video.name)[1].lower()
         if job.job_type == "pothole-detection" and ext in ['.jpg', '.jpeg', '.png']:
-            JOB_PROCESSORS["pothole-detection"] = {"func": process_pothole_image,
-                                                   "args": [job.input_video.path, f"/tmp/output_{job_id}.jpg"]}
+            JOB_PROCESSORS["pothole-detection"] = {"args": [job.input_video.path, f"/tmp/output_{job_id}.jpg"]}
+            processor_func = lambda job_type: get_processor_func("pothole-detection-image")
         elif job.job_type == "room-readiness" and ext in ['.jpg', '.jpeg', '.png']:
-            JOB_PROCESSORS["room-readiness"] = {"func": analyze_room_image, "args": [job.input_video.path]}
+            JOB_PROCESSORS["room-readiness"] = {"args": [job.input_video.path]}
+            processor_func = lambda job_type: get_processor_func("room-readiness-image")
+        else:
+            processor_func = get_processor_func
 
         processor_config = JOB_PROCESSORS.get(job.job_type)
         if not processor_config:
             raise ValueError(f"Unknown job type: {job.job_type}")
 
-        processor_func = processor_config["func"]
+        processor_func_instance = processor_func(job.job_type)
         processor_args = processor_config["args"]
 
-        logger.info(f"🎯 Job {job_id}: Initializing '{processor_func.__name__}' with {len(processor_args)} args")
+        logger.info(f"🎯 Job {job_id}: Initializing '{processor_func_instance.__name__}' with {len(processor_args)} args")
 
         # Log video specs
         if ext in ['.mp4', '.avi', '.mov', '.webm']:
@@ -216,7 +244,7 @@ def process_video_job(self, job_id: int) -> None:
         # Process job
         start_time = time.time()
         logger.info(f"🚀 Job {job_id}: Starting analytics at {datetime.now().strftime('%H:%M:%S')}")
-        result_data = processor_func(*processor_args)
+        result_data = processor_func_instance(*processor_args)
         processing_duration = time.time() - start_time
         logger.info(f"✅ Job {job_id}: Analytics completed in {processing_duration:.2f} seconds")
 

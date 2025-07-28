@@ -7,6 +7,7 @@ Supports video/image plate recognition and parking analysis with MongoDB and Clo
 # Imports and Setup
 # ======================================
 import os
+import re
 import tempfile
 import uuid
 import time
@@ -15,6 +16,8 @@ import csv
 from pathlib import Path
 from threading import Lock
 from datetime import datetime, timedelta
+from typing import Dict
+
 from pymongo import MongoClient
 import cloudinary
 from dotenv import load_dotenv

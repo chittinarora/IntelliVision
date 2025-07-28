@@ -14,7 +14,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -84,7 +84,7 @@ services:
           memory: 6G
     command: sh -c "python intellivision/manage.py migrate && gunicorn intellivision.wsgi:application --bind 0.0.0.0:8001 --workers 3"
     environment:
-      - PYTHONPATH=/app/
+      - PYTHONPATH=/app/intellivision:/app
       - POSTGRES_DB=intellivision
       - POSTGRES_USER=adminvision
       - POSTGRES_PASSWORD=IntelliVisionAIonOS
@@ -95,6 +95,7 @@ services:
       - MONGO_URI=mongodb+srv://toram444444:06nJTevaUItCDpd9@cluster01.lemxesc.mongodb.net/?retryWrites=true&w=majority&appName=Cluster01
       - YOLO_CACHE_DIR=/app/intellivision/apps/video_analytics/models/yolo_cache
       - JOB_OUTPUT_DIR=/app/intellivision/media/outputs
+      - SERVICE_TYPE=web
 
   celery:
     build:
@@ -125,7 +126,7 @@ services:
           cpus: '3.5'
           memory: 14G
     environment:
-      - PYTHONPATH=/app/
+      - PYTHONPATH=/app/intellivision:/app
       - POSTGRES_DB=intellivision
       - POSTGRES_USER=adminvision
       - POSTGRES_PASSWORD=IntelliVisionAIonOS
@@ -136,6 +137,7 @@ services:
       - MONGO_URI=mongodb+srv://toram444444:06nJTevaUItCDpd9@cluster01.lemxesc.mongodb.net/?retryWrites=true&w=majority&appName=Cluster01
       - YOLO_CACHE_DIR=/app/intellivision/apps/video_analytics/models/yolo_cache
       - JOB_OUTPUT_DIR=/app/intellivision/media/outputs
+      - SERVICE_TYPE=celery
 
   frontend:
     build:

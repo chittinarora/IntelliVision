@@ -28,6 +28,8 @@ from django.utils import timezone
 import mimetypes
 from celery import shared_task
 
+logger = logging.getLogger(__name__)
+
 # Try to import utility functions, handle gracefully if not available
 try:
     from ..utils import load_yolo_model

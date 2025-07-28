@@ -8,6 +8,7 @@ Configuration for the IntelliVision Django project.
 """
 
 import os
+print("DEBUG: POSTGRES_DB env:", os.environ.get('POSTGRES_DB'))
 from pathlib import Path
 from dotenv import load_dotenv
 from corsheaders.defaults import default_headers
@@ -58,14 +59,15 @@ Configures PostgreSQL with connection reuse for performance.
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ.get('POSTGRES_DB', 'intellivision'),
-        'USER': os.environ.get('POSTGRES_USER', 'adminvision'),
-        'PASSWORD': os.environ.get('POSTGRES_PASSWORD', 'IntelliVisionAIonOS'),
-        'HOST': os.environ.get('POSTGRES_HOST', 'db'),
-        'PORT': os.environ.get('POSTGRES_PORT', '5432'),
-        'CONN_MAX_AGE': 600,  # 10 minutes connection reuse
+        'NAME': os.environ.get('POSTGRES_DB') or 'intellivision',  # Safeguard for empty; uses fallback if empty/unset
+        'USER': os.environ.get('POSTGRES_USER') or 'adminvision',  # Similar safeguard
+        'PASSWORD': os.environ.get('POSTGRES_PASSWORD') or 'IntelliVisionAIonOS',
+        'HOST': os.environ.get('POSTGRES_HOST') or 'db',
+        'PORT': os.environ.get('POSTGRES_PORT') or '5432',
+        'CONN_MAX_AGE': 600,
     }
 }
+print("DEBUG: Resolved DB NAME:", DATABASES['default']['NAME'])
 
 """
 =====================================
