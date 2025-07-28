@@ -23,11 +23,28 @@ class RegisterFaceView(APIView):
             username = request.data['username']
         except KeyError:
             return Response({'error': 'Username is required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
+        # Validate username
+        if not username or len(username.strip()) < 2:
+            return Response({'error': 'Username must be at least 2 characters long'}, status=status.HTTP_400_BAD_REQUEST)
+
         try:
             image = request.FILES['image']
         except KeyError:
             return Response({'error': 'Image file is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validate image file
+        if not image:
+            return Response({'error': 'Image file is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check file size (max 10MB for face images)
+        if image.size > 10 * 1024 * 1024:
+            return Response({'error': 'Image file too large (max 10MB)'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check file type
+        allowed_types = ['image/jpeg', 'image/jpg', 'image/png']
+        if image.content_type not in allowed_types:
+            return Response({'error': 'Invalid file type. Only JPEG and PNG images are allowed'}, status=status.HTTP_400_BAD_REQUEST)
         with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp:
             tmp.write(image.read())
             tmp.flush()
@@ -41,17 +58,34 @@ class LoginFaceView(APIView):
     parser_classes = [MultiPartParser]
     permission_classes = [AllowAny]
 
-    def post(self, request):
+        def post(self, request):
         """Accepts a username and image, starts a background login task, and returns the task ID."""
         try:
             username = request.data['username']
         except KeyError:
             return Response({'error': 'Username is required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
+        # Validate username
+        if not username or len(username.strip()) < 2:
+            return Response({'error': 'Username must be at least 2 characters long'}, status=status.HTTP_400_BAD_REQUEST)
+
         try:
             image = request.FILES['image']
         except KeyError:
             return Response({'error': 'Image file is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validate image file
+        if not image:
+            return Response({'error': 'Image file is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check file size (max 10MB for face images)
+        if image.size > 10 * 1024 * 1024:
+            return Response({'error': 'Image file too large (max 10MB)'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check file type
+        allowed_types = ['image/jpeg', 'image/jpg', 'image/png']
+        if image.content_type not in allowed_types:
+            return Response({'error': 'Invalid file type. Only JPEG and PNG images are allowed'}, status=status.HTTP_400_BAD_REQUEST)
         with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp:
             tmp.write(image.read())
             tmp.flush()

@@ -298,6 +298,16 @@ class VideoJob(models.Model):
         """String representation of VideoJob."""
         return f"Job {self.id}: {self.get_job_type_display()} for {self.user.username} ({self.status})"
 
+    class Meta:
+        """Model metadata including database indexes for performance."""
+        indexes = [
+            models.Index(fields=['user', 'status']),
+            models.Index(fields=['created_at']),
+            models.Index(fields=['job_type', 'status']),
+            models.Index(fields=['user', 'created_at']),
+        ]
+        ordering = ['-created_at']
+
     def save(self, *args, **kwargs):
         """Override save to provide instance context for results validation."""
         validate_results_schema.instance = self

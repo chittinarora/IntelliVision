@@ -27,6 +27,27 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 # Logger and Constants
 # ======================================
 logger = logging.getLogger(__name__)
+
+# Import progress logger
+try:
+    from ..progress_logger import create_progress_logger
+except ImportError:
+    def create_progress_logger(job_id, total_items, job_type, logger_name=None):
+        """Fallback progress logger if module not available."""
+        class DummyLogger:
+            def __init__(self, job_id, total_items, job_type, logger_name=None):
+                self.job_id = job_id
+                self.total_items = total_items
+                self.job_type = job_type
+                self.logger = logging.getLogger(logger_name or job_type)
+
+            def update_progress(self, processed_count, status=None, force_log=False):
+                self.logger.info(f"**Job {self.job_id}**: Progress {processed_count}/{self.total_items}")
+
+            def log_completion(self, final_count=None):
+                self.logger.info(f"**Job {self.job_id}**: Completed {self.job_type}")
+
+        return DummyLogger(job_id, total_items, job_type, logger_name)
 VALID_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
 OUTPUT_DIR = Path(settings.JOB_OUTPUT_DIR)
@@ -258,7 +279,21 @@ def tracking_image(self, input_path: str, job_id: str) -> Dict:
     start_time = time.time()
     logger.info(f"🚀 Starting food waste estimation job {job_id}")
 
+    # Initialize progress logger for image processing
+    progress_logger = create_progress_logger(
+        job_id=str(job_id),
+        total_items=1,  # Single image
+        job_type="food_waste_estimation"
+    )
+
+    # Update progress to show processing started
+    progress_logger.update_progress(0, status="Initializing image analysis...", force_log=True)
+
     result = analyze_food_image(input_path)
+
+    # Update progress to show completion
+    progress_logger.update_progress(1, status="Analysis completed", force_log=True)
+    progress_logger.log_completion(1)
 
     # Update Celery task state
     self.update_state(
@@ -277,19 +312,16 @@ def tracking_image(self, input_path: str, job_id: str) -> Dict:
     result['meta']['processing_time_seconds'] = processing_time
     result['meta']['timestamp'] = timezone.now().isoformat()
 
-    logger.info(f"**Job {job_id}**: Progress **100.0%** (1/1), Status: {result['status']}...")
-    logger.info(
-        f"[##########] Done: {int(processing_time // 60):02d}:{int(processing_time % 60):02d} | Left: 00:00 | Avg FPS: N/A")
-
     return result
 
 
-def analyze_multiple_food_images(image_paths: List[str]) -> Union[List[Dict], Dict]:
+def analyze_multiple_food_images(image_paths: List[str], job_id: str = None) -> Union[List[Dict], Dict]:
     """
     Analyze multiple food images.
 
     Args:
         image_paths: List of image paths
+        job_id: Job identifier for progress logging
 
     Returns:
         Single dict for one image, list of dicts for multiple
@@ -298,17 +330,29 @@ def analyze_multiple_food_images(image_paths: List[str]) -> Union[List[Dict], Di
     total_images = len(image_paths)
     results = []
 
+    # Initialize progress logger for batch processing
+    if job_id:
+        progress_logger = create_progress_logger(
+            job_id=str(job_id),
+            total_items=total_images,
+            job_type="food_waste_estimation"
+        )
+    else:
+        progress_logger = None
+
     for idx, image_path in enumerate(image_paths, 1):
         result = analyze_food_image(image_path)
         results.append(result)
 
-        # Periodic logging every 5 seconds or per image
-        elapsed_time = time.time() - start_time
-        if elapsed_time >= 5 or idx == total_images:
-            progress = (idx / total_images) * 100
-            time_remaining = (elapsed_time / idx) * (total_images - idx) if idx > 0 else 0
-            logger.info(f"**Job batch**: Progress **{progress:.1f}%** ({idx}/{total_images}), Status: Processing...")
-            logger.info(
-                f"[{'#' * int(progress // 10)}{'-' * (10 - int(progress // 10))}] Done: {int(elapsed_time // 60):02d}:{int(elapsed_time % 60):02d} | Left: {int(time_remaining // 60):02d}:{int(time_remaining % 60):02d} | Avg FPS: N/A")
+        # Update progress if logger is available
+        if progress_logger:
+            progress_logger.update_progress(
+                idx,
+                status="Awaiting API response..."
+            )
+
+    # Log completion if logger is available
+    if progress_logger:
+        progress_logger.log_completion(total_images)
 
     return results[0] if len(image_paths) == 1 else results

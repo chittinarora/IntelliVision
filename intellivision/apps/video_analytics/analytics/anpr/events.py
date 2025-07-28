@@ -1,6 +1,9 @@
 # events.py (new file)
+import logging
 from collections import defaultdict
 import asyncio
+
+logger = logging.getLogger(__name__)
 
 class EventManager:
     def __init__(self):
@@ -16,7 +19,8 @@ class EventManager:
             for ws in self.connections[event["type"]]:
                 try:
                     await ws.send_json(event)
-                except:
+                except Exception as e:
+                    logger.warning(f"Failed to send event to websocket: {e}")
                     self.connections[event["type"]].remove(ws)
 
     def subscribe(self, websocket, event_types):

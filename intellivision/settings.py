@@ -8,7 +8,6 @@ Configuration for the IntelliVision Django project.
 """
 
 import os
-print("DEBUG: POSTGRES_DB env:", os.environ.get('POSTGRES_DB'))
 from pathlib import Path
 from dotenv import load_dotenv
 from corsheaders.defaults import default_headers
@@ -32,7 +31,9 @@ Security
 Configures security settings, including SSL and HSTS.
 """
 
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-aq_x8cykh&3r_q9df@b%n(p(dv5&3gt$=17m#u-ir$kzl-(mjm')
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
+if not SECRET_KEY:
+    raise ValueError("DJANGO_SECRET_KEY environment variable is required")
 DEBUG = os.environ.get("DJANGO_DEBUG", "False") == "True"
 
 # Only redirect to HTTPS in production
@@ -67,7 +68,6 @@ DATABASES = {
         'CONN_MAX_AGE': 600,
     }
 }
-print("DEBUG: Resolved DB NAME:", DATABASES['default']['NAME'])
 
 """
 =====================================
@@ -482,6 +482,11 @@ os.makedirs(YOLO_CACHE_DIR, exist_ok=True)
 VIDEO_PROCESSING_BATCH_SIZE = 32  # Higher batch size for Tesla P100
 MAX_VIDEO_RESOLUTION = (1920, 1080)  # Limit to prevent memory overflow
 FRAME_SKIP_THRESHOLD = 2  # Process every 2nd frame for performance
+
+# Resource management
+MAX_CONCURRENT_JOBS = 10  # Maximum concurrent video processing jobs
+RATE_LIMIT_REQUESTS = 20  # Requests per minute per user
+RATE_LIMIT_WINDOW = 60  # Rate limit window in seconds
 
 """
 =====================================

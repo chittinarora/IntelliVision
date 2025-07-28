@@ -39,6 +39,27 @@ except ImportError:
 # Logger and Constants
 # ======================================
 logger = logging.getLogger(__name__)
+
+# Import progress logger
+try:
+    from ..progress_logger import create_progress_logger
+except ImportError:
+    def create_progress_logger(job_id, total_items, job_type, logger_name=None):
+        """Fallback progress logger if module not available."""
+        class DummyLogger:
+            def __init__(self, job_id, total_items, job_type, logger_name=None):
+                self.job_id = job_id
+                self.total_items = total_items
+                self.job_type = job_type
+                self.logger = logging.getLogger(logger_name or job_type)
+
+            def update_progress(self, processed_count, status=None, force_log=False):
+                self.logger.info(f"**Job {self.job_id}**: Progress {processed_count}/{self.total_items}")
+
+            def log_completion(self, final_count=None):
+                self.logger.info(f"**Job {self.job_id}**: Completed {self.job_type}")
+
+        return DummyLogger(job_id, total_items, job_type, logger_name)
 VALID_EXTENSIONS = {'.mp4', '.jpg', '.jpeg', '.png'}
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
@@ -216,13 +237,14 @@ def run_pothole_image_detection(input_path: str) -> Dict[str, Any]:
         if 'tmp' in locals() and os.path.exists(tmp.name):
             os.remove(tmp.name)
 
-def run_pothole_detection(input_path: str, output_path: str) -> Dict[str, Any]:
+def run_pothole_detection(input_path: str, output_path: str, job_id: str = None) -> Dict[str, Any]:
     """
     Process a video for pothole detection using Roboflow API.
 
     Args:
         input_path: Path to input video
         output_path: Path to save output video
+        job_id: Job identifier for progress logging
 
     Returns:
         Standardized response dictionary
@@ -265,9 +287,21 @@ def run_pothole_detection(input_path: str, output_path: str) -> Dict[str, Any]:
         width, height = int(cap.get(3)), int(cap.get(4))
         FRAME_SKIP = 5
         output_fps = max(1, orig_fps // FRAME_SKIP)
-        job_id = re.search(r'(\d+)', input_path)
-        job_id = job_id.group(1) if job_id else str(int(time.time()))
+
+        # Use provided job_id or extract from input path
+        if job_id is None:
+            job_id_match = re.search(r'(\d+)', input_path)
+            job_id = job_id_match.group(1) if job_id_match else str(int(time.time()))
+
         output_filename = output_path if output_path else f"outputs/pothole_{job_id}.mp4"
+
+        # Initialize progress logger
+        progress_logger = create_progress_logger(
+            job_id=str(job_id),
+            total_items=MAX_FRAMES,
+            job_type="pothole_detection"
+        )
+
         with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp_out:
             out = cv2.VideoWriter(tmp_out.name, cv2.VideoWriter_fourcc(*'mp4v'), output_fps, (width, height))
             MAX_FRAMES = 200
@@ -323,19 +357,18 @@ def run_pothole_detection(input_path: str, output_path: str) -> Dict[str, Any]:
                 processed_frames += 1
                 frame_idx += 1
 
-                # Periodic logging
-                current_time = time.time()
-                if current_time - last_log_time >= 5 or processed_frames >= MAX_FRAMES or not ret:
-                    progress = (frame_idx / (MAX_FRAMES * FRAME_SKIP)) * 100 if MAX_FRAMES > 0 else 100
-                    elapsed_time = current_time - start_time
-                    time_remaining = (elapsed_time / frame_idx) * (MAX_FRAMES * FRAME_SKIP - frame_idx) if frame_idx > 0 else 0
-                    avg_fps = frame_idx / elapsed_time if elapsed_time > 0 else 0
-                    logger.info(f"**Job {job_id}**: Progress **{progress:.1f}%** ({frame_idx}/{MAX_FRAMES * FRAME_SKIP}), Status: Processing...")
-                    logger.info(f"[{'#' * int(progress // 10)}{'-' * (10 - int(progress // 10))}] Done: {int(elapsed_time // 60):02d}:{int(elapsed_time % 60):02d} | Left: {int(time_remaining // 60):02d}:{int(time_remaining % 60):02d} | Avg FPS: {avg_fps:.1f}")
-                    last_log_time = current_time
+                # Update progress using the progress logger
+                progress_logger.update_progress(
+                    processed_frames,
+                    status="Processing video frames..."
+                )
 
             cap.release()
             out.release()
+
+            # Log completion
+            progress_logger.log_completion(processed_frames)
+
             with open(tmp_out.name, 'rb') as f:
                 default_storage.save(output_filename, f)
             output_url = default_storage.url(output_filename)

@@ -69,3 +69,6 @@ coverage/
 # Temporary files
 *.bak
 *.tmp
+
+# Claude project guide (persists across conversations)
+CLAUDE_PROJECT_GUIDE.md

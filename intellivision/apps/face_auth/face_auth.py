@@ -1,8 +1,11 @@
 # face_auth.py - Core logic for face registration and authentication
 # Handles user registration, login, and face matching using Qdrant and MongoDB.
 
+import logging
 from gettext import dngettext
 import os
+
+logger = logging.getLogger(__name__)
 import uuid
 import tempfile
 import numpy as np
@@ -59,7 +62,7 @@ def register_user(name, encoding, image_path):
         )
     except Exception as e:
         import traceback
-        print("Qdrant upsert error:", e)
+        logger.error(f"Qdrant upsert error: {e}")
         traceback.print_exc()
         return {"success": False, "message": f"Qdrant upsert error: {str(e)}"}
 
@@ -94,7 +97,7 @@ def login_user(encoding):
         match = match_face(qdrant, encoding)
     except Exception as e:
         import traceback
-        print("Qdrant search error:", e)
+        logger.error(f"Qdrant search error: {e}")
         traceback.print_exc()
         return {"success": False, "message": f"Qdrant search error: {str(e)}"}
 

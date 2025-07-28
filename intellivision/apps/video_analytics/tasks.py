@@ -22,6 +22,7 @@ from django.utils import timezone
 import mimetypes
 
 from .models import VideoJob
+from .rate_limiting import release_job_slot
 
 # Analytics Function Imports - Using lazy imports to prevent eager model loading
 # Models will only be loaded when the specific task is executed, not on worker startup
@@ -230,21 +231,32 @@ def process_video_job(self, job_id: int) -> None:
             try:
                 import cv2
                 cap = cv2.VideoCapture(job.input_video.path)
-                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                fps = cap.get(cv2.CAP_PROP_FPS)
-                width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                duration = total_frames / fps if fps > 0 else 0
-                cap.release()
-                logger.info(
-                    f"🎬 Job {job_id}: Video specs - {width}x{height}, {total_frames} frames, {fps:.1f} FPS, {duration:.1f}s")
+                try:
+                    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                    fps = cap.get(cv2.CAP_PROP_FPS)
+                    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    duration = total_frames / fps if fps > 0 else 0
+                    logger.info(
+                        f"🎬 Job {job_id}: Video specs - {width}x{height}, {total_frames} frames, {fps:.1f} FPS, {duration:.1f}s")
+                finally:
+                    cap.release()
             except Exception as e:
                 logger.warning(f"⚠️ Job {job_id}: Could not get video specs: {e}")
 
         # Process job
         start_time = time.time()
         logger.info(f"🚀 Job {job_id}: Starting analytics at {datetime.now().strftime('%H:%M:%S')}")
-        result_data = processor_func_instance(*processor_args)
+
+        # Pass job_id to analytics functions for progress logging
+        if len(processor_args) > 0 and isinstance(processor_args[0], str):
+            # For functions that take file path as first argument
+            new_args = [processor_args[0], job_id] + list(processor_args[1:])
+        else:
+            # For functions that don't take file path first
+            new_args = [job_id] + list(processor_args)
+
+        result_data = processor_func_instance(*new_args)
         processing_duration = time.time() - start_time
         logger.info(f"✅ Job {job_id}: Analytics completed in {processing_duration:.2f} seconds")
 
@@ -292,6 +304,10 @@ def process_video_job(self, job_id: int) -> None:
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
                 logger.info(f"🎮 Job {job_id}: GPU memory cleaned")
-        except:
+        except Exception as e:
+            logger.warning(f"GPU memory cleanup failed: {e}")
             pass
+
+        # Release job slot
+        release_job_slot()
         logger.info(f"💾 Job {job_id}: Final state saved")

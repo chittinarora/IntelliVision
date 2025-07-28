@@ -29,6 +29,8 @@ from django.utils import timezone
 from .models import VideoJob
 from .serializers import VideoJobSerializer
 from .tasks import process_video_job, ensure_api_media_url
+from .utils import create_standardized_response, create_error_response, validate_file_upload
+from .rate_limiting import check_rate_limit, check_resource_availability, acquire_job_slot, release_job_slot
 
 logger = logging.getLogger(__name__)
 
@@ -67,30 +69,42 @@ def _create_and_dispatch_job(request, job_type: str, extra_data: Dict[str, Any] 
     """
     start_time = time.time()
     user = request.user
+
+    # Check rate limiting
+    is_allowed, remaining = check_rate_limit(str(user.id))
+    if not is_allowed:
+        return create_error_response(
+            f"Rate limit exceeded. Try again in 60 seconds. Remaining requests: {remaining}",
+            'RATE_LIMIT_EXCEEDED',
+            job_type,
+            status.HTTP_429_TOO_MANY_REQUESTS
+        )
+
+    # Check resource availability
+    if not check_resource_availability():
+        return create_error_response(
+            "System is currently at capacity. Please try again later.",
+            'RESOURCE_UNAVAILABLE',
+            job_type,
+            status.HTTP_503_SERVICE_UNAVAILABLE
+        )
+
     file_obj = request.FILES.get('video') or request.FILES.get('image')
     youtube_url = request.data.get('youtube_url')
 
     if not file_obj and not youtube_url:
-        return Response({
-            'status': 'failed',
-            'job_type': job_type,
-            'output_image': None,
-            'output_video': None,
-            'data': {},
-            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
-            'error': {'message': 'Provide either a file or YouTube URL', 'code': 'MISSING_INPUT'}
-        }, status=status.HTTP_400_BAD_REQUEST)
+        return create_error_response(
+            'Provide either a file or YouTube URL',
+            'MISSING_INPUT',
+            job_type
+        )
 
     if file_obj and youtube_url:
-        return Response({
-            'status': 'failed',
-            'job_type': job_type,
-            'output_image': None,
-            'output_video': None,
-            'data': {},
-            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
-            'error': {'message': 'Provide either a file or YouTube URL, not both', 'code': 'INVALID_INPUT_COMBINATION'}
-        }, status=status.HTTP_400_BAD_REQUEST)
+        return create_error_response(
+            'Provide either a file or YouTube URL, not both',
+            'INVALID_INPUT_COMBINATION',
+            job_type
+        )
 
     job_data = {'user': user, 'status': 'pending', 'job_type': job_type}
     if extra_data:
@@ -112,29 +126,21 @@ def _create_and_dispatch_job(request, job_type: str, extra_data: Dict[str, Any] 
                 ydl.download([youtube_url])
 
             if not os.path.exists(temp_video_path):
-                return Response({
-                    'status': 'failed',
-                    'job_type': job_type,
-                    'output_image': None,
-                    'output_video': None,
-                    'data': {},
-                    'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
-                    'error': {'message': 'Failed to download YouTube video', 'code': 'DOWNLOAD_FAILED'}
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return create_error_response(
+                    'Failed to download YouTube video',
+                    'DOWNLOAD_FAILED',
+                    job_type
+                )
 
             # Validate file
             ext = '.mp4'
             size = os.path.getsize(temp_video_path)
             if size > MAX_FILE_SIZE:
-                return Response({
-                    'status': 'failed',
-                    'job_type': job_type,
-                    'output_image': None,
-                    'output_video': None,
-                    'data': {},
-                    'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
-                    'error': {'message': f"File size {size / (1024*1024):.2f}MB exceeds 500MB limit", 'code': 'FILE_TOO_LARGE'}
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return create_error_response(
+                    f"File size {size / (1024*1024):.2f}MB exceeds 500MB limit",
+                    'FILE_TOO_LARGE',
+                    job_type
+                )
 
             with open(temp_video_path, 'rb') as f:
                 file_name = f"yt_{job_type}_{uuid4().hex}.mp4"
@@ -143,72 +149,61 @@ def _create_and_dispatch_job(request, job_type: str, extra_data: Dict[str, Any] 
             logger.info(f"✅ Downloaded YouTube video: {file_name} ({size / (1024*1024):.2f}MB)")
 
         else:
-            ext = os.path.splitext(file_obj.name)[1].lower()
-            if ext not in VALID_EXTENSIONS:
-                return Response({
-                    'status': 'failed',
-                    'job_type': job_type,
-                    'output_image': None,
-                    'output_video': None,
-                    'data': {},
-                    'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
-                    'error': {'message': f"Invalid file type: {ext}. Allowed: {', '.join(VALID_EXTENSIONS)}", 'code': 'INVALID_FILE_TYPE'}
-                }, status=status.HTTP_400_BAD_REQUEST)
-            if file_obj.size > MAX_FILE_SIZE:
-                return Response({
-                    'status': 'failed',
-                    'job_type': job_type,
-                    'output_image': None,
-                    'output_video': None,
-                    'data': {},
-                    'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
-                    'error': {'message': f"File size {file_obj.size / (1024*1024):.2f}MB exceeds 500MB limit", 'code': 'FILE_TOO_LARGE'}
-                }, status=status.HTTP_400_BAD_REQUEST)
+            # Use the new validation utility
+            is_valid, error_msg = validate_file_upload(file_obj, MAX_FILE_SIZE, VALID_EXTENSIONS)
+            if not is_valid:
+                return create_error_response(
+                    error_msg,
+                    'INVALID_FILE_TYPE' if 'Invalid file type' in error_msg else 'FILE_TOO_LARGE',
+                    job_type
+                )
 
             file_name = f"{job_type}_{uuid4().hex}{ext}"
             input_file_content = ContentFile(file_obj.read(), name=file_name)
             logger.info(f"📁 Uploaded: {file_name} ({file_obj.size / (1024*1024):.2f}MB)")
 
-        job_data['input_video'] = input_file_content
-        job = VideoJob.objects.create(**job_data)
-        task = process_video_job.delay(job.id)
-        job.task_id = task.id
-        job.save()
-        logger.info(f"🚀 Dispatched job {job.id} ({job_type}) with task ID {task.id}")
+        # Acquire job slot
+        if not acquire_job_slot():
+            return create_error_response(
+                "System is currently at capacity. Please try again later.",
+                'RESOURCE_UNAVAILABLE',
+                job_type,
+                status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+
+        try:
+            job_data['input_video'] = input_file_content
+            job = VideoJob.objects.create(**job_data)
+            task = process_video_job.delay(job.id)
+            job.task_id = task.id
+            job.save()
+            logger.info(f"🚀 Dispatched job {job.id} ({job_type}) with task ID {task.id}")
+        except Exception as e:
+            release_job_slot()  # Release slot on error
+            raise e
 
         serializer = VideoJobSerializer(job)
-        return Response({
-            'status': 'pending',
-            'job_type': job_type,
-            'output_image': None,
-            'output_video': None,
-            'data': serializer.data,
-            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
-            'error': None
-        }, status=status.HTTP_202_ACCEPTED)
+        return create_standardized_response(
+            status_type='pending',
+            job_type=job_type,
+            data=serializer.data
+        )
 
     except yt_dlp.utils.DownloadError as e:
         logger.error(f"YouTube download failed for {job_type}: {e}", exc_info=True)
-        return Response({
-            'status': 'failed',
-            'job_type': job_type,
-            'output_image': None,
-            'output_video': None,
-            'data': {},
-            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
-            'error': {'message': f"Failed to download YouTube video: {str(e)}", 'code': 'DOWNLOAD_ERROR'}
-        }, status=status.HTTP_400_BAD_REQUEST)
+        return create_error_response(
+            f"Failed to download YouTube video: {str(e)}",
+            'DOWNLOAD_ERROR',
+            job_type
+        )
     except Exception as e:
         logger.error(f"Job creation failed for {job_type}: {e}", exc_info=True)
-        return Response({
-            'status': 'failed',
-            'job_type': job_type,
-            'output_image': None,
-            'output_video': None,
-            'data': {},
-            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
-            'error': {'message': f"Unexpected error: {str(e)}", 'code': 'SERVER_ERROR'}
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return create_error_response(
+            f"Unexpected error: {str(e)}",
+            'SERVER_ERROR',
+            job_type,
+            status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
     finally:
         if temp_video_path and os.path.exists(temp_video_path):
             os.unlink(temp_video_path)
@@ -292,8 +287,11 @@ def get_youtube_frame_view(request):
             }, status=status.HTTP_400_BAD_REQUEST)
 
         cap = cv2.VideoCapture(temp_video_path)
-        success, frame = cap.read()
-        cap.release()
+        try:
+            success, frame = cap.read()
+            if not success:
+        finally:
+            cap.release()
         if not success:
             return Response({
                 'status': 'failed',

@@ -1,5 +1,6 @@
 # anpr/ocr.py
 
+import logging
 import cv2
 import numpy as np
 import pytesseract
@@ -11,6 +12,8 @@ from collections import deque, Counter
 
 # suppress unwanted PIL/NumPy warnings
 warnings.filterwarnings("ignore", category=UserWarning)
+
+logger = logging.getLogger(__name__)
 
 class PlateOCR:
     """
@@ -81,7 +84,9 @@ class PlateOCR:
             if not raw: continue
             try:
                 conf = float(data['conf'][i]) / 100.0
-            except: continue
+            except Exception as e:
+            logger.debug(f"OCR processing failed for plate {i}: {e}")
+            continue
             if conf > best_conf:
                 clean = re.sub(r'[^A-Za-z0-9]', '', raw).upper()
                 if clean:
@@ -128,4 +133,4 @@ if __name__ == '__main__':
     ocr = PlateOCR()
     for p in sys.argv[1:]:
         txt, conf = ocr.read_plate_from_path(p)
-        print(p, "->", txt, f"(conf={conf:.2f})")
+        logger.debug(f"OCR result: {p} -> {txt} (conf={conf:.2f})")
