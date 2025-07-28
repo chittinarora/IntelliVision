@@ -12,6 +12,24 @@ from pathlib import Path
 from dotenv import load_dotenv
 from corsheaders.defaults import default_headers
 from datetime import timedelta
+import json
+import logging
+
+# Custom JSON formatter class
+class JSONFormatter(logging.Formatter):
+    def format(self, record):
+        log_entry = {
+            "timestamp": self.formatTime(record),
+            "level": record.levelname,
+            "logger": record.name,
+            "process": record.process,
+            "thread": record.thread,
+            "message": record.getMessage(),
+            "module": record.module,
+            "funcName": record.funcName,
+            "lineno": record.lineno
+        }
+        return json.dumps(log_entry)
 
 """
 =====================================
@@ -240,10 +258,10 @@ CELERY_RESULT_BACKEND = os.environ.get('REDIS_URL', 'redis://redis:6379/0')
 CELERY_WORKER_PREFETCH_MULTIPLIER = 2  # Reduced for GPU memory management
 CELERY_TASK_ACKS_LATE = True
 CELERY_WORKER_MAX_TASKS_PER_CHILD = 50  # Lower for GPU memory cleanup
-CELERY_WORKER_MAX_MEMORY_PER_CHILD = 2000000  # 2GB per worker (4 workers * 2GB = 8GB)
+CELERY_WORKER_MAX_MEMORY_PER_CHILD = 5000000  # 5GB per worker (3 workers * 5GB = 15GB)
 CELERY_TASK_TIME_LIMIT = 7200  # 2 hours for complex GPU processing
 CELERY_TASK_SOFT_TIME_LIMIT = 6600  # 110 minutes soft limit
-CELERY_WORKER_CONCURRENCY = 4  # 4 concurrent jobs for 6 vCPUs
+CELERY_WORKER_CONCURRENCY = 3  # 3 concurrent jobs for 3 vCPUs
 CELERY_TASK_ALWAYS_EAGER = False
 CELERY_WORKER_DISABLE_RATE_LIMITS = True
 CELERY_TASK_ROUTES = {
@@ -262,7 +280,15 @@ Configures comprehensive logging for Docker environment with multiple handlers,
 structured formatting, and separate log files for different components.
 """
 
-LOG_DIR = '/app/intellivision/logs'
+# Use local logs directory for development, Docker path for production
+ENVIRONMENT = os.environ.get('ENVIRONMENT', 'production').lower()
+IS_LOCAL = ENVIRONMENT == 'local'
+
+if IS_LOCAL:
+    LOG_DIR = os.path.join(BASE_DIR, 'logs')
+else:
+    LOG_DIR = '/app/intellivision/logs'
+
 os.makedirs(LOG_DIR, exist_ok=True)
 
 # Create subdirectories for organized logging
@@ -279,7 +305,7 @@ LOGGING = {
     'disable_existing_loggers': False,
     'formatters': {
         'verbose': {
-            'format': '[{asctime}] {levelname} {name} {process:d} {thread:d} {message}',
+            'format': '[{asctime}] {levelname} {name} {message}',
             'style': '{',
         },
         'simple': {
@@ -287,19 +313,18 @@ LOGGING = {
             'style': '{',
         },
         'json': {
-            'format': '{"timestamp": "{asctime}", "level": "{levelname}", "logger": "{name}", "process": {process}, "thread": {thread}, "message": "{message}", "module": "{module}", "funcName": "{funcName}", "lineno": {lineno}}',
-            'style': '{',
+            '()': JSONFormatter,
         },
         'celery': {
             'format': '[{asctime}] {levelname} {processName} [{name}] {funcName}:{lineno} {message}',
             'style': '{',
         },
         'security': {
-            'format': '[{asctime}] SECURITY {levelname} {name} | IP: {extra[client_ip]:-} | User: {extra[user_id]:-} | Action: {extra[action]:-} | {message}',
+            'format': '[{asctime}] SECURITY {levelname} {name} | {message}',
             'style': '{',
         },
         'performance': {
-            'format': '[{asctime}] PERF {levelname} {name} | Duration: {extra[duration]:-}ms | Operation: {extra[operation]:-} | {message}',
+            'format': '[{asctime}] PERF {levelname} {name} | {message}',
             'style': '{',
         },
     },
@@ -315,13 +340,18 @@ LOGGING = {
         'console': {
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
-            'level': 'INFO',
+            'level': 'INFO',  # Show important logs
         },
         'console_debug': {
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
             'level': 'DEBUG',
             'filters': ['require_debug_true'],
+        },
+        'console_video': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+            'level': 'INFO',
         },
         'file_general': {
             'class': 'logging.handlers.RotatingFileHandler',
@@ -382,42 +412,52 @@ LOGGING = {
     },
     'root': {
         'handlers': ['console', 'file_general', 'file_error'],
-        'level': 'INFO',
+        'level': 'WARNING',
     },
     'loggers': {
         'django': {
-            'handlers': ['console', 'file_general'],
-            'level': 'INFO',
+            'handlers': ['file_general'],
+            'level': 'WARNING',
             'propagate': False,
         },
         'django.request': {
-            'handlers': ['console', 'file_api', 'file_error'],
+            'handlers': ['file_api', 'file_error'],
             'level': 'WARNING',
             'propagate': False,
         },
         'django.security': {
-            'handlers': ['console', 'file_security', 'file_error'],
+            'handlers': ['file_security', 'file_error'],
             'level': 'INFO',
             'propagate': False,
         },
         'django.db.backends': {
             'handlers': ['console_debug'],
-            'level': 'DEBUG',
+            'level': 'WARNING',
             'propagate': False,
         },
         'celery': {
-            'handlers': ['console', 'file_celery'],
-            'level': 'INFO',
+            'handlers': ['file_celery'],
+            'level': 'WARNING',  # Reduce celery noise
             'propagate': False,
         },
         'celery.task': {
-            'handlers': ['console', 'file_celery', 'file_celery_error'],
-            'level': 'INFO',
+            'handlers': ['file_celery', 'file_celery_error'],
+            'level': 'WARNING',  # Reduce task noise
             'propagate': False,
         },
         'apps.video_analytics': {
-            'handlers': ['console', 'file_celery', 'file_performance'],
-            'level': 'INFO',
+            'handlers': ['console_video', 'file_celery', 'file_performance'],
+            'level': 'INFO',  # Keep video analytics visible
+            'propagate': False,
+        },
+        'apps.video_analytics.analytics': {
+            'handlers': ['console_video', 'file_celery', 'file_performance'],
+            'level': 'INFO',  # Keep analytics visible
+            'propagate': False,
+        },
+        'apps.video_analytics.tasks': {
+            'handlers': ['console_video', 'file_celery', 'file_performance'],
+            'level': 'INFO',  # Keep task progress visible
             'propagate': False,
         },
         'apps.face_auth': {
@@ -478,10 +518,11 @@ os.environ.setdefault('NUMEXPR_NUM_THREADS', '6')
 YOLO_CACHE_DIR = os.environ.get('YOLO_CACHE_DIR', str(BASE_DIR / 'models' / 'yolo_cache'))
 os.makedirs(YOLO_CACHE_DIR, exist_ok=True)
 
-# Video processing optimization
-VIDEO_PROCESSING_BATCH_SIZE = 32  # Higher batch size for Tesla P100
+# Video processing optimization for Tesla P100
+VIDEO_PROCESSING_BATCH_SIZE = 64  # Higher batch size for Tesla P100 (16GB VRAM)
 MAX_VIDEO_RESOLUTION = (1920, 1080)  # Limit to prevent memory overflow
-FRAME_SKIP_THRESHOLD = 2  # Process every 2nd frame for performance
+FRAME_SKIP_THRESHOLD = 1  # Process every frame for Tesla P100 performance
+GPU_MEMORY_FRACTION = 0.8  # Use 80% of GPU memory
 
 # Resource management
 MAX_CONCURRENT_JOBS = 10  # Maximum concurrent video processing jobs
@@ -510,3 +551,46 @@ CACHES = {
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 FILE_UPLOAD_MAX_MEMORY_SIZE = 524288000  # 500MB
 DATA_UPLOAD_MAX_MEMORY_SIZE = 524288000  # 500MB
+
+# =====================================
+# Environment Variable Validation
+# =====================================
+def validate_environment():
+    """Validate that all required environment variables are set."""
+    required_vars = [
+        'DJANGO_SECRET_KEY',
+        'POSTGRES_DB',
+        'POSTGRES_USER',
+        'POSTGRES_PASSWORD',
+        'POSTGRES_HOST',
+        'POSTGRES_PORT',
+        'REDIS_URL',
+        'QDRANT_URL',
+        'MONGO_URI',
+        'CLOUDINARY_CLOUD_NAME',
+        'CLOUDINARY_API_KEY',
+        'CLOUDINARY_API_SECRET',
+        'AZURE_OPENAI_API_KEY',
+        'ROBOFLOW_API_KEY',
+    ]
+
+    missing_vars = []
+    for var in required_vars:
+        if not os.environ.get(var):
+            missing_vars.append(var)
+
+    if missing_vars:
+        raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
+
+# Validate environment on startup
+try:
+    validate_environment()
+except ValueError as e:
+    import sys
+    print(f"❌ Environment validation failed: {e}")
+    print("Please check your .env file and ensure all required variables are set.")
+    sys.exit(1)
+
+# =====================================
+# Database Configuration
+# =====================================

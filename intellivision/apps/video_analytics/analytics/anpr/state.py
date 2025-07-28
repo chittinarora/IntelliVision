@@ -28,30 +28,37 @@ class ParkingState:
             event_type: 'entry' or 'exit'
         """
         with self.lock:
-            current_count = self.occupancy[zone_id]
-            capacity = self.capacity[zone_id]
+            try:
+                current_count = self.occupancy[zone_id]
+                capacity = self.capacity[zone_id]
 
-            if event_type == 'entry':
-                if current_count >= capacity:
-                    raise ValueError(f"Zone {zone_id} at full capacity")
-                self.occupancy[zone_id] += 1
-                # Track vehicle entry
-                self.vehicle_history[plate][zone_id] = datetime.utcnow()
+                if event_type == 'entry':
+                    if current_count >= capacity:
+                        raise ValueError(f"Zone {zone_id} at full capacity")
+                    self.occupancy[zone_id] += 1
+                    # Track vehicle entry
+                    self.vehicle_history[plate][zone_id] = datetime.utcnow()
 
-            elif event_type == 'exit':
-                if current_count <= 0:
-                    raise ValueError(f"Zone {zone_id} already empty")
-                self.occupancy[zone_id] -= 1
-                # Remove vehicle tracking
-                if plate in self.vehicle_history and zone_id in self.vehicle_history[plate]:
-                    del self.vehicle_history[plate][zone_id]
+                elif event_type == 'exit':
+                    if current_count <= 0:
+                        raise ValueError(f"Zone {zone_id} already empty")
+                    self.occupancy[zone_id] -= 1
+                    # Remove vehicle tracking
+                    if plate in self.vehicle_history and zone_id in self.vehicle_history[plate]:
+                        del self.vehicle_history[plate][zone_id]
 
-            # Record last event
-            self.last_events[zone_id] = {
-                "event_type": event_type,
-                "timestamp": datetime.utcnow(),
-                "plate": plate
-            }
+                # Record last event
+                self.last_events[zone_id] = {
+                    "event_type": event_type,
+                    "timestamp": datetime.utcnow(),
+                    "plate": plate
+                }
+            except Exception as e:
+                # Log error but don't crash the system
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Error updating occupancy for zone {zone_id}: {e}")
+                raise
 
     def set_capacity(self, zone_id: str, capacity: int):
         """Set maximum capacity for a zone"""

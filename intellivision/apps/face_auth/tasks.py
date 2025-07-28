@@ -21,7 +21,7 @@ def register_face_user_task(username, image_path):
 
 
 @shared_task
-def login_face_user_task(username, image_path):
+def login_face_user_task(image_path):
     """Background task to authenticate a user with a face image."""
     encoding = get_embedding_from_image(image_path)
     if encoding is None:

@@ -11,6 +11,7 @@ import time
 import logging
 from typing import Optional, Dict, Any
 from datetime import datetime, timedelta
+from .progress_utils import update_job_progress
 
 
 class ProgressLogger:
@@ -79,6 +80,18 @@ class ProgressLogger:
 
         if should_log:
             self._log_progress(processed_count, progress_percent, current_time)
+
+            # Update progress in database for real-time frontend tracking
+            try:
+                update_job_progress(
+                    job_id=int(self.job_id),
+                    processed_frames=processed_count,
+                    total_frames=self.total_items,
+                    fps=avg_rate if avg_rate > 0 else None
+                )
+            except Exception as e:
+                self.logger.warning(f"Failed to update database progress: {e}")
+
             self.last_processed_count = processed_count
             self.last_update_time = current_time
 

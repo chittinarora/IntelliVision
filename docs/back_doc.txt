@@ -15,7 +15,7 @@
         "5_worker_execution": "Celery worker processes job using strategy pattern",
         "6_result_storage": "Results saved to VideoJob.results (JSONField)",
         "7_output_storage": "Output files saved to 'outputs/' directory via Django storage",
-        "8_status_update": "Job status updated to 'done' or 'failed'"
+        "8_status_update": "Job status updated to 'completed' or 'failed'"
       },
       "job_types": {
         "car-count": {
@@ -27,7 +27,7 @@
         },
         "emergency-count": {
           "initiation_endpoint": "/api/emergency-count/",
-          "method": "POST", 
+          "method": "POST",
           "processor_function": "tracking_video (emergency_count)",
           "input_args": ["input_path", "output_path", "emergency_lines", "video_width", "video_height"],
           "description": "Emergency situation counting with line crossing detection"
@@ -42,7 +42,7 @@
         "parking-analysis": {
           "initiation_endpoint": "/api/parking-analysis/",
           "method": "POST",
-          "processor_function": "analyze_parking_video", 
+          "processor_function": "analyze_parking_video",
           "input_args": ["filename"],
           "description": "Parking lot analysis and space detection"
         },
@@ -118,7 +118,7 @@
         },
         "get_job": {
           "endpoint": "/api/jobs/{id}/",
-          "method": "GET", 
+          "method": "GET",
           "auth_required": true,
           "description": "Get specific job details and status",
           "response_format": "VideoJob object with results"
@@ -165,10 +165,10 @@
     "response_format": {
       "standardized_response": {
         "structure": {
-          "status": "String - 'accepted'|'processing'|'done'|'failed'",
+          "status": "String - 'accepted'|'processing'|'completed'|'failed'",
           "job_type": "String - Type of analytics job",
           "output_image": "String|null - URL to output image",
-          "output_video": "String|null - URL to output video", 
+          "output_video": "String|null - URL to output video",
           "data": "Object - Job-specific data and serialized VideoJob",
           "meta": "Object - Metadata with timestamp and processing info",
           "error": "Object|null - Error details if failed"
@@ -186,7 +186,7 @@
           "error": null
         },
         "job_polling_response": {
-          "status": "pending|processing|done|failed",
+          "status": "pending|processing|completed|failed",
           "job_type": "String",
           "output_image": "URL or null",
           "output_video": "URL or null",
@@ -208,7 +208,7 @@
       "task_specific_data_examples": {
         "emergency_count": {
           "unique_people": "Integer - number of unique individuals",
-          "total_crossings": "Integer - total line crossings detected", 
+          "total_crossings": "Integer - total line crossings detected",
           "final_counts": "Object - detailed counting results",
           "output_video": "URL to annotated video"
         },
@@ -319,7 +319,7 @@
       "recommended_interval": "2000-3000ms (2-3 seconds)",
       "recommended_timeout": "60000ms (60 seconds)",
       "exponential_backoff": "Increase interval by 500ms per poll (not implemented in backend)",
-      "status_transitions": "pending → processing → done/failed",
+              "status_transitions": "pending → processing → completed/failed",
       "error_handling": "Check response.ok before parsing JSON",
       "connection_errors": "Implement retry logic with exponential backoff"
     },
@@ -373,7 +373,7 @@
           "initial_delay": "1000ms before first poll",
           "polling_interval": "2000-3000ms",
           "timeout": "60000ms total",
-          "status_checks": "response.status === 'done' || response.status === 'failed'"
+          "status_checks": "response.status === 'completed' || response.status === 'failed'"
         },
         "javascript_example": {
           "polling_function": "const pollJob = async (jobId) => { const response = await fetch(`/api/jobs/${jobId}/`, { headers: { 'Authorization': 'Bearer ' + token } }); const job = await response.json(); return job.status; }",
@@ -387,7 +387,7 @@
       },
       "error_handling": {
         "network_errors": "Implement retry logic with exponential backoff",
-        "authentication_errors": "401 responses indicate token refresh needed", 
+        "authentication_errors": "401 responses indicate token refresh needed",
         "validation_errors": "400 responses contain detailed error messages in 'error' field",
         "server_errors": "5xx responses should trigger user notification and retry"
       },
@@ -398,7 +398,7 @@
       },
       "ui_considerations": {
         "job_submission": "Show immediate confirmation with job ID",
-        "progress_indication": "Use status field: pending → processing → done/failed",
+        "progress_indication": "Use status field: pending → processing → completed/failed",
         "result_display": "Check output_image and output_video URLs in response",
         "download_links": "All media URLs are absolute and directly accessible"
       },
@@ -409,7 +409,7 @@
           "output": "Annotated video + analytics data"
         },
         "image_analytics": {
-          "flow": "1. Upload image → 2. Get job ID → 3. Poll status → 4. Display results", 
+          "flow": "1. Upload image → 2. Get job ID → 3. Poll status → 4. Display results",
           "endpoints": "/api/{room-readiness|food-waste-estimation|wildlife-detection}/image/",
           "output": "Analyzed image + detection data"
         },
@@ -467,14 +467,14 @@
         "comprehensive_approach": "This documentation serves multiple audiences",
         "frontend_focus_sections": [
           "frontend_integration_guide",
-          "endpoint_details", 
+          "endpoint_details",
           "response_format",
           "authentication",
           "polling_best_practices"
         ],
         "backend_focus_sections": [
           "job_processing_mechanism",
-          "celery_configuration", 
+          "celery_configuration",
           "storage_configuration",
           "database_storage"
         ],

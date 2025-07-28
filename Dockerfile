@@ -45,9 +45,9 @@ COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/pytho
 COPY --from=builder /usr/local/bin /usr/local/bin
 COPY --from=builder /usr/lib /usr/lib
 
-# Install postgresql-client in final stage too (ensures pg_isready is available at runtime)
+# Install postgresql-client and curl in final stage too (ensures pg_isready and health check are available at runtime)
 RUN apt-get update && \
-    apt-get install -y postgresql-client && \
+    apt-get install -y postgresql-client curl && \
     apt-get clean
 
 # Copy backend files
@@ -57,17 +57,14 @@ COPY requirements.txt /app/
 # Ensure logs, media, and static directories exist
 RUN mkdir -p intellivision/logs intellivision/media/outputs intellivision/media/alerts intellivision/media/anpr_outputs intellivision/media/results intellivision/media/uploads intellivision/staticfiles
 
-# Collect static files
-ENV PYTHONPATH=/app
-RUN python intellivision/manage.py collectstatic --noinput
-
 # Run healthcheck
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD curl -f http://localhost:8001/health || exit 1
 
-# Copy entrypoint script
+# Copy entrypoint script and log filter
 COPY entrypoint.sh /app/
-RUN chmod +x /app/entrypoint.sh
+COPY intellivision/log_filter.sh /app/intellivision/
+RUN chmod +x /app/entrypoint.sh /app/intellivision/log_filter.sh
 
 # Use entrypoint script
 ENTRYPOINT ["/app/entrypoint.sh"]

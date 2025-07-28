@@ -4,7 +4,7 @@ from rest_framework.routers import DefaultRouter
 from django.urls import path, include
 from .views import (
     VideoJobViewSet, current_user_view, food_waste_estimation_view,
-    pothole_detection_image_view, wildlife_detection_image_view,
+    pothole_detection_image_view, pothole_detection_video_view, wildlife_detection_image_view,
     wildlife_detection_video_view, car_count_view, parking_analysis_view,
     emergency_count_view, room_readiness_view, lobby_detection_view,
     get_youtube_frame_view, people_count_view
@@ -28,6 +28,7 @@ urlpatterns = router.urls + [
     path('parking-analysis/', parking_analysis_view, name='parking_analysis'),
     path('people-count/', people_count_view, name='people_count'),
     path('pothole-detection/image/', pothole_detection_image_view, name='pothole_detection_image'),
+    path('pothole-detection/video/', pothole_detection_video_view, name='pothole_detection_video'),
     path('room-readiness/', room_readiness_view, name='room_readiness'),
     path('wildlife-detection/image/', wildlife_detection_image_view, name='wildlife_detection_image'),
     path('wildlife-detection/video/', wildlife_detection_video_view, name='wildlife_detection_video'),

@@ -169,6 +169,9 @@ def process_video_job(self, job_id: int) -> None:
             elif job_type == "wildlife-detection":
                 from .analytics.pest_monitoring import tracking_video
                 return tracking_video
+            elif job_type == "wildlife-detection-image":
+                from .analytics.pest_monitoring import tracking_image
+                return tracking_image
             elif job_type == "food-waste-estimation":
                 from .analytics.food_waste_estimation import analyze_food_image
                 return analyze_food_image
@@ -214,6 +217,9 @@ def process_video_job(self, job_id: int) -> None:
         elif job.job_type == "room-readiness" and ext in ['.jpg', '.jpeg', '.png']:
             JOB_PROCESSORS["room-readiness"] = {"args": [job.input_video.path]}
             processor_func = lambda job_type: get_processor_func("room-readiness-image")
+        elif job.job_type == "wildlife-detection" and ext in ['.jpg', '.jpeg', '.png']:
+            JOB_PROCESSORS["wildlife-detection"] = {"args": [job.input_video.path, f"/tmp/output_{job_id}.jpg"]}
+            processor_func = lambda job_type: get_processor_func("wildlife-detection-image")
         else:
             processor_func = get_processor_func
 
@@ -247,6 +253,10 @@ def process_video_job(self, job_id: int) -> None:
         # Process job
         start_time = time.time()
         logger.info(f"🚀 Job {job_id}: Starting analytics at {datetime.now().strftime('%H:%M:%S')}")
+
+        # Update job status to processing
+        job.status = 'processing'
+        job.save(update_fields=['status'])
 
         # Pass job_id to analytics functions for progress logging
         if len(processor_args) > 0 and isinstance(processor_args[0], str):
@@ -296,9 +306,11 @@ def process_video_job(self, job_id: int) -> None:
             "traceback": traceback.format_exc()
         }
         job.save()
-        raise
+        # Don't re-raise the exception to prevent task retry loops
+        logger.error(f"💾 Job {job_id}: Failed state saved")
 
     finally:
+        # Always release job slot and clean up resources
         try:
             import torch
             if torch.cuda.is_available():
@@ -306,8 +318,11 @@ def process_video_job(self, job_id: int) -> None:
                 logger.info(f"🎮 Job {job_id}: GPU memory cleaned")
         except Exception as e:
             logger.warning(f"GPU memory cleanup failed: {e}")
-            pass
 
-        # Release job slot
-        release_job_slot()
-        logger.info(f"💾 Job {job_id}: Final state saved")
+        try:
+            release_job_slot()
+            logger.info(f"💾 Job {job_id}: Job slot released")
+        except Exception as e:
+            logger.error(f"Failed to release job slot: {e}")
+
+        logger.info(f"💾 Job {job_id}: Final cleanup completed")

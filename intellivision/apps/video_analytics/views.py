@@ -25,17 +25,19 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 import mimetypes
 from django.utils import timezone
+from rest_framework.exceptions import PermissionDenied
+from django.db import transaction
 
 from .models import VideoJob
 from .serializers import VideoJobSerializer
 from .tasks import process_video_job, ensure_api_media_url
-from .utils import create_standardized_response, create_error_response, validate_file_upload
+from .utils import create_standardized_response, create_error_response, validate_file_upload_for_job_type
 from .rate_limiting import check_rate_limit, check_resource_availability, acquire_job_slot, release_job_slot
 
 logger = logging.getLogger(__name__)
 
-# Valid file extensions and size limit
-VALID_EXTENSIONS = {'.mp4', '.jpg', '.jpeg', '.png'}
+# Valid file extensions and size limit (now handled by job-type-specific validation)
+VALID_EXTENSIONS = {'.mp4', '.jpg', '.jpeg', '.png'}  # Legacy - job-specific validation in utils.py
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
 
 """
@@ -115,15 +117,44 @@ def _create_and_dispatch_job(request, job_type: str, extra_data: Dict[str, Any] 
 
     try:
         if youtube_url:
+
             logger.info(f"🎬 Downloading YouTube: {youtube_url} for {job_type} (user: {user.username})")
-            temp_video_path = tempfile.mktemp(suffix=".mp4")
+            temp_video_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4").name
             ydl_opts = {
                 'format': 'bestvideo[ext=mp4][vcodec=h264]+bestaudio[ext=m4a]/best[ext=mp4][vcodec=h264]/best[ext=mp4]',
                 'outtmpl': temp_video_path,
                 'quiet': True,
+                'no_warnings': True,
+                'extract_flat': False,
             }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([youtube_url])
+
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    # Validate URL first
+                    info = ydl.extract_info(youtube_url, download=False)
+                    if not info:
+                        return create_error_response(
+                            'Invalid YouTube URL or video not available',
+                            'INVALID_YOUTUBE_URL',
+                            job_type
+                        )
+
+                    # Download the video
+                    ydl.download([youtube_url])
+            except yt_dlp.utils.DownloadError as e:
+                logger.error(f"YouTube download failed: {e}")
+                return create_error_response(
+                    f'Failed to download YouTube video: {str(e)}',
+                    'YOUTUBE_DOWNLOAD_ERROR',
+                    job_type
+                )
+            except Exception as e:
+                logger.error(f"Unexpected error during YouTube download: {e}")
+                return create_error_response(
+                    f'Unexpected error during YouTube download: {str(e)}',
+                    'YOUTUBE_DOWNLOAD_ERROR',
+                    job_type
+                )
 
             if not os.path.exists(temp_video_path):
                 return create_error_response(
@@ -149,14 +180,35 @@ def _create_and_dispatch_job(request, job_type: str, extra_data: Dict[str, Any] 
             logger.info(f"✅ Downloaded YouTube video: {file_name} ({size / (1024*1024):.2f}MB)")
 
         else:
-            # Use the new validation utility
-            is_valid, error_msg = validate_file_upload(file_obj, MAX_FILE_SIZE, VALID_EXTENSIONS)
+            # Use the new job-type-specific validation utility
+            is_valid, error_msg = validate_file_upload_for_job_type(file_obj, job_type, MAX_FILE_SIZE)
             if not is_valid:
+                # Determine error code based on error message content
+                if 'Invalid file type' in error_msg:
+                    error_code = 'INVALID_FILE_TYPE'
+                elif 'File size' in error_msg and 'exceeds' in error_msg:
+                    error_code = 'FILE_TOO_LARGE'
+                elif 'No file provided' in error_msg:
+                    error_code = 'MISSING_FILE'
+                else:
+                    error_code = 'VALIDATION_ERROR'
+
                 return create_error_response(
                     error_msg,
-                    'INVALID_FILE_TYPE' if 'Invalid file type' in error_msg else 'FILE_TOO_LARGE',
+                    error_code,
                     job_type
                 )
+
+            # Extract file extension from uploaded file
+            original_name = file_obj.name
+            ext = os.path.splitext(original_name)[1] if original_name else ''
+
+            # Set appropriate default extension based on job type
+            if not ext:
+                if job_type in ['pothole-detection', 'food-waste-estimation']:
+                    ext = '.jpg'  # Default to image for image-only jobs
+                else:
+                    ext = '.mp4'  # Default to video for video jobs
 
             file_name = f"{job_type}_{uuid4().hex}{ext}"
             input_file_content = ContentFile(file_obj.read(), name=file_name)
@@ -172,14 +224,17 @@ def _create_and_dispatch_job(request, job_type: str, extra_data: Dict[str, Any] 
             )
 
         try:
-            job_data['input_video'] = input_file_content
-            job = VideoJob.objects.create(**job_data)
-            task = process_video_job.delay(job.id)
-            job.task_id = task.id
-            job.save()
-            logger.info(f"🚀 Dispatched job {job.id} ({job_type}) with task ID {task.id}")
+            with transaction.atomic():
+                job_data['input_video'] = input_file_content
+                job = VideoJob.objects.create(**job_data)
+                task = process_video_job.delay(job.id)
+                job.task_id = task.id
+                job.save()
+                logger.info(f"🚀 Dispatched job {job.id} ({job_type}) with task ID {task.id}")
         except Exception as e:
             release_job_slot()  # Release slot on error
+            logger.error(f"Job creation failed: {e}")
+            # Transaction will automatically rollback
             raise e
 
         serializer = VideoJobSerializer(job)
@@ -205,8 +260,13 @@ def _create_and_dispatch_job(request, job_type: str, extra_data: Dict[str, Any] 
             status.HTTP_500_INTERNAL_SERVER_ERROR
         )
     finally:
+        # Clean up temporary files
         if temp_video_path and os.path.exists(temp_video_path):
-            os.unlink(temp_video_path)
+            try:
+                os.unlink(temp_video_path)
+                logger.info(f"Cleaned up temporary video file: {temp_video_path}")
+            except Exception as e:
+                logger.warning(f"Failed to clean up temporary video file {temp_video_path}: {e}")
 
 """
 =====================================
@@ -254,7 +314,7 @@ def get_youtube_frame_view(request):
     temp_frame_path = None
     try:
         logger.info(f"🎬 Fetching frame for YouTube URL: {youtube_url}")
-        temp_video_path = tempfile.mktemp(suffix=".mp4")
+                    temp_video_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4").name
         ydl_opts = {
             'format': 'bestvideo[ext=mp4][vcodec=h264]+bestaudio[ext=m4a]/best[ext=mp4][vcodec=h264]/best[ext=mp4]',
             'outtmpl': temp_video_path,
@@ -290,20 +350,19 @@ def get_youtube_frame_view(request):
         try:
             success, frame = cap.read()
             if not success:
+                return Response({
+                    'status': 'failed',
+                    'job_type': 'youtube_frame_extraction',
+                    'output_image': None,
+                    'output_video': None,
+                    'data': {},
+                    'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+                    'error': {'message': 'Could not extract frame', 'code': 'FRAME_EXTRACT_FAILED'}
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         finally:
             cap.release()
-        if not success:
-            return Response({
-                'status': 'failed',
-                'job_type': 'youtube_frame_extraction',
-                'output_image': None,
-                'output_video': None,
-                'data': {},
-                'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
-                'error': {'message': 'Could not extract frame', 'code': 'FRAME_EXTRACT_FAILED'}
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        temp_frame_path = tempfile.mktemp(suffix=".jpg")
+                    temp_frame_path = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg").name
         cv2.imwrite(temp_frame_path, frame)
 
         with open(temp_frame_path, 'rb') as f:
@@ -345,9 +404,14 @@ def get_youtube_frame_view(request):
             'error': {'message': f"Unexpected error: {str(e)}", 'code': 'SERVER_ERROR'}
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     finally:
+        # Clean up temporary files
         for path in [temp_video_path, temp_frame_path]:
             if path and os.path.exists(path):
-                os.unlink(path)
+                try:
+                    os.unlink(path)
+                    logger.info(f"Cleaned up temporary file: {path}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temporary file {path}: {e}")
 
 """
 =====================================
@@ -411,6 +475,32 @@ def emergency_count_view(request):
         }, status=status.HTTP_400_BAD_REQUEST)
     try:
         emergency_lines = json.loads(emergency_lines_str)
+
+        # Validate emergency lines structure
+        if not isinstance(emergency_lines, list) or len(emergency_lines) != 2:
+            return Response({
+                'status': 'failed',
+                'job_type': 'emergency-count',
+                'output_image': None,
+                'output_video': None,
+                'data': {},
+                'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+                'error': {'message': "emergency_lines must be an array with exactly 2 lines", 'code': 'INVALID_EMERGENCY_LINES'}
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validate each line has required fields
+        for i, line in enumerate(emergency_lines):
+            required_fields = ['start_x', 'start_y', 'end_x', 'end_y']
+            if not all(field in line for field in required_fields):
+                return Response({
+                    'status': 'failed',
+                    'job_type': 'emergency-count',
+                    'output_image': None,
+                    'output_video': None,
+                    'data': {},
+                    'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+                    'error': {'message': f"Line {i+1} missing required fields: {required_fields}", 'code': 'INVALID_EMERGENCY_LINES'}
+                }, status=status.HTTP_400_BAD_REQUEST)
     except json.JSONDecodeError:
         return Response({
             'status': 'failed',
@@ -447,6 +537,54 @@ def lobby_detection_view(request):
         }, status=status.HTTP_400_BAD_REQUEST)
     try:
         lobby_zones = json.loads(lobby_zones_str)
+
+        # Validate lobby zones structure
+        if not isinstance(lobby_zones, list) or len(lobby_zones) == 0:
+            return Response({
+                'status': 'failed',
+                'job_type': 'lobby-detection',
+                'output_image': None,
+                'output_video': None,
+                'data': {},
+                'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+                'error': {'message': "lobby_zones must be a non-empty array", 'code': 'INVALID_LOBBY_ZONES'}
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validate each zone has required fields
+        for i, zone in enumerate(lobby_zones):
+            if not isinstance(zone, dict):
+                return Response({
+                    'status': 'failed',
+                    'job_type': 'lobby-detection',
+                    'output_image': None,
+                    'output_video': None,
+                    'data': {},
+                    'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+                    'error': {'message': f"Zone {i+1} must be an object", 'code': 'INVALID_LOBBY_ZONES'}
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            required_fields = ['name', 'points']
+            if not all(field in zone for field in required_fields):
+                return Response({
+                    'status': 'failed',
+                    'job_type': 'lobby-detection',
+                    'output_image': None,
+                    'output_video': None,
+                    'data': {},
+                    'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+                    'error': {'message': f"Zone {i+1} missing required fields: {required_fields}", 'code': 'INVALID_LOBBY_ZONES'}
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            if not isinstance(zone['points'], list) or len(zone['points']) < 3:
+                return Response({
+                    'status': 'failed',
+                    'job_type': 'lobby-detection',
+                    'output_image': None,
+                    'output_video': None,
+                    'data': {},
+                    'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+                    'error': {'message': f"Zone {i+1} points must be an array with at least 3 points", 'code': 'INVALID_LOBBY_ZONES'}
+                }, status=status.HTTP_400_BAD_REQUEST)
     except json.JSONDecodeError:
         return Response({
             'status': 'failed',
@@ -581,85 +719,253 @@ def pothole_detection_image_view(request):
 
     return _create_and_dispatch_job(request, 'pothole-detection')
 
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def pothole_detection_video_view(request):
+    """
+    Submit pothole detection job for a video.
+
+    Args:
+        request: HTTP request with video file
+
+    Returns:
+        Response with standardized format:
+        {
+            'status': 'pending' | 'failed',
+            'job_type': 'pothole-detection',
+            'output_image': None,
+            'output_video': None,
+            'data': {'job_id': int, ...},
+            'meta': {'timestamp': str, 'request_time': float},
+            'error': dict | None
+        }
+    """
+    return _create_and_dispatch_job(request, 'pothole-detection')
+
 """
 =====================================
 Standard ViewSet and User Info
 =====================================
 ViewSet for managing VideoJob objects and retrieving user information.
-Added error handling for DoesNotExist to use standardized error format (Issue #10).
+Enhanced with better permissions, validation, and resource cleanup.
 """
 
 class VideoJobViewSet(viewsets.ModelViewSet):
     """
-    ViewSet for managing VideoJob objects with task termination and cleanup.
+    ViewSet for managing VideoJob objects with enhanced permissions and cleanup.
     """
     queryset = VideoJob.objects.all()
     serializer_class = VideoJobSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        """Return jobs for the authenticated user."""
+        """Return jobs for the authenticated user only."""
         return VideoJob.objects.filter(user=self.request.user).order_by('-created_at')
+
+    def get_object(self):
+        """Get object and ensure user ownership."""
+        obj = super().get_object()
+
+        # Additional permission check to ensure user owns the job
+        if obj.user != self.request.user:
+            raise PermissionDenied("You don't have permission to access this job.")
+
+        return obj
 
     def destroy(self, request, *args, **kwargs):
         """
-        Delete a job, terminate its Celery task, and clean up resources.
+        Delete a job with enhanced validation, cleanup, and standardized responses.
 
-        Args:
-            request: HTTP request object
-
-        Returns:
-            Response with standardized format
+        - Validates user ownership
+        - Terminates running Celery tasks
+        - Cleans up associated files
+        - Releases resource slots
+        - Returns standardized error format
         """
         start_time = time.time()
+        job = None
+
         try:
             job = self.get_object()
-        except VideoJob.DoesNotExist:
+            logger.info(f"🗑️ User {request.user.id} requesting deletion of job {job.id} (status: {job.status})")
+
+            # Additional validation for active jobs
+            if job.status == 'processing':
+                logger.warning(f"Attempting to delete processing job {job.id}")
+                # Allow deletion but warn user
+
+            # Store job info for cleanup
+            job_id = job.id
+            job_type = job.job_type
+            task_id = job.task_id
+            input_file_path = job.input_video.path if job.input_video else None
+            output_file_paths = []
+
+            # Collect output file paths for cleanup
+            if job.output_video:
+                try:
+                    output_file_paths.append(job.output_video.path)
+                except (ValueError, AttributeError):
+                    pass
+
+            if job.output_image:
+                try:
+                    output_file_paths.append(job.output_image.path)
+                except (ValueError, AttributeError):
+                    pass
+
+            # Terminate Celery task if running
+            if task_id:
+                try:
+                    from celery import current_app
+                    current_app.control.revoke(task_id, terminate=True)
+                    logger.info(f"🛑 Terminated Celery task {task_id} for job {job_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to revoke Celery task {task_id}: {e}")
+
+            # Delete the job record
+            job.delete()
+            logger.info(f"✅ Successfully deleted job {job_id}")
+
+            # Release job slot if applicable
+            try:
+                from .rate_limiting import release_job_slot
+                release_job_slot()
+                logger.info(f"Released job slot after deleting job {job_id}")
+            except Exception as e:
+                logger.warning(f"Failed to release job slot: {e}")
+
+            # Clean up files (in background to avoid blocking response)
+            def cleanup_files():
+                cleaned_files = []
+                for file_path in [input_file_path] + output_file_paths:
+                    if file_path and os.path.exists(file_path):
+                        try:
+                            os.remove(file_path)
+                            cleaned_files.append(file_path)
+                        except OSError as e:
+                            logger.warning(f"Failed to delete file {file_path}: {e}")
+
+                if cleaned_files:
+                    logger.info(f"🧹 Cleaned up {len(cleaned_files)} files for job {job_id}")
+
+            # Run cleanup in background
+            import threading
+            cleanup_thread = threading.Thread(target=cleanup_files)
+            cleanup_thread.daemon = True
+            cleanup_thread.start()
+
+            # Return standardized success response
+            return Response({
+                'status': 'success',
+                'job_type': 'job_deletion',
+                'data': {
+                    'job_id': job_id,
+                    'message': f'Job {job_id} deleted successfully'
+                },
+                'meta': {
+                    'timestamp': timezone.now().isoformat(),
+                    'request_time': time.time() - start_time
+                },
+                'error': None
+            }, status=status.HTTP_200_OK)
+
+        except PermissionDenied as e:
+            logger.warning(f"Permission denied for job deletion: {e}")
             return Response({
                 'status': 'failed',
                 'job_type': 'job_deletion',
                 'output_image': None,
                 'output_video': None,
                 'data': {},
-                'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
-                'error': {'message': 'Job not found', 'code': 'JOB_NOT_FOUND'}
+                'meta': {
+                    'timestamp': timezone.now().isoformat(),
+                    'request_time': time.time() - start_time
+                },
+                'error': {
+                    'message': 'You don\'t have permission to delete this job',
+                    'code': 'PERMISSION_DENIED'
+                }
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        except VideoJob.DoesNotExist:
+            logger.warning(f"Job not found for deletion by user {request.user.id}")
+            return Response({
+                'status': 'failed',
+                'job_type': 'job_deletion',
+                'output_image': None,
+                'output_video': None,
+                'data': {},
+                'meta': {
+                    'timestamp': timezone.now().isoformat(),
+                    'request_time': time.time() - start_time
+                },
+                'error': {
+                    'message': 'Job not found or already deleted',
+                    'code': 'JOB_NOT_FOUND'
+                }
             }, status=status.HTTP_404_NOT_FOUND)
 
-        logger.info(f"Deleting job {job.id} (status: {job.status}, task_id: {job.task_id})")
-
-        if job.task_id and job.status in ['pending', 'processing']:
-            try:
-                from celery import current_app
-                current_app.control.revoke(job.task_id, terminate=True, signal='SIGKILL')
-                logger.info(f"Revoked task {job.task_id} for job {job.id}")
             except Exception as e:
-                logger.warning(f"Failed to revoke task {job.task_id}: {e}")
-
-        temp_files = [
-            f"/tmp/output_{job.id}.mp4",
-            f"/tmp/output_{job.id}.jpg",
-            f"/tmp/output_{job.id}.png",
-            f"/tmp/yt_thumb_{job.id}.jpg"
-        ]
-        for temp_file in temp_files:
-            if os.path.exists(temp_file):
-                try:
-                    os.unlink(temp_file)
-                    logger.info(f"Cleaned up: {temp_file}")
-                except Exception as e:
-                    logger.warning(f"Failed to delete {temp_file}: {e}")
-
-        response = super().destroy(request, *args, **kwargs)
-        logger.info(f"Deleted job {job.id}")
+            logger.error(f"Unexpected error during job deletion: {e}", exc_info=True)
         return Response({
-            'status': 'completed',
+                'status': 'failed',
             'job_type': 'job_deletion',
             'output_image': None,
             'output_video': None,
-            'data': {'job_id': job.id},
-            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
-            'error': None
-        }, status=status.HTTP_204_NO_CONTENT)
+                'data': {},
+                'meta': {
+                    'timestamp': timezone.now().isoformat(),
+                    'request_time': time.time() - start_time
+                },
+                'error': {
+                    'message': 'Internal server error during job deletion',
+                    'code': 'INTERNAL_ERROR'
+                }
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def list(self, request, *args, **kwargs):
+        """Enhanced list endpoint with better error handling."""
+        try:
+            queryset = self.get_queryset()
+            serializer = self.get_serializer(queryset, many=True)
+
+            logger.info(f"📋 User {request.user.id} retrieved {len(serializer.data)} jobs")
+            return Response(serializer.data)
+
+        except Exception as e:
+            logger.error(f"Error retrieving jobs for user {request.user.id}: {e}", exc_info=True)
+            return Response({
+                'error': {
+                    'message': 'Failed to retrieve jobs',
+                    'code': 'JOBS_RETRIEVAL_ERROR'
+                }
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def retrieve(self, request, *args, **kwargs):
+        """Enhanced retrieve endpoint with ownership validation."""
+        try:
+            instance = self.get_object()
+            serializer = self.get_serializer(instance)
+
+            logger.info(f"👁️ User {request.user.id} viewed job {instance.id}")
+            return Response(serializer.data)
+
+        except PermissionDenied as e:
+            return Response({
+                'error': {
+                    'message': 'You don\'t have permission to view this job',
+                    'code': 'PERMISSION_DENIED'
+                }
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        except VideoJob.DoesNotExist:
+            return Response({
+                'error': {
+                    'message': 'Job not found',
+                    'code': 'JOB_NOT_FOUND'
+                }
+            }, status=status.HTTP_404_NOT_FOUND)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])

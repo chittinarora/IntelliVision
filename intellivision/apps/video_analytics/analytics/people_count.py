@@ -565,9 +565,9 @@ class PostProcessingEngine:
         if SCIPY_AVAILABLE:
             try:
                 return 1.0 - cosine(a, b)
-                    except Exception as e:
-            logger.warning(f"Failed to process track {track_id}: {e}")
-            continue
+            except Exception as e:
+                logger.warning(f"Failed to compute cosine similarity: {e}")
+                # Fall back to manual calculation
         dot_product = np.dot(a, b)
         norm_a = np.linalg.norm(a)
         norm_b = np.linalg.norm(b)
@@ -1123,12 +1123,30 @@ class DubsComprehensivePeopleCounting:
                 'error': {'message': str(e), 'code': 'PROCESSING_ERROR'}
             }
         finally:
-            if 'cap' in locals() and cap:
-                cap.release()
-            if 'tmp_path' in locals() and os.path.exists(tmp_path):
-                os.remove(tmp_path)
-            if 'tmp_out' in locals() and os.path.exists(tmp_out.name):
-                os.remove(tmp_out.name)
+            # Ensure all resources are properly cleaned up
+            try:
+                if 'cap' in locals() and cap:
+                    cap.release()
+            except Exception as e:
+                logger.warning(f"Failed to release video capture: {e}")
+
+            try:
+                if 'writer' in locals() and writer:
+                    writer.release()
+            except Exception as e:
+                logger.warning(f"Failed to release video writer: {e}")
+
+            try:
+                if 'tmp_path' in locals() and os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except Exception as e:
+                logger.warning(f"Failed to remove temporary file {tmp_path}: {e}")
+
+            try:
+                if 'tmp_out' in locals() and os.path.exists(tmp_out.name):
+                    os.remove(tmp_out.name)
+            except Exception as e:
+                logger.warning(f"Failed to remove temporary output file {tmp_out.name}: {e}")
 
 # ======================================
 # Celery Integration

@@ -111,12 +111,19 @@ def get_next_filename(base_path):
     if not default_storage.exists(base_path):
         return base_path
     i = 1
-    while True:
+    max_attempts = 1000  # Prevent infinite loop
+    while i <= max_attempts:
         new_name = f"{name}_{i}{ext}"
         new_path = os.path.join(base_dir, new_name)
         if not default_storage.exists(new_path):
             return new_path
         i += 1
+
+    # If we can't find a unique name after 1000 attempts, add timestamp
+    timestamp = int(time.time())
+    new_name = f"{name}_{timestamp}{ext}"
+    new_path = os.path.join(base_dir, new_name)
+    return new_path
 
 def download_reid_model():
     """Download Re-ID model if not present."""

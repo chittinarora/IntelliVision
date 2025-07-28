@@ -8,10 +8,65 @@ Common utilities for video analytics app.
 """
 
 import time
+import torch
+import logging
 from typing import Dict, Any
 from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework import status
+from ultralytics import YOLO
+
+logger = logging.getLogger(__name__)
+
+def get_optimal_device():
+    """
+    Get optimal device for ML models based on available hardware.
+    Optimized for Tesla P100 GPU with fallback to CPU.
+    """
+    if torch.cuda.is_available():
+        # Check for Tesla P100 specifically
+        gpu_name = torch.cuda.get_device_name(0).lower()
+        if 'tesla p100' in gpu_name or 'p100' in gpu_name:
+            logger.info(f"✅ Tesla P100 GPU detected: {torch.cuda.get_device_name(0)}")
+            return "cuda"
+        else:
+            logger.info(f"✅ CUDA GPU detected: {torch.cuda.get_device_name(0)}")
+            return "cuda"
+    elif torch.backends.mps.is_available():
+        logger.info("✅ MPS (Apple Silicon) detected")
+        return "mps"
+    else:
+        logger.warning("⚠️ No GPU detected, using CPU")
+        return "cpu"
+
+def load_yolo_model(model_path: str, device: str = None):
+    """
+    Load YOLO model with optimal device selection.
+
+    Args:
+        model_path: Path to YOLO model file
+        device: Device to load model on (auto-detected if None)
+
+    Returns:
+        Loaded YOLO model
+    """
+    if device is None:
+        device = get_optimal_device()
+
+    try:
+        model = YOLO(model_path)
+        if device == "cuda":
+            model.to("cuda")
+            # Optimize for Tesla P100
+            if torch.cuda.is_available():
+                torch.cuda.set_device(0)
+                # Set memory fraction to prevent OOM
+                torch.cuda.empty_cache()
+        logger.info(f"✅ YOLO model loaded on {device}: {model_path}")
+        return model
+    except Exception as e:
+        logger.error(f"❌ Failed to load YOLO model {model_path}: {e}")
+        raise
 
 
 def create_standardized_response(
@@ -116,5 +171,66 @@ def validate_file_upload(file_obj, max_size: int = 500 * 1024 * 1024, valid_exte
     ext = os.path.splitext(file_obj.name)[1].lower()
     if ext not in valid_extensions:
         return False, f"Invalid file type: {ext}. Allowed: {', '.join(valid_extensions)}"
+
+    return True, ""
+
+
+def validate_file_upload_for_job_type(file_obj, job_type: str, max_size: int = 500 * 1024 * 1024) -> tuple[bool, str]:
+    """
+    Validate uploaded file based on job type requirements.
+
+    Args:
+        file_obj: Uploaded file object
+        job_type: Type of analytics job
+        max_size: Maximum file size in bytes
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    if not file_obj:
+        return False, "No file provided"
+
+    if file_obj.size > max_size:
+        return False, f"File size {file_obj.size / (1024*1024):.2f}MB exceeds {max_size / (1024*1024)}MB limit"
+
+    import os
+    ext = os.path.splitext(file_obj.name)[1].lower()
+
+    # Define job-type-specific file requirements
+    IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
+    VIDEO_EXTENSIONS = {'.mp4'}
+    ALL_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
+
+    JOB_TYPE_FILE_REQUIREMENTS = {
+        'pothole-detection': {
+            'allowed_extensions': IMAGE_EXTENSIONS,
+            'description': 'images (JPG, JPEG, PNG)'
+        },
+        'food-waste-estimation': {
+            'allowed_extensions': IMAGE_EXTENSIONS,
+            'description': 'images (JPG, JPEG, PNG)'
+        },
+        'room-readiness': {
+            'allowed_extensions': ALL_EXTENSIONS,
+            'description': 'videos (MP4) or images (JPG, JPEG, PNG)'
+        },
+        'wildlife-detection': {
+            'allowed_extensions': ALL_EXTENSIONS,
+            'description': 'videos (MP4) or images (JPG, JPEG, PNG)'
+        },
+        # Default for other job types (video-only)
+        'default': {
+            'allowed_extensions': VIDEO_EXTENSIONS,
+            'description': 'videos (MP4)'
+        }
+    }
+
+    # Get requirements for this job type, fallback to default
+    requirements = JOB_TYPE_FILE_REQUIREMENTS.get(job_type, JOB_TYPE_FILE_REQUIREMENTS['default'])
+    allowed_extensions = requirements['allowed_extensions']
+    description = requirements['description']
+
+    if ext not in allowed_extensions:
+        return False, f"Invalid file type for {job_type}. Only {description} are supported."
 
     return True, ""

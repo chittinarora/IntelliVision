@@ -399,6 +399,60 @@ def detect_snakes_in_video(video_path: str) -> Dict:
 # Celery Integration
 # ======================================
 
+def tracking_image(input_path: str, job_id: str = None) -> Dict:
+    """
+    Process image for wildlife detection.
+
+    Args:
+        input_path: Path to input image
+        job_id: Optional job ID for progress tracking
+
+    Returns:
+        Dict with detection results
+    """
+    start_time = time.time()
+    input_path = Path(input_path).name
+
+    # Validate input
+    is_valid, error_msg = validate_input_file(input_path)
+    if not is_valid:
+        logger.error(f"Invalid input: {error_msg}")
+        return {
+            'status': 'failed',
+            'job_type': 'wildlife-detection',
+            'output_image': None,
+            'output_video': None,
+            'data': {'error': error_msg},
+            'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
+            'error': {'message': error_msg, 'code': 'INVALID_INPUT'}
+        }
+
+    try:
+        # Process image for wildlife detection
+        result = detect_snakes_in_image(input_path)
+
+        # Add metadata
+        result['meta'] = {
+            'timestamp': timezone.now().isoformat(),
+            'processing_time_seconds': time.time() - start_time,
+            'job_id': job_id
+        }
+
+        logger.info(f"✅ Wildlife detection completed for image: {input_path}")
+        return result
+
+    except Exception as e:
+        logger.error(f"❌ Wildlife detection failed for image {input_path}: {str(e)}", exc_info=True)
+        return {
+            'status': 'failed',
+            'job_type': 'wildlife-detection',
+            'output_image': None,
+            'output_video': None,
+            'data': {'error': str(e)},
+            'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
+            'error': {'message': str(e), 'code': 'PROCESSING_ERROR'}
+        }
+
 @shared_task(bind=True)
 def tracking_video(self, input_path: str, output_path: str = None, job_id: str = None) -> Dict:
     """

@@ -6,9 +6,9 @@ services:
     env_file:
       - .env
     environment:
-      - POSTGRES_DB=intellivision
-      - POSTGRES_USER=adminvision
-      - POSTGRES_PASSWORD=IntelliVisionAIonOS
+      - POSTGRES_DB=${POSTGRES_DB:-intellivision}
+      - POSTGRES_USER=${POSTGRES_USER:-adminvision}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
@@ -22,7 +22,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
+          cpus: "0.5"
           memory: 512M
 
   redis:
@@ -38,8 +38,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.25'
-          memory: 256M
+          cpus: "0.5"
+          memory: 512M
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -56,8 +56,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
-          memory: 512M
+          cpus: "0.2"
+          memory: 256M
 
   web:
     build:
@@ -65,7 +65,8 @@ services:
       dockerfile: Dockerfile
     volumes:
       - shared-tmp:/tmp
-      - media:/app/intellivision/media
+      - ./intellivision/media:/app/intellivision/media  # Mount to where Apache expects files
+      - ./logs:/app/intellivision/logs
     ports:
       - "8001:8001"
     env_file:
@@ -80,31 +81,42 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '2.5'
-          memory: 6G
-    command: sh -c "python intellivision/manage.py migrate && gunicorn intellivision.wsgi:application --bind 0.0.0.0:8001 --workers 3"
+          cpus: "1.5"
+          memory: 3G
+    command: sh -c "python intellivision/manage.py migrate && /usr/local/bin/gunicorn intellivision.wsgi:application --bind 0.0.0.0:8001 --workers 4"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       - PYTHONPATH=/app/intellivision:/app
-      - POSTGRES_DB=intellivision
-      - POSTGRES_USER=adminvision
-      - POSTGRES_PASSWORD=IntelliVisionAIonOS
+      - POSTGRES_DB=${POSTGRES_DB:-intellivision}
+      - POSTGRES_USER=${POSTGRES_USER:-adminvision}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_HOST=db
       - POSTGRES_PORT=5432
       - REDIS_URL=redis://redis:6379/0
       - QDRANT_URL=http://qdrant:6333
-      - MONGO_URI=mongodb+srv://toram444444:06nJTevaUItCDpd9@cluster01.lemxesc.mongodb.net/?retryWrites=true&w=majority&appName=Cluster01
+      - MONGO_URI=${MONGO_URI}
       - YOLO_CACHE_DIR=/app/intellivision/apps/video_analytics/models/yolo_cache
       - JOB_OUTPUT_DIR=/app/intellivision/media/outputs
       - SERVICE_TYPE=web
+      - ENVIRONMENT=production
 
   celery:
     build:
       context: .
       dockerfile: Dockerfile
-    command: celery -A intellivision worker --loglevel=info --concurrency=4
+    command: celery -A intellivision worker --loglevel=warning --concurrency=3
     volumes:
       - shared-tmp:/tmp
-      - media:/app/intellivision/media
+      - ./intellivision/media:/app/intellivision/media  # Mount to where Apache expects files
+      - ./logs:/app/intellivision/logs
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     env_file:
       - .env
     depends_on:
@@ -123,33 +135,42 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '3.5'
-          memory: 14G
+          cpus: "3.0"
+          memory: 16G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       - PYTHONPATH=/app/intellivision:/app
-      - POSTGRES_DB=intellivision
-      - POSTGRES_USER=adminvision
-      - POSTGRES_PASSWORD=IntelliVisionAIonOS
+      - POSTGRES_DB=${POSTGRES_DB:-intellivision}
+      - POSTGRES_USER=${POSTGRES_USER:-adminvision}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_HOST=db
       - POSTGRES_PORT=5432
       - REDIS_URL=redis://redis:6379/0
       - QDRANT_URL=http://qdrant:6333
-      - MONGO_URI=mongodb+srv://toram444444:06nJTevaUItCDpd9@cluster01.lemxesc.mongodb.net/?retryWrites=true&w=majority&appName=Cluster01
+      - MONGO_URI=${MONGO_URI}
       - YOLO_CACHE_DIR=/app/intellivision/apps/video_analytics/models/yolo_cache
       - JOB_OUTPUT_DIR=/app/intellivision/media/outputs
       - SERVICE_TYPE=celery
+      - ENVIRONMENT=production
 
   frontend:
     build:
       context: ./intelli-vision
       dockerfile: Dockerfile
+      args:
+        - VITE_API_BASE_URL=${VITE_API_BASE_URL:-https://intellivision.aionos.co/api}
     ports:
       - "8080:8080"
     volumes:
-      - media:/app/intellivision/media
+      - ./intellivision/media:/app/intellivision/media  # Mount to where Apache expects files
     environment:
       - NODE_ENV=production
       - VITE_PORT=8080
+      - VITE_API_BASE_URL=${VITE_API_BASE_URL:-https://intellivision.aionos.co/api}
     healthcheck:
       test: ["CMD", "true"]
       interval: 30s
@@ -159,8 +180,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
-          memory: 1G
+          cpus: "0.3"
+          memory: 512M
     depends_on:
       - web
 
@@ -168,4 +189,3 @@ volumes:
   postgres_data:
   qdrant_data:
   shared-tmp:
-  media:

@@ -12,6 +12,10 @@ from django.db import models
 from django.contrib.auth.models import User
 from django.core.validators import FileExtensionValidator
 from jsonschema import validate, ValidationError as JSONSchemaValidationError
+import inspect
+import logging
+
+logger = logging.getLogger(__name__)
 
 """
 =====================================
@@ -184,20 +188,46 @@ def validate_results_schema(value):
     """
     Validate the results JSONField against the schema for the job_type.
     Raises ValidationError if the schema is invalid or job_type is unknown.
+
+    Note: This validator is called during model save operations.
+    The job_type is available through the model instance being validated.
     """
     if value is None:
         return value
-    instance = getattr(validate_results_schema, 'instance', None)
-    if not instance or not hasattr(instance, 'job_type'):
-        return value  # Skip validation if job_type is not accessible
+
+    # Get the model instance from the validator context
+    # This works because Django passes the model instance to validators
+    # during model clean() and save() operations
+    frame = inspect.currentframe()
+    try:
+        # Look up the call stack to find the model instance
+        while frame:
+            if 'self' in frame.f_locals and hasattr(frame.f_locals['self'], 'job_type'):
+                instance = frame.f_locals['self']
+                break
+            frame = frame.f_back
+        else:
+            # If we can't find the instance, skip validation
+            # This happens during deserialization or other edge cases
+            logger.warning("Results validation skipped: Could not determine job_type context")
+            return value
+    finally:
+        del frame
+
     job_type = instance.job_type
     schema = RESULT_SCHEMAS.get(job_type)
+
     if not schema:
-        raise models.ValidationError(f"No schema defined for job_type: {job_type}")
+        logger.warning(f"No schema defined for job_type: {job_type}")
+        return value  # Don't fail validation for missing schemas
+
     try:
         validate(instance=value, schema=schema)
+        logger.debug(f"Results validation passed for job_type: {job_type}")
     except JSONSchemaValidationError as e:
+        logger.error(f"Results validation failed for job_type {job_type}: {str(e)}")
         raise models.ValidationError(f"Invalid results format for {job_type}: {str(e)}")
+
     return value
 
 """

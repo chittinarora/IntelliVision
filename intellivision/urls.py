@@ -19,6 +19,7 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from django.http import HttpResponse
+from rest_framework_simplejwt.views import TokenRefreshView
 
 
 def root(request):
@@ -26,11 +27,17 @@ def root(request):
     # The content must be bytes, not str, to avoid type errors.
     return HttpResponse(b"Welcome to the People Tracker API! Go to /api/jobs/ or /admin/")
 
+def health_check(request):
+    """Health check endpoint for Docker health checks."""
+    return HttpResponse(b"OK", content_type="text/plain")
+
 urlpatterns = [
     path('', root),
+    path('health/', health_check),
     path('admin/', admin.site.urls),
     path('api/', include('apps.video_analytics.urls')),
     path('api/faceauth/', include('apps.face_auth.urls')),
+    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 ]
 
 if settings.DEBUG:
