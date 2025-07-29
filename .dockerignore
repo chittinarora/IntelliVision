@@ -1,71 +1,118 @@
-# Python artifacts
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+README.md
+*.md
+docs/
+Documentation/
+
+# Logs
+logs/
+*.log
+
+# Media files (will be mounted as volumes)
+media/
+intellivision/media/
+
+# Cache directories
 __pycache__/
 *.pyc
 *.pyo
-*.pyz
 *.pyd
+.Python
+*.so
+.cache/
+.pytest_cache/
+.coverage
+htmlcov/
 
 # Virtual environments
-intell_venv/
-p_venv/
-ultra_venv/
-*/venv/
+venv/
+env/
+.venv/
+.env/
 
-# Media files
-*.jpg
-*.mp4
-samples/
-videos/
-intellivision/media/
-
-# SQLite and Redis
-intellivision/db.sqlite3
-dump.rdb
-
-# Logs
-intellivision/logs/
-*.log
-
-# Old installer scripts
-Miniconda3-latest-MacOSX-arm64.sh
-
-# Miscellaneous
-data.html
-test_youtube_api.sh
-folder_structure.txt
-package-lock.json
-
-# Documentation duplicates
-Documentation/
-Overview/
-
-# Frontend (separate Git repo)
-intelli-vision/
-
-# Backend temporary files
-intellivision/apps/video_analytics/models/yolo_cache/
-
-# Backend model files
-*.pt
-*.pth
-
-# Environment files
-.env
-.env.*
-!.env.example
-
-# macOS system files
-.DS_Store
-
-# IDE/editor folders
+# IDE files
 .vscode/
 .idea/
-.ruff_cache/
 *.swp
+*.swo
+*~
 
-# Coverage reports
-coverage/
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker files
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Test files
+tests/
+test_*.py
+*_test.py
 
 # Temporary files
-*.bak
+tmp/
+temp/
 *.tmp
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Node modules (if any)
+node_modules/
+npm-debug.log*
+
+# YOLO cache (will be downloaded at runtime)
+intellivision/apps/video_analytics/models/yolo_cache/
+
+# Database files
+*.db
+*.sqlite3
+
+# Environment files
+.env.local
+.env.production
+.env.staging
+
+# Backup files
+*.bak
+*.backup
+
+# Large files that shouldn't be in image
+videos/
+samples/
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.wmv
+*.flv
+*.webm
+
+# Model files (will be downloaded at runtime)
+*.pth
+*.pt
+*.onnx
+*.tflite
+*.pb
+
+# Jupyter notebooks
+*.ipynb
+.ipynb_checkpoints/
+
+# Coverage reports
+.coverage
+coverage.xml
+htmlcov/
+
+# Profiling data
+*.prof
+*.lprof
