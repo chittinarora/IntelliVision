@@ -19,6 +19,7 @@ from tqdm import tqdm
 from typing import Dict, List, Optional
 from django.conf import settings
 from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
 from django.utils import timezone
 import mimetypes
 from celery import shared_task
@@ -803,15 +804,23 @@ class DubsComprehensivePeopleCounting:
                 self.device = 'mps'
                 logger.info("🍎 Using MPS (Apple Silicon GPU) for acceleration")
             elif torch.cuda.is_available():
-                self.device = 'cuda'
-                logger.info("🚀 Using CUDA GPU for acceleration")
+                self.device = 0  # Use first CUDA device
+                logger.info(f"🚀 Using CUDA GPU (device 0) for acceleration")
             else:
                 self.device = 'cpu'
                 logger.info("💻 Using CPU")
+        elif device == 'cuda':
+            if torch.cuda.is_available():
+                self.device = 0  # Use first CUDA device
+                logger.info(f"🚀 Using CUDA GPU (device 0) for acceleration")
+            else:
+                self.device = 'cpu'
+                logger.warning("CUDA requested but not available, falling back to CPU")
         else:
             self.device = str(device)
+
         logger.info(f"Using device: {self.device}")
-        self.depth_estimator = DepthEstimator(device)
+        self.depth_estimator = DepthEstimator(self.device)
         self.detector = SmartAdaptiveDetector(self.device)
         try:
             if use_reid:
@@ -825,14 +834,20 @@ class DubsComprehensivePeopleCounting:
                 )
             else:
                 logger.info("✅ Initializing ByteTrack (Re-ID disabled)...")
-                self.tracker = ByteTrack(
-                    track_buffer=150,
-                    match_thresh=0.65,
-                    frame_rate=25
+                self.tracker = BotSort( # Changed from ByteTrack to BotSort
+                    reid_weights=REID_MODEL_PATH, # Assuming REID_MODEL_PATH is available for BotSort
+                    device=self.device,
+                    half=False,
+                    track_buffer=150, # Changed from 300 to 150
+                    match_thresh=0.65, # Changed from 0.65 to 0.65
+                    frame_rate=25 # Added frame_rate
                 )
         except Exception as e:
             self.tracker = None
             logger.error(f"❌ Failed to initialize tracker: {e}")
+            logger.error(f"\ntorch.cuda.is_available(): {torch.cuda.is_available()}")
+            logger.error(f"torch.cuda.device_count(): {torch.cuda.device_count()}")
+            logger.error(f"os.environ['CUDA_VISIBLE_DEVICES']: {os.environ.get('CUDA_VISIBLE_DEVICES', 'not set')}\n")
 
     def process_image(self, image_path: str) -> Dict:
         """Process a single image for people counting."""
@@ -920,28 +935,31 @@ class DubsComprehensivePeopleCounting:
                 os.remove(tmp.name)
 
     def process_video(self, video_path: str, output_path: str) -> Dict:
-        """Process video or image sequence for people counting."""
-        start_time = time.time()
-        # Validate with full path, but get filename for storage operations
-        is_valid, error_msg = validate_input_file(video_path)
-        if not is_valid:
-            logger.error(f"Invalid input: {error_msg}")
-            return {
-                'status': 'failed',
-                'job_type': 'people_count',
-                'output_image': None,
-                'output_video': None,
-                'data': {'alerts': [], 'error': error_msg},
-                'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
-                'error': {'message': error_msg, 'code': 'INVALID_INPUT'}
-            }
-
-        # Get just the filename for storage operations
-        video_filename = Path(video_path).name
-
+        """Process a video file for people counting."""
+        start_time = time.time()  # Initialize start_time for error handling
         try:
+            # Validate input file
+            if not default_storage.exists(video_path):
+                raise FileNotFoundError(f"Video file not found: {video_path}")
+
+            # Get the physical file path
+            file_path = default_storage.path(video_path)
+
+            # Check if it's a directory using os.path
+            if os.path.isdir(file_path):
+                raise IsADirectoryError(f"Expected a file but got a directory: {video_path}")
+
+            # Initialize video capture
+            cap = cv2.VideoCapture(file_path)
+            if not cap.isOpened():
+                raise ValueError(f"Failed to open video file: {video_path}")
+
+            # Get just the filename for storage operations
+            video_filename = Path(video_path).name
+
+            # Get just the filename for storage operations
             image_files = []
-            if default_storage.exists(video_path) and default_storage.isdir(video_path):
+            if default_storage.exists(video_path) and os.path.isdir(file_path):
                 image_files = sorted([f for f in default_storage.listdir(video_path)[1] if f.endswith(('.jpg', '.jpeg', '.png'))])
                 if not image_files:
                     raise ValueError(f"No JPG images found in directory: {video_path}")
