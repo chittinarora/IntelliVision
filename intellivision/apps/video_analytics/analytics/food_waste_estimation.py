@@ -263,8 +263,7 @@ def analyze_food_image(image_path: str) -> Dict:
         }
 
 
-@shared_task(bind=True)
-def tracking_image(self, input_path: str, job_id: str) -> Dict:
+def tracking_image(input_path: str, job_id: str) -> Dict:
     """
     Celery task for food waste estimation.
 
@@ -296,17 +295,6 @@ def tracking_image(self, input_path: str, job_id: str) -> Dict:
     progress_logger.log_completion(1)
 
     # Update Celery task state
-    self.update_state(
-        state='PROGRESS',
-        meta={
-            'progress': 100.0,
-            'time_remaining': 0,
-            'frame': 1,
-            'total_frames': 1,
-            'status': result['status'],
-            'job_id': job_id
-        }
-    )
 
     processing_time = time.time() - start_time
     result['meta']['processing_time_seconds'] = processing_time

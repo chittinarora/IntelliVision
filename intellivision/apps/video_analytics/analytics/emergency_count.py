@@ -643,8 +643,7 @@ def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, custo
             os.remove(tmp_out.name)
 
 
-@shared_task(bind=True)
-def tracking_video(self, video_path: str, output_path: str, line_configs: dict, video_width: int = None,
+def tracking_video(video_path: str, output_path: str, line_configs: dict, video_width: int = None,
                    video_height: int = None, job_id: str = None) -> Dict:
     """
     Celery task for emergency counting.
@@ -677,20 +676,7 @@ def tracking_video(self, video_path: str, output_path: str, line_configs: dict, 
     progress_logger.log_completion(100)
 
     # Update Celery task state
-    self.update_state(
-        state='PROGRESS',
-        meta={
-            'progress': 100.0,
-            'time_remaining': 0,
-            'frame': result['meta'].get('frame_count', 0),
-            'total_frames': result['meta'].get('frame_count', 0),
-            'status': result['status'],
-            'job_id': job_id
-        }
-    )
-
-    processing_time = time.time() - start_time
-    result['meta']['processing_time_seconds'] = processing_time
+    result['meta']['processing_time_seconds'] = time.time() - start_time
     result['meta']['timestamp'] = timezone.now().isoformat()
 
     return result

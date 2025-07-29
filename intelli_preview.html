@@ -1,0 +1,1758 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IntelliVision - Complete Website Preview</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    <style>
+      /* Design System Variables - Matching actual CSS */
+      :root {
+        --background: 222 84% 5%;
+        --foreground: 210 40% 98%;
+        --card: 222 84% 6%;
+        --card-foreground: 210 40% 98%;
+        --primary: 217 91% 60%;
+        --primary-foreground: 222 84% 5%;
+        --destructive: 0 63% 31%;
+        --destructive-foreground: 210 40% 98%;
+        --border: 217 33% 17%;
+        --ring: 212 27% 84%;
+      }
+
+      html,
+      body {
+        height: 100%;
+        overflow-x: hidden;
+        scroll-behavior: smooth;
+      }
+
+      /* Navy Gradient Background - Matching actual CSS */
+      .bg-navy-gradient {
+        background: linear-gradient(135deg, #203358 0%, #1a2d4a 100%);
+        position: relative;
+        overflow: hidden;
+      }
+
+      /* Glass Effects - Exact match from actual CSS */
+      .glass-card {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        border: 1.5px solid rgba(255, 255, 255, 0.18);
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08),
+          0 2px 16px rgba(0, 200, 255, 0.1) inset;
+        border-radius: 1.5rem;
+        transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      .glass-intense {
+        background: rgba(255, 255, 255, 0.12);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        box-shadow: 0 25px 70px rgba(0, 0, 0, 0.12),
+          0 5px 25px rgba(255, 255, 255, 0.08) inset;
+        border-radius: 2rem;
+        transition: all 0.4s ease;
+      }
+
+      .glass-navbar {
+        background: rgba(255, 255, 255, 0.06);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08),
+          0 1px 0 rgba(255, 255, 255, 0.15) inset;
+      }
+
+      /* Text Gradient - Matching actual CSS */
+      .text-gradient {
+        background: linear-gradient(
+          135deg,
+          #00bfff 0%,
+          #3b82f6 25%,
+          #0ea5e9 50%,
+          #1d4ed8 75%,
+          #0095ff 100%
+        );
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        background-size: 200% 200%;
+        color: #fff; /* Fallback */
+      }
+
+      /* Page System */
+      .page-container {
+        position: relative;
+        width: 100%;
+        min-height: 100vh;
+      }
+
+      .page {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        min-height: 100vh;
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(20px);
+        transition: all 0.3s ease-in-out;
+        pointer-events: none;
+      }
+
+      .page.active {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+        pointer-events: auto;
+        position: relative;
+      }
+
+      /* Animations - Matching actual CSS */
+      .fade-in-up {
+        animation: fadeInUp 0.6s ease-out forwards;
+      }
+
+      @keyframes fadeInUp {
+        from {
+          opacity: 0;
+          transform: translateY(30px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .page-enter {
+        animation: pageEnter 0.5s ease-out forwards;
+      }
+
+      @keyframes pageEnter {
+        from {
+          opacity: 0;
+          transform: scale(0.98);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+
+      .button-hover:hover {
+        transform: scale(1.05);
+        transition: transform 0.3s ease;
+      }
+
+      /* Floating animation for background elements */
+      .floating {
+        animation: floating 6s ease-in-out infinite;
+      }
+
+      @keyframes floating {
+        0%,
+        100% {
+          transform: translateY(0px);
+        }
+        50% {
+          transform: translateY(-20px);
+        }
+      }
+
+      /* Job status indicators */
+      .status-completed {
+        background: rgba(34, 197, 94, 0.2);
+        color: rgb(187, 247, 208);
+      }
+      .status-processing {
+        background: rgba(59, 130, 246, 0.2);
+        color: rgb(147, 197, 253);
+      }
+      .status-pending {
+        background: rgba(234, 179, 8, 0.2);
+        color: rgb(254, 240, 138);
+      }
+      .status-failed {
+        background: rgba(239, 68, 68, 0.2);
+        color: rgb(252, 165, 165);
+      }
+
+      /* Active navigation state */
+      .nav-active {
+        background: rgba(255, 255, 255, 0.15) !important;
+        color: white !important;
+      }
+
+      /* Rounded corners for cards */
+      .rounded-4xl {
+        border-radius: 2rem;
+      }
+
+      /* Glow effect */
+      .glow-subtle {
+        box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+      }
+
+      /* Loading state */
+      .loading {
+        pointer-events: none;
+        opacity: 0.7;
+      }
+
+      /* Smooth scroll override */
+      html {
+        scroll-behavior: auto;
+      }
+
+      /* Mobile menu animation */
+      .mobile-menu-enter {
+        animation: slideDown 0.3s ease-out forwards;
+      }
+
+      .mobile-menu-exit {
+        animation: slideUp 0.3s ease-out forwards;
+      }
+
+      @keyframes slideDown {
+        from {
+          opacity: 0;
+          transform: translateY(-10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes slideUp {
+        from {
+          opacity: 1;
+          transform: translateY(0);
+        }
+        to {
+          opacity: 0;
+          transform: translateY(-10px);
+        }
+      }
+    </style>
+  </head>
+  <body class="min-h-screen text-white bg-navy-gradient">
+    <!-- Navigation Bar - Exact match -->
+    <header
+      class="glass-navbar fixed top-0 left-0 right-0 z-50"
+      role="navigation"
+    >
+      <div class="w-full mx-auto px-4 sm:px-6 lg:px-8 xl:px-12 2xl:px-16">
+        <div class="flex justify-between items-center h-16">
+          <!-- Branding: Logo and App Name -->
+          <div
+            class="flex items-center fade-in-up group cursor-pointer"
+            onclick="showPage('home')"
+          >
+            <div
+              class="bg-white/10 p-2 rounded-2xl mr-3 shadow-2xl border border-white/20 transition-all duration-300 group-hover:scale-110 glow-subtle"
+            >
+              <i
+                data-lucide="eye"
+                class="w-6 h-6 text-white transition-transform duration-300 group-hover:rotate-12"
+              ></i>
+            </div>
+            <h1
+              class="text-xl sm:text-2xl font-extrabold text-white tracking-tight transition-all duration-300 group-hover:text-cyan-300 group-hover:drop-shadow-2xl"
+            >
+              IntelliVision
+            </h1>
+          </div>
+
+          <!-- Navigation Menu -->
+          <div class="hidden md:flex items-center space-x-4">
+            <button
+              onclick="showPage('home')"
+              class="nav-button px-4 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/10 transition-all duration-200"
+            >
+              Home
+            </button>
+            <button
+              onclick="showPage('dashboard')"
+              class="nav-button px-4 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/10 transition-all duration-200"
+            >
+              Dashboard
+            </button>
+            <button
+              onclick="showPage('upload')"
+              class="nav-button px-4 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/10 transition-all duration-200"
+            >
+              Upload
+            </button>
+            <button
+              onclick="showPage('login')"
+              class="bg-white/5 hover:bg-white/15 text-white border border-white/20 px-4 py-2 rounded-xl font-semibold transition-all duration-300 button-hover"
+            >
+              Sign In
+            </button>
+            <button
+              onclick="showPage('register')"
+              class="bg-green-500/60 hover:bg-green-500/70 text-white px-4 py-2 rounded-xl font-semibold transition-all duration-300 button-hover"
+            >
+              Get Started
+            </button>
+          </div>
+
+          <!-- Mobile Menu Button -->
+          <button class="md:hidden text-white" onclick="toggleMobileMenu()">
+            <i data-lucide="menu" class="w-6 h-6"></i>
+          </button>
+        </div>
+
+        <!-- Mobile Menu -->
+        <div
+          id="mobile-menu"
+          class="hidden md:hidden mt-4 pb-4 border-t border-white/20"
+        >
+          <div class="flex flex-col space-y-2 pt-4">
+            <button
+              onclick="showPage('home')"
+              class="text-left px-4 py-2 text-white/80 hover:text-white hover:bg-white/10 rounded-lg"
+            >
+              Home
+            </button>
+            <button
+              onclick="showPage('dashboard')"
+              class="text-left px-4 py-2 text-white/80 hover:text-white hover:bg-white/10 rounded-lg"
+            >
+              Dashboard
+            </button>
+            <button
+              onclick="showPage('upload')"
+              class="text-left px-4 py-2 text-white/80 hover:text-white hover:bg-white/10 rounded-lg"
+            >
+              Upload
+            </button>
+            <button
+              onclick="showPage('login')"
+              class="text-left px-4 py-2 text-white/80 hover:text-white hover:bg-white/10 rounded-lg"
+            >
+              Sign In
+            </button>
+            <button
+              onclick="showPage('register')"
+              class="text-left px-4 py-2 text-white/80 hover:text-white hover:bg-white/10 rounded-lg"
+            >
+              Get Started
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Page Container -->
+    <div id="page-container" class="page-container">
+      <!-- HOME PAGE -->
+      <div id="home-page" class="page active page-enter">
+        <div class="min-h-screen bg-navy-gradient relative overflow-hidden">
+          <div
+            class="py-10 sm:py-20 px-2 sm:px-4 lg:px-8 xl:px-12 2xl:px-16 w-full mx-auto"
+          >
+            <div class="max-w-full mx-auto my-4 sm:my-6 px-4 sm:px-6 lg:px-8">
+              <!-- Hero Section -->
+              <div
+                class="glass-card rounded-4xl p-4 sm:p-6 shadow-2xl m-2 sm:m-4 mb-12"
+              >
+                <div
+                  class="text-center fade-in-up flex flex-col p-2 sm:p-4 gap-4 sm:gap-6"
+                >
+                  <span
+                    class="self-center inline-flex items-center space-x-3 glass-card rounded-full px-4 sm:px-6 py-2 sm:py-3 transition-all duration-500 hover:scale-105"
+                  >
+                    <i
+                      data-lucide="star"
+                      class="w-4 sm:w-5 h-4 sm:h-5 text-yellow-400 animate-pulse"
+                    ></i>
+                    <span class="text-white/90 font-medium"
+                      >AI-Powered Computer Vision</span
+                    >
+                  </span>
+
+                  <h3
+                    class="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold text-white mb-6 sm:mb-8"
+                  >
+                    Welcome to
+                    <span
+                      class="text-gradient bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent"
+                      >IntelliVision</span
+                    >
+                  </h3>
+
+                  <h2
+                    class="text-base sm:text-lg md:text-xl text-white/80 mb-8 sm:mb-12 max-w-6xl sm:max-w-7xl mx-auto leading-relaxed font-normal"
+                  >
+                    Transform your surveillance footage into actionable insights
+                    with our cutting-edge AI technology. Monitor crowds, detect
+                    emergencies, and analyze behavior patterns in real-time.
+                    IntelliVision empowers organizations to automate security,
+                    optimize operations, and gain deep visibility into their
+                    environments.
+                  </h2>
+
+                  <div
+                    class="flex flex-col sm:flex-row gap-4 sm:gap-8 justify-center items-center w-full max-w-4xl sm:max-w-5xl mx-auto"
+                  >
+                    <button
+                      onclick="showPage('register')"
+                      class="bg-green-500/60 hover:bg-green-500/70 text-white w-full px-6 sm:px-8 py-3 sm:py-4 text-lg sm:text-xl font-extrabold button-hover rounded-3xl transition-transform duration-300"
+                    >
+                      Get Started
+                    </button>
+                    <button
+                      onclick="showPage('login')"
+                      class="bg-white/5 hover:bg-white/15 text-white border border-white/20 w-full px-6 sm:px-8 py-3 sm:py-4 text-lg sm:text-xl font-extrabold button-hover rounded-3xl transition-transform duration-300"
+                    >
+                      Sign In
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Features Grid -->
+              <div
+                class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-3 mb-12 sm:mb-16 mx-auto"
+              >
+                <!-- Security & Safety Analysis Card -->
+                <div
+                  class="glass-card rounded-4xl p-4 sm:p-6 shadow-2xl m-2 sm:m-4 group hover:scale-105 transition-all duration-500 hover:shadow-xl"
+                >
+                  <div class="p-4 sm:p-8">
+                    <div
+                      class="bg-blue-500/20 p-2 sm:p-3 rounded-2xl w-12 sm:w-14 h-12 sm:h-14 flex items-center justify-center mb-4 sm:mb-6 transition-transform duration-500 group-hover:scale-110"
+                    >
+                      <i
+                        data-lucide="shield"
+                        class="w-6 sm:w-7 h-6 sm:h-7 text-blue-400"
+                      ></i>
+                    </div>
+                    <h3
+                      class="text-xl sm:text-2xl font-bold text-white mb-3 sm:mb-4"
+                    >
+                      Security & Safety Analysis
+                    </h3>
+                    <p
+                      class="text-white/80 leading-relaxed mb-4 sm:mb-6 font-normal text-sm sm:text-base"
+                    >
+                      Comprehensive security monitoring and safety analysis for
+                      public spaces, facilities, and events.
+                    </p>
+                    <div class="space-y-3 sm:space-y-4">
+                      <div
+                        class="glass-card flex items-center gap-3 sm:gap-4 p-3 sm:p-4 transition-transform duration-300 hover:scale-105"
+                      >
+                        <i
+                          data-lucide="users"
+                          class="w-4 sm:w-5 h-4 sm:h-5 text-cyan-400 flex-shrink-0"
+                        ></i>
+                        <div>
+                          <h4
+                            class="text-white font-semibold text-sm sm:text-base"
+                          >
+                            People Counting
+                          </h4>
+                          <p class="text-white/70 text-xs sm:text-sm">
+                            Real-time occupancy monitoring and crowd management
+                          </p>
+                        </div>
+                      </div>
+                      <div
+                        class="glass-card flex items-center gap-3 sm:gap-4 p-3 sm:p-4 transition-transform duration-300 hover:scale-105"
+                      >
+                        <i
+                          data-lucide="shield"
+                          class="w-4 sm:w-5 h-4 sm:h-5 text-red-400 flex-shrink-0"
+                        ></i>
+                        <div>
+                          <h4
+                            class="text-white font-semibold text-sm sm:text-base"
+                          >
+                            Emergency Detection
+                          </h4>
+                          <p class="text-white/70 text-xs sm:text-sm">
+                            Automatic emergency scenario identification and
+                            alerts
+                          </p>
+                        </div>
+                      </div>
+                      <div
+                        class="glass-card flex items-center gap-3 sm:gap-4 p-3 sm:p-4 transition-transform duration-300 hover:scale-105"
+                      >
+                        <i
+                          data-lucide="camera"
+                          class="w-4 sm:w-5 h-4 sm:h-5 text-purple-400 flex-shrink-0"
+                        ></i>
+                        <div>
+                          <h4
+                            class="text-white font-semibold text-sm sm:text-base"
+                          >
+                            License Plate Recognition
+                          </h4>
+                          <p class="text-white/70 text-xs sm:text-sm">
+                            Vehicle identification and access control
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Specialized Analysis Card -->
+                <div
+                  class="glass-card rounded-4xl p-4 sm:p-6 shadow-2xl m-2 sm:m-4 group hover:scale-105 transition-all duration-500 hover:shadow-xl"
+                >
+                  <div class="p-4 sm:p-8">
+                    <div
+                      class="bg-green-500/20 p-2 sm:p-3 rounded-2xl w-12 sm:w-14 h-12 sm:h-14 flex items-center justify-center mb-4 sm:mb-6 transition-transform duration-500 group-hover:scale-110"
+                    >
+                      <i
+                        data-lucide="bar-chart-3"
+                        class="w-6 sm:w-7 h-6 sm:h-7 text-green-400"
+                      ></i>
+                    </div>
+                    <h3
+                      class="text-xl sm:text-2xl font-bold text-white mb-3 sm:mb-4"
+                    >
+                      Specialized Analysis
+                    </h3>
+                    <p
+                      class="text-white/80 leading-relaxed mb-4 sm:mb-6 text-sm sm:text-base"
+                    >
+                      Advanced AI analysis for infrastructure, agriculture, and
+                      specialized monitoring applications.
+                    </p>
+                    <div class="space-y-3 sm:space-y-4">
+                      <div
+                        class="glass-card flex items-center gap-3 sm:gap-4 p-3 sm:p-4 transition-transform duration-300 hover:scale-105"
+                      >
+                        <i
+                          data-lucide="car"
+                          class="w-4 sm:w-5 h-4 sm:h-5 text-blue-400 flex-shrink-0"
+                        ></i>
+                        <div>
+                          <h4
+                            class="text-white font-semibold text-sm sm:text-base"
+                          >
+                            Vehicle & Infrastructure
+                          </h4>
+                          <p class="text-white/70 text-xs sm:text-sm">
+                            Car counting, parking analysis, and pothole
+                            detection
+                          </p>
+                        </div>
+                      </div>
+                      <div
+                        class="glass-card flex items-center gap-3 sm:gap-4 p-3 sm:p-4 transition-transform duration-300 hover:scale-105"
+                      >
+                        <i
+                          data-lucide="utensils"
+                          class="w-4 sm:w-5 h-4 sm:h-5 text-orange-400 flex-shrink-0"
+                        ></i>
+                        <div>
+                          <h4
+                            class="text-white font-semibold text-sm sm:text-base"
+                          >
+                            Food Waste Analysis
+                          </h4>
+                          <p class="text-white/70 text-xs sm:text-sm">
+                            Detection and estimation of food waste for
+                            sustainability
+                          </p>
+                        </div>
+                      </div>
+                      <div
+                        class="glass-card flex items-center gap-3 sm:gap-4 p-3 sm:p-4 transition-transform duration-300 hover:scale-105"
+                      >
+                        <i
+                          data-lucide="bug"
+                          class="w-4 sm:w-5 h-4 sm:h-5 text-yellow-400 flex-shrink-0"
+                        ></i>
+                        <div>
+                          <h4
+                            class="text-white font-semibold text-sm sm:text-base"
+                          >
+                            Pest Detection
+                          </h4>
+                          <p class="text-white/70 text-xs sm:text-sm">
+                            Agricultural pest monitoring and identification
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Hotel & Hospitality Analysis Card -->
+                <div
+                  class="glass-card rounded-4xl p-4 sm:p-6 shadow-2xl m-2 sm:m-4 group hover:scale-105 transition-all duration-500 hover:shadow-xl"
+                >
+                  <div class="p-4 sm:p-8">
+                    <div
+                      class="bg-purple-500/20 p-2 sm:p-3 rounded-2xl w-12 sm:w-14 h-12 sm:h-14 flex items-center justify-center mb-4 sm:mb-6 transition-transform duration-500 group-hover:scale-110"
+                    >
+                      <i
+                        data-lucide="eye"
+                        class="w-6 sm:w-7 h-6 sm:h-7 text-purple-400"
+                      ></i>
+                    </div>
+                    <h3
+                      class="text-xl sm:text-2xl font-bold text-white mb-3 sm:mb-4"
+                    >
+                      Hotel & Hospitality Analysis
+                    </h3>
+                    <p
+                      class="text-white/80 leading-relaxed mb-4 sm:mb-6 text-sm sm:text-base"
+                    >
+                      Tailored AI solutions for hotels and hospitality,
+                      enhancing guest experience and operational efficiency.
+                    </p>
+                    <div class="space-y-3 sm:space-y-4">
+                      <div
+                        class="glass-card flex items-center gap-3 sm:gap-4 p-3 sm:p-4 transition-transform duration-300 hover:scale-105"
+                      >
+                        <i
+                          data-lucide="check-circle"
+                          class="w-4 sm:w-5 h-4 sm:h-5 text-green-400 flex-shrink-0"
+                        ></i>
+                        <div>
+                          <h4
+                            class="text-white font-semibold text-sm sm:text-base"
+                          >
+                            Room Readiness
+                          </h4>
+                          <p class="text-white/70 text-xs sm:text-sm">
+                            Automated inspection for clean and prepared rooms
+                          </p>
+                        </div>
+                      </div>
+                      <div
+                        class="glass-card flex items-center gap-3 sm:gap-4 p-3 sm:p-4 transition-transform duration-300 hover:scale-105"
+                      >
+                        <i
+                          data-lucide="users"
+                          class="w-4 sm:w-5 h-4 sm:h-5 text-cyan-400 flex-shrink-0"
+                        ></i>
+                        <div>
+                          <h4
+                            class="text-white font-semibold text-sm sm:text-base"
+                          >
+                            Lobby Crowd Detection
+                          </h4>
+                          <p class="text-white/70 text-xs sm:text-sm">
+                            Monitor lobby congestion and guest flow in real time
+                          </p>
+                        </div>
+                      </div>
+                      <div
+                        class="glass-card flex items-center gap-3 sm:gap-4 p-3 sm:p-4 transition-transform duration-300 hover:scale-105"
+                      >
+                        <i
+                          data-lucide="star"
+                          class="w-4 sm:w-5 h-4 sm:h-5 text-yellow-400 flex-shrink-0"
+                        ></i>
+                        <div>
+                          <h4
+                            class="text-white font-semibold text-sm sm:text-base"
+                          >
+                            Wildlife Detection
+                          </h4>
+                          <p class="text-white/70 text-xs sm:text-sm">
+                            Identify and alert for wildlife presence on property
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Benefits Section -->
+              <div
+                class="glass-card rounded-4xl p-4 sm:p-6 shadow-2xl m-2 sm:m-4 mb-12"
+              >
+                <div class="text-center py-8 sm:py-12 fade-in-up">
+                  <h2
+                    class="text-2xl sm:text-3xl font-bold text-white mb-3 sm:mb-4"
+                  >
+                    Why Choose IntelliVision?
+                  </h2>
+                  <p
+                    class="text-base sm:text-lg text-white/80 mb-6 sm:mb-8 max-w-3xl sm:max-w-4xl mx-auto"
+                  >
+                    Our advanced AI technology delivers unparalleled accuracy
+                    and performance for all your computer vision needs.
+                  </p>
+                  <div
+                    class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 sm:gap-8 w-full mx-auto"
+                  >
+                    <div
+                      class="glass-card group p-6 sm:p-8 transition-transform duration-500 hover:scale-105"
+                    >
+                      <i
+                        data-lucide="zap"
+                        class="w-8 sm:w-10 h-8 sm:h-10 text-yellow-400 mb-3 sm:mb-4 mx-auto transition-transform duration-500 group-hover:scale-110"
+                      ></i>
+                      <h3
+                        class="text-lg sm:text-xl font-bold text-white mb-2 sm:mb-3"
+                      >
+                        Lightning Fast
+                      </h3>
+                      <p class="text-white/80 text-sm sm:text-base">
+                        Process hours of footage in minutes with our optimized
+                        AI algorithms and cloud infrastructure.
+                      </p>
+                    </div>
+                    <div
+                      class="glass-card group p-6 sm:p-8 transition-transform duration-500 hover:scale-105"
+                    >
+                      <i
+                        data-lucide="shield"
+                        class="w-8 sm:w-10 h-8 sm:h-10 text-blue-400 mb-3 sm:mb-4 mx-auto transition-transform duration-500 group-hover:scale-110"
+                      ></i>
+                      <h3
+                        class="text-lg sm:text-xl font-bold text-white mb-2 sm:mb-3"
+                      >
+                        Enterprise Security
+                      </h3>
+                      <p class="text-white/80 text-sm sm:text-base">
+                        Bank-grade encryption and compliance with industry
+                        standards ensure your data stays protected.
+                      </p>
+                    </div>
+                    <div
+                      class="glass-card group p-6 sm:p-8 transition-transform duration-500 hover:scale-105"
+                    >
+                      <i
+                        data-lucide="bar-chart-3"
+                        class="w-8 sm:w-10 h-8 sm:h-10 text-green-400 mb-3 sm:mb-4 mx-auto transition-transform duration-500 group-hover:scale-110"
+                      ></i>
+                      <h3
+                        class="text-lg sm:text-xl font-bold text-white mb-2 sm:mb-3"
+                      >
+                        Actionable Insights
+                      </h3>
+                      <p class="text-white/80 text-sm sm:text-base">
+                        Instantly turn video into real-time, actionable
+                        intelligence to drive better decisions and faster
+                        response.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- CTA Section -->
+              <div
+                class="glass-card rounded-4xl p-4 sm:p-6 shadow-2xl m-2 sm:m-4"
+              >
+                <div class="text-center py-8 sm:py-12 fade-in-up">
+                  <h2
+                    class="text-2xl sm:text-3xl font-bold text-white mb-4 sm:mb-6"
+                  >
+                    Ready to Transform Your Security?
+                  </h2>
+                  <p
+                    class="text-base sm:text-lg text-white/80 mb-6 sm:mb-8 max-w-3xl sm:max-w-4xl mx-auto"
+                  >
+                    Join thousands of organizations already using IntelliVision
+                    to enhance their security and operational efficiency.
+                  </p>
+                  <div
+                    class="flex flex-col sm:flex-row gap-4 sm:gap-4 justify-center"
+                  >
+                    <button
+                      onclick="showPage('register')"
+                      class="bg-green-500/60 hover:bg-green-500/70 text-white w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-4 text-base sm:text-lg font-extrabold button-hover rounded-3xl transition-transform duration-300"
+                    >
+                      Join IntelliVision
+                    </button>
+                    <button
+                      onclick="showPage('login')"
+                      class="bg-cyan-500/60 hover:bg-cyan-500/70 text-white border border-cyan-400/20 w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-4 text-base sm:text-lg font-extrabold button-hover rounded-3xl transition-transform duration-300"
+                    >
+                      Login
+                      <i
+                        data-lucide="play"
+                        class="w-4 sm:w-5 h-4 sm:h-5 ml-2 inline"
+                      ></i>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- DASHBOARD PAGE -->
+      <div id="dashboard-page" class="page">
+        <div class="min-h-screen bg-navy-gradient relative overflow-hidden">
+          <!-- Animated Background -->
+          <div class="absolute inset-0 pointer-events-none">
+            <div
+              class="absolute top-16 left-8 w-28 sm:w-36 h-28 sm:h-36 bg-white/3 rounded-full blur-xl sm:blur-2xl animate-pulse floating"
+            ></div>
+            <div
+              class="absolute bottom-32 right-1/4 w-40 sm:w-52 h-40 sm:h-52 bg-cyan-400/2 rounded-full blur-2xl sm:blur-3xl animate-pulse floating"
+              style="animation-delay: 2s"
+            ></div>
+            <div
+              class="absolute top-1/2 left-1/4 w-24 sm:w-28 h-24 sm:h-28 bg-blue-400/3 rounded-full blur-lg sm:blur-xl animate-pulse floating"
+              style="animation-delay: 1s"
+            ></div>
+          </div>
+
+          <div class="pt-32 max-w-8xl mx-auto px-4 sm:px-6 lg:px-20 py-8">
+            <!-- Welcome Section -->
+            <div class="text-center mb-8 sm:mb-12 fade-in-up">
+              <div class="flex items-center justify-center mb-4">
+                <i
+                  data-lucide="sparkles"
+                  class="w-8 h-8 text-yellow-400 mr-3 animate-pulse"
+                ></i>
+                <h1
+                  class="text-3xl sm:text-4xl lg:text-5xl font-bold text-white"
+                >
+                  Welcome to IntelliVision
+                </h1>
+              </div>
+              <p class="text-lg sm:text-xl text-white/80">
+                Hello, User! Ready to analyze some data?
+              </p>
+            </div>
+
+            <!-- Quick Action Section -->
+            <div class="glass-intense rounded-4xl p-6 mb-8">
+              <div class="text-center mb-6">
+                <h2 class="text-2xl font-bold text-white mb-4">
+                  Quick Analysis
+                </h2>
+                <p class="text-white/80">
+                  Select an analysis type to get started
+                </p>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <button
+                  onclick="showPage('upload')"
+                  class="glass-card p-4 text-center hover:scale-105 transition-all duration-300"
+                >
+                  <i
+                    data-lucide="users"
+                    class="w-8 h-8 text-blue-400 mx-auto mb-2"
+                  ></i>
+                  <h3 class="font-semibold text-white">People Counting</h3>
+                  <p class="text-xs text-white/60">Monitor crowd density</p>
+                </button>
+                <button
+                  onclick="showPage('upload')"
+                  class="glass-card p-4 text-center hover:scale-105 transition-all duration-300"
+                >
+                  <i
+                    data-lucide="car"
+                    class="w-8 h-8 text-purple-400 mx-auto mb-2"
+                  ></i>
+                  <h3 class="font-semibold text-white">License Plates</h3>
+                  <p class="text-xs text-white/60">Vehicle recognition</p>
+                </button>
+                <button
+                  onclick="showPage('upload')"
+                  class="glass-card p-4 text-center hover:scale-105 transition-all duration-300"
+                >
+                  <i
+                    data-lucide="hotel"
+                    class="w-8 h-8 text-green-400 mx-auto mb-2"
+                  ></i>
+                  <h3 class="font-semibold text-white">Room Readiness</h3>
+                  <p class="text-xs text-white/60">Hotel room inspection</p>
+                </button>
+                <button
+                  onclick="showPage('upload')"
+                  class="glass-card p-4 text-center hover:scale-105 transition-all duration-300"
+                >
+                  <i
+                    data-lucide="alert-triangle"
+                    class="w-8 h-8 text-red-400 mx-auto mb-2"
+                  ></i>
+                  <h3 class="font-semibold text-white">Emergency</h3>
+                  <p class="text-xs text-white/60">Safety monitoring</p>
+                </button>
+              </div>
+            </div>
+
+            <!-- Stats Overview -->
+            <div
+              class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8"
+            >
+              <div class="glass-intense p-6">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <p class="text-white/60 text-sm font-medium">Total Jobs</p>
+                    <p class="text-3xl font-bold text-white">1,247</p>
+                  </div>
+                  <div class="bg-blue-500/20 p-3 rounded-2xl">
+                    <i data-lucide="activity" class="w-6 h-6 text-blue-300"></i>
+                  </div>
+                </div>
+                <div class="mt-4 flex items-center">
+                  <span class="text-green-400 text-sm font-medium">+12%</span>
+                  <span class="text-white/60 text-sm ml-2"
+                    >from last month</span
+                  >
+                </div>
+              </div>
+
+              <div class="glass-intense p-6">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <p class="text-white/60 text-sm font-medium">Processing</p>
+                    <p
+                      class="text-3xl font-bold text-white"
+                      id="processing-count"
+                    >
+                      23
+                    </p>
+                  </div>
+                  <div class="bg-yellow-500/20 p-3 rounded-2xl">
+                    <i data-lucide="clock" class="w-6 h-6 text-yellow-300"></i>
+                  </div>
+                </div>
+                <div class="mt-4 flex items-center">
+                  <span class="text-blue-400 text-sm font-medium"
+                    >Real-time</span
+                  >
+                  <span class="text-white/60 text-sm ml-2">updates</span>
+                </div>
+              </div>
+
+              <div class="glass-intense p-6">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <p class="text-white/60 text-sm font-medium">Completed</p>
+                    <p class="text-3xl font-bold text-white">1,156</p>
+                  </div>
+                  <div class="bg-green-500/20 p-3 rounded-2xl">
+                    <i
+                      data-lucide="check-circle"
+                      class="w-6 h-6 text-green-300"
+                    ></i>
+                  </div>
+                </div>
+                <div class="mt-4 flex items-center">
+                  <span class="text-green-400 text-sm font-medium">98.2%</span>
+                  <span class="text-white/60 text-sm ml-2">success rate</span>
+                </div>
+              </div>
+
+              <div class="glass-intense p-6">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <p class="text-white/60 text-sm font-medium">Failed</p>
+                    <p class="text-3xl font-bold text-white">68</p>
+                  </div>
+                  <div class="bg-red-500/20 p-3 rounded-2xl">
+                    <i
+                      data-lucide="alert-circle"
+                      class="w-6 h-6 text-red-300"
+                    ></i>
+                  </div>
+                </div>
+                <div class="mt-4 flex items-center">
+                  <span class="text-red-400 text-sm font-medium">-5%</span>
+                  <span class="text-white/60 text-sm ml-2">improvement</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Recent Jobs -->
+            <div class="glass-intense p-6">
+              <div class="flex items-center justify-between mb-6">
+                <h3 class="text-xl font-bold text-white">Recent Jobs</h3>
+                <button
+                  class="bg-white/5 hover:bg-white/15 text-white border border-white/20 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300"
+                >
+                  View All
+                </button>
+              </div>
+
+              <div class="space-y-4">
+                <!-- Job Items -->
+                <div class="glass-card p-4 flex items-center justify-between">
+                  <div class="flex items-center space-x-4">
+                    <div class="bg-blue-500/20 p-2 rounded-lg">
+                      <i data-lucide="users" class="w-5 h-5 text-blue-300"></i>
+                    </div>
+                    <div>
+                      <h4 class="font-semibold text-white">
+                        People Counting Analysis
+                      </h4>
+                      <p class="text-sm text-white/60">
+                        shopping_mall_entrance.mp4
+                      </p>
+                    </div>
+                  </div>
+                  <div class="flex items-center space-x-4">
+                    <span
+                      class="status-completed px-3 py-1 rounded-full text-sm font-medium"
+                      >Completed</span
+                    >
+                    <span class="text-white/60 text-sm">2 min ago</span>
+                  </div>
+                </div>
+
+                <div class="glass-card p-4 flex items-center justify-between">
+                  <div class="flex items-center space-x-4">
+                    <div class="bg-purple-500/20 p-2 rounded-lg">
+                      <i data-lucide="car" class="w-5 h-5 text-purple-300"></i>
+                    </div>
+                    <div>
+                      <h4 class="font-semibold text-white">
+                        License Plate Detection
+                      </h4>
+                      <p class="text-sm text-white/60">
+                        parking_lot_surveillance.mp4
+                      </p>
+                    </div>
+                  </div>
+                  <div class="flex items-center space-x-4">
+                    <span
+                      class="status-processing px-3 py-1 rounded-full text-sm font-medium"
+                      >Processing</span
+                    >
+                    <span class="text-white/60 text-sm">5 min ago</span>
+                  </div>
+                </div>
+
+                <div class="glass-card p-4 flex items-center justify-between">
+                  <div class="flex items-center space-x-4">
+                    <div class="bg-green-500/20 p-2 rounded-lg">
+                      <i data-lucide="hotel" class="w-5 h-5 text-green-300"></i>
+                    </div>
+                    <div>
+                      <h4 class="font-semibold text-white">
+                        Room Readiness Assessment
+                      </h4>
+                      <p class="text-sm text-white/60">hotel_room_302.jpg</p>
+                    </div>
+                  </div>
+                  <div class="flex items-center space-x-4">
+                    <span
+                      class="status-pending px-3 py-1 rounded-full text-sm font-medium"
+                      >Pending</span
+                    >
+                    <span class="text-white/60 text-sm">8 min ago</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- UPLOAD PAGE -->
+      <div id="upload-page" class="page">
+        <div class="min-h-screen bg-navy-gradient relative overflow-hidden">
+          <!-- Enhanced animated background -->
+          <div class="absolute inset-0 pointer-events-none">
+            <div
+              class="absolute top-16 left-8 w-28 sm:w-36 h-28 sm:h-36 bg-white/3 rounded-full blur-xl sm:blur-2xl animate-pulse floating"
+            ></div>
+            <div
+              class="absolute bottom-32 right-1/4 w-40 sm:w-52 h-40 sm:h-52 bg-cyan-400/2 rounded-full blur-2xl sm:blur-3xl animate-pulse floating"
+              style="animation-delay: 2s"
+            ></div>
+            <div
+              class="absolute top-1/2 left-1/4 w-24 sm:w-28 h-24 sm:h-28 bg-blue-400/3 rounded-full blur-lg sm:blur-xl animate-pulse floating"
+              style="animation-delay: 1s"
+            ></div>
+            <div
+              class="absolute top-1/3 right-12 w-16 sm:w-20 h-16 sm:h-20 bg-purple-400/2 rounded-full blur-md sm:blur-lg animate-pulse floating"
+              style="animation-delay: 3s"
+            ></div>
+            <div
+              class="absolute bottom-1/4 left-12 w-28 sm:w-32 h-28 sm:h-32 bg-emerald-400/2 rounded-full blur-xl sm:blur-2xl animate-pulse floating"
+              style="animation-delay: 4s"
+            ></div>
+            <div
+              class="absolute top-3/4 right-1/3 w-20 sm:w-24 h-20 sm:h-24 bg-pink-400/2 rounded-full blur-lg sm:blur-xl animate-pulse floating"
+              style="animation-delay: 5s"
+            ></div>
+          </div>
+
+          <div
+            class="max-w-5xl sm:max-w-6xl mx-auto px-2 sm:px-4 lg:px-8 pt-20 sm:pt-28 py-8 sm:py-12 w-full flex-1 fade-in-up"
+          >
+            <!-- Upload Header -->
+            <div class="text-center mb-8">
+              <h1
+                class="text-3xl sm:text-4xl lg:text-5xl font-bold text-white mb-4"
+              >
+                Upload & Analyze
+              </h1>
+              <p class="text-lg text-white/80">
+                Upload your video or image for AI-powered analysis
+              </p>
+            </div>
+
+            <!-- Main Upload Section -->
+            <div class="glass-intense rounded-4xl p-8 mb-8">
+              <!-- File Upload Area -->
+              <div
+                class="border-2 border-dashed border-white/30 rounded-2xl p-8 text-center mb-6 hover:border-white/50 transition-colors cursor-pointer"
+                onclick="document.getElementById('file-input').click()"
+              >
+                <i
+                  data-lucide="upload-cloud"
+                  class="w-16 h-16 text-white/60 mx-auto mb-4"
+                ></i>
+                <p class="text-lg font-semibold text-white mb-2">
+                  Drop your video or image here
+                </p>
+                <p class="text-white/60 mb-4">or click to browse files</p>
+                <input
+                  type="file"
+                  id="file-input"
+                  class="hidden"
+                  accept="video/*,image/*"
+                />
+                <button
+                  class="bg-white/10 hover:bg-white/20 text-white px-6 py-3 rounded-xl font-semibold transition-all duration-300"
+                >
+                  Choose File
+                </button>
+              </div>
+
+              <!-- Analysis Type Selection -->
+              <div class="mb-6">
+                <h3 class="text-lg font-semibold text-white mb-4">
+                  Select Analysis Type
+                </h3>
+                <div
+                  class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
+                >
+                  <div
+                    class="glass-card p-4 cursor-pointer hover:scale-105 transition-all duration-300"
+                    onclick="selectAnalysis('people-count')"
+                  >
+                    <i
+                      data-lucide="users"
+                      class="w-6 h-6 text-blue-300 mb-2"
+                    ></i>
+                    <h4 class="font-semibold text-white">People Counting</h4>
+                    <p class="text-sm text-white/60">Count people in video</p>
+                  </div>
+                  <div
+                    class="glass-card p-4 cursor-pointer hover:scale-105 transition-all duration-300"
+                    onclick="selectAnalysis('car-count')"
+                  >
+                    <i
+                      data-lucide="car"
+                      class="w-6 h-6 text-purple-300 mb-2"
+                    ></i>
+                    <h4 class="font-semibold text-white">License Plates</h4>
+                    <p class="text-sm text-white/60">
+                      Detect & recognize plates
+                    </p>
+                  </div>
+                  <div
+                    class="glass-card p-4 cursor-pointer hover:scale-105 transition-all duration-300"
+                    onclick="selectAnalysis('room-readiness')"
+                  >
+                    <i
+                      data-lucide="hotel"
+                      class="w-6 h-6 text-green-300 mb-2"
+                    ></i>
+                    <h4 class="font-semibold text-white">Room Readiness</h4>
+                    <p class="text-sm text-white/60">Assess room condition</p>
+                  </div>
+                  <div
+                    class="glass-card p-4 cursor-pointer hover:scale-105 transition-all duration-300"
+                    onclick="selectAnalysis('emergency-count')"
+                  >
+                    <i
+                      data-lucide="alert-triangle"
+                      class="w-6 h-6 text-red-300 mb-2"
+                    ></i>
+                    <h4 class="font-semibold text-white">Emergency Count</h4>
+                    <p class="text-sm text-white/60">In/out counting</p>
+                  </div>
+                  <div
+                    class="glass-card p-4 cursor-pointer hover:scale-105 transition-all duration-300"
+                    onclick="selectAnalysis('pothole-detection')"
+                  >
+                    <i
+                      data-lucide="construction"
+                      class="w-6 h-6 text-orange-300 mb-2"
+                    ></i>
+                    <h4 class="font-semibold text-white">Pothole Detection</h4>
+                    <p class="text-sm text-white/60">Road condition analysis</p>
+                  </div>
+                  <div
+                    class="glass-card p-4 cursor-pointer hover:scale-105 transition-all duration-300"
+                    onclick="selectAnalysis('food-waste')"
+                  >
+                    <i
+                      data-lucide="utensils-crossed"
+                      class="w-6 h-6 text-yellow-300 mb-2"
+                    ></i>
+                    <h4 class="font-semibold text-white">Food Waste</h4>
+                    <p class="text-sm text-white/60">Waste estimation</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Action Buttons -->
+              <div class="flex flex-col sm:flex-row gap-4 justify-center">
+                <button
+                  class="bg-green-500/60 hover:bg-green-500/70 text-white px-8 py-3 rounded-xl font-semibold transition-all duration-300 flex items-center justify-center"
+                >
+                  <i data-lucide="play" class="w-4 h-4 mr-2"></i>
+                  Start Analysis
+                </button>
+                <button
+                  class="bg-white/10 hover:bg-white/20 text-white px-8 py-3 rounded-xl font-semibold transition-all duration-300 flex items-center justify-center"
+                >
+                  <i data-lucide="settings" class="w-4 h-4 mr-2"></i>
+                  Advanced Settings
+                </button>
+              </div>
+            </div>
+
+            <!-- Last Upload Preview -->
+            <div class="glass-intense rounded-4xl p-6">
+              <h3 class="text-xl font-bold text-white mb-4">
+                Recent Analysis Result
+              </h3>
+              <div class="glass-card p-4 mb-4">
+                <div
+                  class="aspect-video bg-gradient-to-br from-blue-900/50 to-purple-900/50 rounded-xl flex items-center justify-center"
+                >
+                  <div class="text-center">
+                    <i
+                      data-lucide="play-circle"
+                      class="w-16 h-16 text-white/60 mx-auto mb-2"
+                    ></i>
+                    <p class="text-white/60">Analysis Result Preview</p>
+                  </div>
+                </div>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div class="glass-card p-4">
+                  <div class="flex items-center mb-2">
+                    <i
+                      data-lucide="users"
+                      class="w-5 h-5 text-cyan-300 mr-2"
+                    ></i>
+                    <span class="text-white/80 text-sm font-medium"
+                      >People Counted</span
+                    >
+                  </div>
+                  <span class="text-2xl font-bold text-white">247</span>
+                </div>
+                <div class="glass-card p-4">
+                  <div class="flex items-center mb-2">
+                    <i
+                      data-lucide="clock"
+                      class="w-5 h-5 text-blue-300 mr-2"
+                    ></i>
+                    <span class="text-white/80 text-sm font-medium"
+                      >Processing Time</span
+                    >
+                  </div>
+                  <span class="text-2xl font-bold text-white">2.3s</span>
+                </div>
+                <div class="glass-card p-4">
+                  <div class="flex items-center mb-2">
+                    <i
+                      data-lucide="check-circle"
+                      class="w-5 h-5 text-green-300 mr-2"
+                    ></i>
+                    <span class="text-white/80 text-sm font-medium"
+                      >Status</span
+                    >
+                  </div>
+                  <span class="text-2xl font-bold text-green-300"
+                    >Completed</span
+                  >
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- LOGIN PAGE -->
+      <div id="login-page" class="page">
+        <div
+          class="min-h-screen bg-navy-gradient relative overflow-hidden flex items-center justify-center"
+        >
+          <div class="glass-intense rounded-4xl p-8 w-full max-w-md mx-4">
+            <div class="text-center mb-8">
+              <div
+                class="bg-white/10 p-3 rounded-2xl w-fit mx-auto mb-4 glow-subtle"
+              >
+                <i data-lucide="eye" class="w-8 h-8 text-white"></i>
+              </div>
+              <h1 class="text-2xl font-bold text-white mb-2">Welcome Back</h1>
+              <p class="text-white/60">Sign in to your IntelliVision account</p>
+            </div>
+
+            <form class="space-y-6">
+              <div>
+                <label class="block text-sm font-medium text-white/80 mb-2"
+                  >Email</label
+                >
+                <input
+                  type="email"
+                  class="w-full glass-card p-3 rounded-xl bg-white/5 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  placeholder="Enter your email"
+                />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-white/80 mb-2"
+                  >Password</label
+                >
+                <input
+                  type="password"
+                  class="w-full glass-card p-3 rounded-xl bg-white/5 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  placeholder="Enter your password"
+                />
+              </div>
+              <div class="flex items-center justify-between">
+                <label class="flex items-center">
+                  <input
+                    type="checkbox"
+                    class="w-4 h-4 text-blue-500 bg-white/5 border-white/20 rounded focus:ring-blue-400"
+                  />
+                  <span class="ml-2 text-sm text-white/80">Remember me</span>
+                </label>
+                <a href="#" class="text-sm text-blue-400 hover:text-blue-300"
+                  >Forgot password?</a
+                >
+              </div>
+              <button
+                type="submit"
+                class="w-full bg-green-500/60 hover:bg-green-500/70 text-white py-3 rounded-xl font-semibold transition-all duration-300 button-hover"
+              >
+                Sign In
+              </button>
+            </form>
+
+            <div class="mt-6 text-center">
+              <p class="text-white/60">
+                Don't have an account?
+                <button
+                  onclick="showPage('register')"
+                  class="text-blue-400 hover:text-blue-300 font-medium"
+                >
+                  Sign up
+                </button>
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- REGISTER PAGE -->
+      <div id="register-page" class="page">
+        <div
+          class="min-h-screen bg-navy-gradient relative overflow-hidden flex items-center justify-center"
+        >
+          <div class="glass-intense rounded-4xl p-8 w-full max-w-md mx-4">
+            <div class="text-center mb-8">
+              <div
+                class="bg-white/10 p-3 rounded-2xl w-fit mx-auto mb-4 glow-subtle"
+              >
+                <i data-lucide="eye" class="w-8 h-8 text-white"></i>
+              </div>
+              <h1 class="text-2xl font-bold text-white mb-2">
+                Join IntelliVision
+              </h1>
+              <p class="text-white/60">Create your account to get started</p>
+            </div>
+
+            <form class="space-y-6">
+              <div>
+                <label class="block text-sm font-medium text-white/80 mb-2"
+                  >Full Name</label
+                >
+                <input
+                  type="text"
+                  class="w-full glass-card p-3 rounded-xl bg-white/5 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  placeholder="Enter your full name"
+                />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-white/80 mb-2"
+                  >Email</label
+                >
+                <input
+                  type="email"
+                  class="w-full glass-card p-3 rounded-xl bg-white/5 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  placeholder="Enter your email"
+                />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-white/80 mb-2"
+                  >Password</label
+                >
+                <input
+                  type="password"
+                  class="w-full glass-card p-3 rounded-xl bg-white/5 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  placeholder="Create a password"
+                />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-white/80 mb-2"
+                  >Confirm Password</label
+                >
+                <input
+                  type="password"
+                  class="w-full glass-card p-3 rounded-xl bg-white/5 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  placeholder="Confirm your password"
+                />
+              </div>
+              <div class="flex items-center">
+                <input
+                  type="checkbox"
+                  class="w-4 h-4 text-blue-500 bg-white/5 border-white/20 rounded focus:ring-blue-400"
+                />
+                <span class="ml-2 text-sm text-white/80"
+                  >I agree to the
+                  <a href="#" class="text-blue-400 hover:text-blue-300"
+                    >Terms of Service</a
+                  >
+                  and
+                  <a href="#" class="text-blue-400 hover:text-blue-300"
+                    >Privacy Policy</a
+                  ></span
+                >
+              </div>
+              <button
+                type="submit"
+                class="w-full bg-green-500/60 hover:bg-green-500/70 text-white py-3 rounded-xl font-semibold transition-all duration-300 button-hover"
+              >
+                Create Account
+              </button>
+            </form>
+
+            <div class="mt-6 text-center">
+              <p class="text-white/60">
+                Already have an account?
+                <button
+                  onclick="showPage('login')"
+                  class="text-blue-400 hover:text-blue-300 font-medium"
+                >
+                  Sign in
+                </button>
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // Initialize Lucide icons
+      lucide.createIcons();
+
+      let currentPage = "home";
+      let selectedAnalysis = null;
+      let isTransitioning = false;
+
+      // Page switching functionality with proper transitions
+      function showPage(pageName) {
+        if (isTransitioning || currentPage === pageName) return;
+
+        isTransitioning = true;
+
+        // Update navigation active state
+        updateNavigation(pageName);
+
+        // Get current and target pages
+        const currentPageElement = document.getElementById(
+          currentPage + "-page"
+        );
+        const targetPageElement = document.getElementById(pageName + "-page");
+
+        if (!targetPageElement) {
+          console.error(`Page ${pageName} not found`);
+          isTransitioning = false;
+          return;
+        }
+
+        // Smooth page transition
+        if (currentPageElement) {
+          currentPageElement.classList.remove("active");
+          currentPageElement.style.opacity = "0";
+          currentPageElement.style.transform = "translateY(20px)";
+
+          setTimeout(() => {
+            currentPageElement.classList.add("hidden");
+          }, 150);
+        }
+
+        setTimeout(
+          () => {
+            // Show new page
+            targetPageElement.classList.remove("hidden");
+            targetPageElement.classList.add("active");
+
+            // Trigger entrance animation
+            setTimeout(() => {
+              targetPageElement.classList.add("page-enter");
+              targetPageElement.style.opacity = "1";
+              targetPageElement.style.transform = "translateY(0)";
+            }, 50);
+
+            // Update current page
+            currentPage = pageName;
+
+            // Scroll to top smoothly
+            window.scrollTo({
+              top: 0,
+              behavior: "smooth",
+            });
+
+            // Re-initialize Lucide icons for the new page
+            setTimeout(() => {
+              lucide.createIcons();
+              isTransitioning = false;
+            }, 100);
+          },
+          currentPageElement ? 200 : 0
+        );
+
+        // Close mobile menu if open
+        closeMobileMenu();
+      }
+
+      // Update navigation active states
+      function updateNavigation(pageName) {
+        // Remove active class from all navigation buttons
+        document.querySelectorAll(".nav-button").forEach((btn) => {
+          btn.classList.remove("nav-active");
+        });
+
+        // Add active class to current page button (if it exists)
+        const navButtons = document.querySelectorAll(".nav-button");
+        navButtons.forEach((btn) => {
+          if (btn.textContent.trim().toLowerCase() === pageName.toLowerCase()) {
+            btn.classList.add("nav-active");
+          }
+        });
+      }
+
+      // Toggle mobile menu with animation
+      function toggleMobileMenu() {
+        const mobileMenu = document.getElementById("mobile-menu");
+        const isHidden = mobileMenu.classList.contains("hidden");
+
+        if (isHidden) {
+          mobileMenu.classList.remove("hidden");
+          mobileMenu.classList.add("mobile-menu-enter");
+          mobileMenu.classList.remove("mobile-menu-exit");
+        } else {
+          mobileMenu.classList.add("mobile-menu-exit");
+          mobileMenu.classList.remove("mobile-menu-enter");
+
+          setTimeout(() => {
+            mobileMenu.classList.add("hidden");
+          }, 300);
+        }
+      }
+
+      // Close mobile menu
+      function closeMobileMenu() {
+        const mobileMenu = document.getElementById("mobile-menu");
+        if (!mobileMenu.classList.contains("hidden")) {
+          mobileMenu.classList.add("mobile-menu-exit");
+          mobileMenu.classList.remove("mobile-menu-enter");
+
+          setTimeout(() => {
+            mobileMenu.classList.add("hidden");
+          }, 300);
+        }
+      }
+
+      // Select analysis type with visual feedback
+      function selectAnalysis(type) {
+        selectedAnalysis = type;
+
+        // Remove previous selection
+        document
+          .querySelectorAll('[onclick^="selectAnalysis"]')
+          .forEach((card) => {
+            card.classList.remove("ring-2", "ring-blue-400", "bg-blue-500/10");
+          });
+
+        // Add selection to clicked card
+        if (event && event.currentTarget) {
+          event.currentTarget.classList.add(
+            "ring-2",
+            "ring-blue-400",
+            "bg-blue-500/10"
+          );
+        }
+
+        console.log(`Selected analysis: ${type}`);
+      }
+
+      // Simulate real-time processing count updates
+      function updateProcessingCount() {
+        const processingElement = document.getElementById("processing-count");
+        if (processingElement && currentPage === "dashboard") {
+          const current = parseInt(processingElement.textContent);
+          const change = Math.floor(Math.random() * 3) - 1; // -1, 0, or 1
+          const newValue = Math.max(0, current + change);
+          processingElement.textContent = newValue;
+        }
+      }
+
+      // File input handling with better feedback
+      function handleFileInput() {
+        const fileInput = document.getElementById("file-input");
+        if (!fileInput) return;
+
+        fileInput.addEventListener("change", function (e) {
+          if (e.target.files.length > 0) {
+            const file = e.target.files[0];
+            const fileName = file.name;
+            const fileSize = (file.size / 1024 / 1024).toFixed(2); // MB
+
+            const uploadArea = document.querySelector(
+              "[onclick=\"document.getElementById('file-input').click()\"]"
+            );
+            if (uploadArea) {
+              uploadArea.innerHTML = `
+                            <i data-lucide="file-check" class="w-16 h-16 text-green-400 mx-auto mb-4"></i>
+                            <p class="text-lg font-semibold text-white mb-2">File Selected</p>
+                            <p class="text-white/60 mb-2">${fileName}</p>
+                            <p class="text-white/50 text-sm mb-4">${fileSize} MB</p>
+                            <button class="bg-green-500/60 hover:bg-green-500/70 text-white px-6 py-3 rounded-xl font-semibold transition-all duration-300">
+                                Change File
+                            </button>
+                        `;
+              lucide.createIcons();
+            }
+          }
+        });
+      }
+
+      // Smooth scroll handling for internal links
+      function handleSmoothScroll() {
+        // Override default scroll behavior for specific interactions
+        document.addEventListener("click", function (e) {
+          // Only apply smooth scroll to page navigation, not other interactions
+          if (e.target.closest('[onclick^="showPage"]')) {
+            // Page navigation will handle its own scrolling
+            return;
+          }
+        });
+      }
+
+      // Initialize the application
+      document.addEventListener("DOMContentLoaded", function () {
+        console.log("IntelliVision Preview Initialized");
+
+        // Set initial page state
+        showPage("home");
+
+        // Initialize file input handling
+        handleFileInput();
+
+        // Initialize smooth scroll handling
+        handleSmoothScroll();
+
+        // Start real-time updates
+        setInterval(updateProcessingCount, 3000);
+
+        // Handle browser back/forward buttons (basic implementation)
+        window.addEventListener("popstate", function (e) {
+          const page = e.state?.page || "home";
+          showPage(page);
+        });
+
+        // Push initial state
+        history.replaceState({ page: "home" }, "", "");
+
+        console.log("All systems initialized successfully");
+      });
+
+      // Handle browser navigation
+      function pushState(pageName) {
+        history.pushState({ page: pageName }, "", `#${pageName}`);
+      }
+
+      // Enhanced page switching with history management
+      const originalShowPage = showPage;
+      showPage = function (pageName) {
+        originalShowPage(pageName);
+        pushState(pageName);
+      };
+
+      // Add keyboard navigation
+      document.addEventListener("keydown", function (e) {
+        // ESC key closes mobile menu
+        if (e.key === "Escape") {
+          closeMobileMenu();
+        }
+
+        // Number keys for quick navigation (optional)
+        if (e.ctrlKey || e.metaKey) {
+          switch (e.key) {
+            case "1":
+              e.preventDefault();
+              showPage("home");
+              break;
+            case "2":
+              e.preventDefault();
+              showPage("dashboard");
+              break;
+            case "3":
+              e.preventDefault();
+              showPage("upload");
+              break;
+          }
+        }
+      });
+
+      // Add loading states for better UX
+      function setLoadingState(element, loading = true) {
+        if (!element) return;
+
+        if (loading) {
+          element.classList.add("loading");
+          element.style.pointerEvents = "none";
+        } else {
+          element.classList.remove("loading");
+          element.style.pointerEvents = "auto";
+        }
+      }
+
+      // Error handling for development
+      window.addEventListener("error", function (e) {
+        console.error("Application Error:", e.error);
+      });
+
+      // Performance monitoring (basic)
+      if ("performance" in window) {
+        window.addEventListener("load", function () {
+          setTimeout(() => {
+            const perfData = performance.getEntriesByType("navigation")[0];
+            console.log(
+              `Page loaded in ${perfData.loadEventEnd - perfData.fetchStart}ms`
+            );
+          }, 0);
+        });
+      }
+    </script>
+  </body>
+</html>

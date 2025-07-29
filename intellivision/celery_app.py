@@ -12,6 +12,7 @@ import platform
 import multiprocessing as mp
 import logging
 from celery import Celery
+from celery.signals import after_setup_logger
 
 """
 =====================================
@@ -52,7 +53,29 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'intellivision.settings')
 
 app = Celery('intellivision')
 app.config_from_object('django.conf:settings', namespace='CELERY')
-app.autodiscover_tasks()
+
+# Explicitly discover tasks in these packages
+app.autodiscover_tasks([
+    'apps.video_analytics',
+    'apps.video_analytics.analytics',
+    'apps.video_analytics.analytics.anpr',
+    'apps.face_auth',
+])
+
+# Configure Celery logging
+@after_setup_logger.connect
+def setup_loggers(logger, *args, **kwargs):
+    formatter = logging.Formatter(
+        '[%(asctime)s: %(levelname)s/%(processName)s] %(message)s'
+    )
+
+    # Add a StreamHandler for console output
+    handler = logging.StreamHandler()
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+
+    # Set level to INFO to see task processing
+    logger.setLevel(logging.INFO)
 
 @app.task(bind=True, ignore_result=True)
 def debug_task(self):

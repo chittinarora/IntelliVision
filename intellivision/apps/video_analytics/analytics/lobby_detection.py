@@ -603,8 +603,7 @@ def run_crowd_analysis(source_path: str, zone_configs: dict) -> Dict:
 # Celery Integration
 # ======================================
 
-@shared_task(bind=True)
-def tracking_video(self, source_path: str, zone_configs: dict, output_path: str = None, job_id: str = None) -> Dict:
+def tracking_video(source_path: str, zone_configs: dict, output_path: str = None, job_id: str = None) -> Dict:
     """
     Celery task for lobby crowd detection.
 
@@ -633,19 +632,7 @@ def tracking_video(self, source_path: str, zone_configs: dict, output_path: str 
     progress_logger.update_progress(100, status="Lobby detection completed", force_log=True)
     progress_logger.log_completion(100)
 
-    self.update_state(
-        state='PROGRESS',
-        meta={
-            'progress': 100.0,
-            'time_remaining': 0,
-            'frame': result['meta'].get('frame_count', 1),
-            'total_frames': result['meta'].get('frame_count', 1),
-            'status': result['status'],
-            'job_id': job_id
-        }
-    )
-    processing_time = time.time() - start_time
-    result['meta']['processing_time_seconds'] = processing_time
+    result['meta']['processing_time_seconds'] = time.time() - start_time
     result['meta']['timestamp'] = timezone.now().isoformat()
 
     return result

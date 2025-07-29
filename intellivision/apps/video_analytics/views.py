@@ -14,9 +14,12 @@ import tempfile
 import time
 from uuid import uuid4
 from typing import Dict, Any
+from io import BytesIO
 
 import cv2
 import yt_dlp
+import requests
+from PIL import Image
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from rest_framework import permissions, status, viewsets
@@ -30,7 +33,7 @@ from django.db import transaction
 
 from .models import VideoJob
 from .serializers import VideoJobSerializer
-from .tasks import process_video_job, ensure_api_media_url
+from .tasks import process_video_job, ensure_api_media_url, extract_youtube_frame
 from .utils import create_standardized_response, create_error_response, validate_file_upload_for_job_type
 from .rate_limiting import check_resource_availability, acquire_job_slot, release_job_slot
 
@@ -39,6 +42,64 @@ logger = logging.getLogger(__name__)
 # Valid file extensions and size limit (now handled by job-type-specific validation)
 VALID_EXTENSIONS = {'.mp4', '.jpg', '.jpeg', '.png'}  # Legacy - job-specific validation in utils.py
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
+
+"""
+=====================================
+Memory Management Utilities
+=====================================
+Utilities for monitoring memory usage and preventing OOM crashes.
+"""
+
+def check_memory_usage():
+    """
+    Check current memory usage to prevent OOM crashes.
+
+    Returns:
+        Dict with memory info and whether it's safe to proceed
+    """
+    import psutil
+    import gc
+
+    try:
+        # Force garbage collection to get accurate memory reading
+        gc.collect()
+
+        # Get current process memory info
+        process = psutil.Process()
+        memory_info = process.memory_info()
+        memory_percent = process.memory_percent()
+
+        # Get system memory info
+        system_memory = psutil.virtual_memory()
+
+        # Calculate if it's safe to proceed
+        # Threshold: Don't start new operations if using > 70% system memory
+        # or > 85% of configured memory limit (24GB for this system)
+        MAX_SYSTEM_MEMORY_GB = 24.0  # From settings.py
+        current_memory_gb = memory_info.rss / (1024**3)
+        memory_safe = (
+            system_memory.percent < 70.0 and  # System memory usage < 70%
+            current_memory_gb < (MAX_SYSTEM_MEMORY_GB * 0.85)  # Process memory < 85% of limit
+        )
+
+        return {
+            'memory_safe': memory_safe,
+            'current_memory_gb': current_memory_gb,
+            'memory_percent': memory_percent,
+            'system_memory_percent': system_memory.percent,
+            'available_memory_gb': system_memory.available / (1024**3)
+        }
+    except Exception as e:
+        logger.warning(f"Memory check failed: {e}")
+        # If memory check fails, assume it's safe but log the issue
+        return {
+            'memory_safe': True,
+            'current_memory_gb': 0,
+            'memory_percent': 0,
+            'system_memory_percent': 0,
+            'available_memory_gb': 0,
+            'error': str(e)
+        }
 
 """
 =====================================
@@ -109,20 +170,14 @@ def _create_and_dispatch_job(request, job_type: str, extra_data: Dict[str, Any] 
 
     try:
         if youtube_url:
+            logger.info(f"🎬 Validating YouTube URL: {youtube_url} for {job_type} (user: {user.username})")
 
-            logger.info(f"🎬 Downloading YouTube: {youtube_url} for {job_type} (user: {user.username})")
-            temp_video_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4").name
-            ydl_opts = {
-                'format': 'bestvideo[ext=mp4][vcodec=h264]+bestaudio[ext=m4a]/best[ext=mp4][vcodec=h264]/best[ext=mp4]',
-                'outtmpl': temp_video_path,
-                'quiet': True,
-                'no_warnings': True,
-                'extract_flat': False,
-            }
-
+            # ======================================
+            # OPTIMIZATION: Just validate URL, don't download in web worker
+            # ======================================
             try:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    # Validate URL first
+                with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+                    # Only extract info to validate URL - NO DOWNLOAD
                     info = ydl.extract_info(youtube_url, download=False)
                     if not info:
                         return create_error_response(
@@ -131,46 +186,38 @@ def _create_and_dispatch_job(request, job_type: str, extra_data: Dict[str, Any] 
                             job_type
                         )
 
-                    # Download the video
-                    ydl.download([youtube_url])
+                    # Check estimated file size before dispatching to Celery
+                    filesize = info.get('filesize') or info.get('filesize_approx', 0)
+                    if filesize and filesize > MAX_FILE_SIZE:
+                        return create_error_response(
+                            f'Video size {filesize / (1024*1024):.1f}MB exceeds {MAX_FILE_SIZE / (1024*1024):.0f}MB limit',
+                            'FILE_TOO_LARGE',
+                            job_type
+                        )
+
+                    logger.info(f"✅ YouTube URL validated: {info.get('title', 'Unknown')} ({filesize / (1024*1024):.1f}MB estimated)")
+
             except yt_dlp.utils.DownloadError as e:
-                logger.error(f"YouTube download failed: {e}")
+                logger.error(f"YouTube URL validation failed: {e}")
                 return create_error_response(
-                    f'Failed to download YouTube video: {str(e)}',
-                    'YOUTUBE_DOWNLOAD_ERROR',
+                    f'Failed to validate YouTube URL: {str(e)}',
+                    'YOUTUBE_VALIDATION_ERROR',
                     job_type
                 )
             except Exception as e:
-                logger.error(f"Unexpected error during YouTube download: {e}")
+                logger.error(f"Unexpected error during YouTube URL validation: {e}")
                 return create_error_response(
-                    f'Unexpected error during YouTube download: {str(e)}',
-                    'YOUTUBE_DOWNLOAD_ERROR',
+                    f'Unexpected error during YouTube URL validation: {str(e)}',
+                    'YOUTUBE_VALIDATION_ERROR',
                     job_type
                 )
 
-            # Check if download was successful and file exists
-            if not temp_video_path or not os.path.exists(temp_video_path):
-                return create_error_response(
-                    'Failed to download YouTube video - file not found',
-                    'DOWNLOAD_FAILED',
-                    job_type
-                )
-
-            # Validate file
-            ext = '.mp4'
-            size = os.path.getsize(temp_video_path)
-            if size > MAX_FILE_SIZE:
-                return create_error_response(
-                    f"File size {size / (1024*1024):.2f}MB exceeds 500MB limit",
-                    'FILE_TOO_LARGE',
-                    job_type
-                )
-
-            with open(temp_video_path, 'rb') as f:
-                file_name = f"yt_{job_type}_{uuid4().hex}.mp4"
-                input_file_content = ContentFile(f.read(), name=file_name)
+            # Set job data for YouTube processing in Celery
             job_data['youtube_url'] = youtube_url
-            logger.info(f"✅ Downloaded YouTube video: {file_name} ({size / (1024*1024):.2f}MB)")
+
+            # No file content needed - Celery will download
+            input_file_content = None
+            ext = '.mp4'  # Assume MP4 for YouTube videos
 
         else:
             # Use the new job-type-specific validation utility
@@ -218,12 +265,19 @@ def _create_and_dispatch_job(request, job_type: str, extra_data: Dict[str, Any] 
 
         try:
             with transaction.atomic():
-                job_data['input_video'] = input_file_content
+                # For YouTube URLs, don't set input_video - Celery will handle download
+                if input_file_content:
+                    job_data['input_video'] = input_file_content
+
                 job = VideoJob.objects.create(**job_data)
                 task = process_video_job.delay(job.id)
                 job.task_id = task.id
                 job.save()
-                logger.info(f"🚀 Dispatched job {job.id} ({job_type}) with task ID {task.id}")
+
+                if youtube_url:
+                    logger.info(f"🚀 Dispatched YouTube job {job.id} ({job_type}) with task ID {task.id} - video will be downloaded by Celery")
+                else:
+                    logger.info(f"🚀 Dispatched file job {job.id} ({job_type}) with task ID {task.id}")
         except Exception as e:
             release_job_slot()  # Release slot on error
             logger.error(f"Job creation failed: {e}")
@@ -273,21 +327,22 @@ All error responses use standardized format (Issue #10).
 @permission_classes([IsAuthenticated])
 def get_youtube_frame_view(request):
     """
-    Extract first frame from a YouTube URL and return its URL.
+    Create a Celery task to extract first frame from a YouTube URL.
+
+    This returns immediately with a job ID, and the frame extraction
+    happens asynchronously in a Celery worker to prevent OOM crashes.
 
     Args:
         request: HTTP request with youtube_url
 
     Returns:
-        Response with standardized format:
+        Response with job ID for polling:
         {
-            'status': 'completed' | 'failed',
+            'status': 'pending',
             'job_type': 'youtube_frame_extraction',
-            'output_image': str | None,
-            'output_video': None,
-            'data': {'frame_url': str},
+            'data': {'job_id': int},
             'meta': {'timestamp': str, 'request_time': float},
-            'error': dict | None
+            'polling_url': str
         }
     """
     start_time = time.time()
@@ -303,20 +358,16 @@ def get_youtube_frame_view(request):
             'error': {'message': 'youtube_url is required', 'code': 'MISSING_URL'}
         }, status=status.HTTP_400_BAD_REQUEST)
 
-    temp_video_path = None
-    temp_frame_path = None
     try:
-        logger.info(f"🎬 Fetching frame for YouTube URL: {youtube_url}")
-        temp_video_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4").name
-        ydl_opts = {
-            'format': 'bestvideo[ext=mp4][vcodec=h264]+bestaudio[ext=m4a]/best[ext=mp4][vcodec=h264]/best[ext=mp4]',
-            'outtmpl': temp_video_path,
-            'quiet': True,
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([youtube_url])
+        # ======================================
+        # MEMORY SAFETY CHECK
+        # ======================================
+        memory_status = check_memory_usage()
+        logger.info(f"💾 Memory status: {memory_status['current_memory_gb']:.2f}GB used, "
+                   f"{memory_status['system_memory_percent']:.1f}% system memory")
 
-        if not os.path.exists(temp_video_path):
+        # Check resource availability
+        if not check_resource_availability():
             return Response({
                 'status': 'failed',
                 'job_type': 'youtube_frame_extraction',
@@ -324,67 +375,120 @@ def get_youtube_frame_view(request):
                 'output_video': None,
                 'data': {},
                 'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
-                'error': {'message': 'Failed to download video', 'code': 'DOWNLOAD_FAILED'}
-            }, status=status.HTTP_400_BAD_REQUEST)
+                'error': {
+                    'message': 'System is currently at capacity. Please try again later.',
+                    'code': 'RESOURCE_UNAVAILABLE'
+                }
+            }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-        size = os.path.getsize(temp_video_path)
-        if size > MAX_FILE_SIZE:
-            return Response({
-                'status': 'failed',
-                'job_type': 'youtube_frame_extraction',
-                'output_image': None,
-                'output_video': None,
-                'data': {},
-                'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
-                'error': {'message': f"File size {size / (1024*1024):.2f}MB exceeds 500MB limit", 'code': 'FILE_TOO_LARGE'}
-            }, status=status.HTTP_400_BAD_REQUEST)
+        logger.info(f"🎬 Validating YouTube URL for frame extraction: {youtube_url}")
 
-        cap = cv2.VideoCapture(temp_video_path)
+        # ======================================
+        # VALIDATE URL (but don't download)
+        # ======================================
         try:
-            success, frame = cap.read()
-            if not success:
-                return Response({
-                    'status': 'failed',
+            with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+                # Only extract info to validate URL - NO DOWNLOAD
+                info = ydl.extract_info(youtube_url, download=False)
+                if not info:
+                    return Response({
+                        'status': 'failed',
+                        'job_type': 'youtube_frame_extraction',
+                        'output_image': None,
+                        'output_video': None,
+                        'data': {},
+                        'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+                        'error': {'message': 'Invalid YouTube URL or video not available', 'code': 'INVALID_YOUTUBE_URL'}
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                logger.info(f"✅ YouTube URL validated: {info.get('title', 'Unknown')}")
+
+        except yt_dlp.utils.DownloadError as e:
+            logger.error(f"YouTube URL validation failed: {e}")
+            return Response({
+                'status': 'failed',
+                'job_type': 'youtube_frame_extraction',
+                'output_image': None,
+                'output_video': None,
+                'data': {},
+                'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+                'error': {'message': f"Failed to validate YouTube URL: {str(e)}", 'code': 'YOUTUBE_VALIDATION_ERROR'}
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Unexpected error during YouTube URL validation: {e}")
+            return Response({
+                'status': 'failed',
+                'job_type': 'youtube_frame_extraction',
+                'output_image': None,
+                'output_video': None,
+                'data': {},
+                'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+                'error': {'message': f"Unexpected error during YouTube URL validation: {str(e)}", 'code': 'YOUTUBE_VALIDATION_ERROR'}
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # ======================================
+        # CREATE CELERY JOB FOR ASYNC PROCESSING
+        # ======================================
+        if not acquire_job_slot():
+            return Response({
+                'status': 'failed',
+                'job_type': 'youtube_frame_extraction',
+                'output_image': None,
+                'output_video': None,
+                'data': {},
+                'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+                'error': {
+                    'message': 'System is currently at capacity. Please try again later.',
+                    'code': 'RESOURCE_UNAVAILABLE'
+                }
+            }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        try:
+            with transaction.atomic():
+                # Create job for YouTube frame extraction
+                job_data = {
+                    'user': request.user,
+                    'status': 'pending',
                     'job_type': 'youtube_frame_extraction',
-                    'output_image': None,
-                    'output_video': None,
-                    'data': {},
-                    'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
-                    'error': {'message': 'Could not extract frame', 'code': 'FRAME_EXTRACT_FAILED'}
-                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        finally:
-            cap.release()
+                    'youtube_url': youtube_url
+                    # No input_video needed - Celery will download
+                }
 
-        temp_frame_path = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg").name
-        cv2.imwrite(temp_frame_path, frame)
+                job = VideoJob.objects.create(**job_data)
+                task = extract_youtube_frame.delay(job.id)  # New Celery task
+                job.task_id = task.id
+                job.save()
 
-        with open(temp_frame_path, 'rb') as f:
-            frame_filename = f"thumbnails/yt_thumb_{uuid4().hex}.jpg"
-            saved_path = default_storage.save(frame_filename, ContentFile(f.read()))
-            frame_url = ensure_api_media_url(default_storage.url(saved_path))
+                logger.info(f"🚀 Dispatched YouTube frame extraction job {job.id} with task ID {task.id}")
 
-        logger.info(f"✅ Extracted frame: {frame_url}")
+        except Exception as e:
+            release_job_slot()  # Release slot on error
+            logger.error(f"YouTube frame job creation failed: {e}")
+            return Response({
+                'status': 'failed',
+                'job_type': 'youtube_frame_extraction',
+                'output_image': None,
+                'output_video': None,
+                'data': {},
+                'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
+                'error': {'message': f"Failed to create job: {str(e)}", 'code': 'JOB_CREATION_ERROR'}
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Return job info for polling
         return Response({
-            'status': 'completed',
-            'job_type': 'youtube_frame_extraction',
-            'output_image': frame_url,
-            'output_video': None,
-            'data': {'frame_url': frame_url},
-            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
-            'error': None
-        }, status=status.HTTP_200_OK)
-
-    except yt_dlp.utils.DownloadError as e:
-        logger.error(f"YouTube frame extraction failed: {e}", exc_info=True)
-        return Response({
-            'status': 'failed',
+            'status': 'pending',
             'job_type': 'youtube_frame_extraction',
             'output_image': None,
             'output_video': None,
-            'data': {},
+            'data': {
+                'job_id': job.id,
+                'task_id': task.id,
+                'message': 'Frame extraction started. Use polling_url to check status.'
+            },
             'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
-            'error': {'message': f"Failed to download video: {str(e)}", 'code': 'DOWNLOAD_ERROR'}
-        }, status=status.HTTP_400_BAD_REQUEST)
+            'polling_url': f'/api/jobs/{job.id}/'
+        }, status=status.HTTP_202_ACCEPTED)
+
     except Exception as e:
         logger.error(f"YouTube frame extraction error: {e}", exc_info=True)
         return Response({
@@ -396,22 +500,6 @@ def get_youtube_frame_view(request):
             'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
             'error': {'message': f"Unexpected error: {str(e)}", 'code': 'SERVER_ERROR'}
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    finally:
-        # Clean up temporary files with better error handling
-        for path in [temp_video_path, temp_frame_path]:
-            if path:
-                try:
-                    if os.path.exists(path):
-                        os.unlink(path)
-                        logger.info(f"Cleaned up temporary file: {path}")
-                    else:
-                        logger.debug(f"Temporary file already removed: {path}")
-                except PermissionError as e:
-                    logger.warning(f"Permission denied cleaning up {path}: {e}")
-                except OSError as e:
-                    logger.warning(f"OS error cleaning up {path}: {e}")
-                except Exception as e:
-                    logger.error(f"Unexpected error cleaning up {path}: {e}")
 
 """
 =====================================

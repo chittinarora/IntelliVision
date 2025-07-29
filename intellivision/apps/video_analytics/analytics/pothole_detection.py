@@ -420,8 +420,7 @@ def run_pothole_detection(input_path: str, output_path: str, job_id: str = None)
 # Celery Integration
 # ======================================
 
-@shared_task(bind=True)
-def tracking_video(self, input_path: str, output_path: str = None, job_id: str = None) -> Dict[str, Any]:
+def tracking_video(input_path: str, output_path: str = None, job_id: str = None) -> Dict[str, Any]:
     """
     Celery task for pothole detection.
 
@@ -442,17 +441,7 @@ def tracking_video(self, input_path: str, output_path: str = None, job_id: str =
         result = run_pothole_image_detection(input_path)
     else:
         result = run_pothole_detection(input_path, output_path)
-    self.update_state(
-        state='PROGRESS',
-        meta={
-            'progress': 100.0,
-            'time_remaining': 0,
-            'frame': result['meta'].get('frame_count', 1),
-            'total_frames': result['meta'].get('frame_count', 1),
-            'status': result['status'],
-            'job_id': job_id
-        }
-    )
+
     processing_time = time.time() - start_time
     result['meta']['processing_time_seconds'] = processing_time
     result['meta']['timestamp'] = timezone.now().isoformat()

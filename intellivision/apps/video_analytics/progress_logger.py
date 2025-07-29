@@ -29,7 +29,7 @@ class ProgressLogger:
         self.processed_items = 0
         self.last_processed_count = 0
         self.status = "Initializing..."
-        self._log_section("Job started", extra_status="Starting job...")
+        self.log_section("Job started")
 
     def update_progress(self, processed_count: int, status: str = None, force_log: bool = False):
         """
@@ -115,17 +115,17 @@ class ProgressLogger:
         if final_count is not None:
             self.processed_items = final_count
         self.log_pretty_bar()
-        self._log_section("Job completed ✔️")
+        self.log_section("Job completed ✔️")
 
     def log_error(self, error_message: str):
         """Log error with both bar and section block."""
         self.status = f"Error: {error_message}"
         self.log_pretty_bar()
-        self._log_section(f"Error: {error_message}")
+        self.log_section(f"Error: {error_message}")
 
     def log_warning(self, warning_message: str):
         """Log warning as a sectioned block."""
-        self._log_section(f"Warning: {warning_message}")
+        self.log_section(f"Warning: {warning_message}")
 
     # ----- Helper methods -----
 

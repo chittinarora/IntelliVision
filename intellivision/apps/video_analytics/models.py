@@ -48,138 +48,70 @@ RESULT_SCHEMAS = {
     },
     "emergency-count": {
         "type": "object",
-        "required": ["processed_frames", "total_frames", "in_count", "out_count", "current_count"],
+        "required": ["processed_frames", "total_frames", "emergency_count"],
         "properties": {
             "processed_frames": {"type": "number"},
             "total_frames": {"type": "number"},
-            "in_count": {"type": "number"},
-            "out_count": {"type": "number"},
-            "current_count": {"type": "number"}
-        }
-    },
-    "pothole-detection": {
-        "type": "object",
-        "required": ["processed_frames", "total_frames", "pothole_count", "potholes"],
-        "properties": {
-            "processed_frames": {"type": "number"},
-            "total_frames": {"type": "number"},
-            "pothole_count": {"type": "number"},
-            "potholes": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "required": ["pothole_id", "bounding_box", "severity", "confidence"],
-                    "properties": {
-                        "pothole_id": {"type": "number"},
-                        "bounding_box": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
-                        "severity": {"type": "string", "enum": ["low", "medium", "high"]},
-                        "confidence": {"type": "number"}
-                    }
-                }
-            }
+            "emergency_count": {"type": "number"}
         }
     },
     "food-waste-estimation": {
         "type": "object",
-        "required": ["processed_frames", "total_frames"],
+        "required": ["waste_level", "confidence"],
         "properties": {
-            "processed_frames": {"type": "number"},
-            "total_frames": {"type": "number"},
-            "items": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "required": ["name", "estimated_portion", "estimated_calories", "tags"],
-                    "properties": {
-                        "name": {"type": "string"},
-                        "estimated_portion": {"type": ["string", "number"]},
-                        "estimated_calories": {"type": "number"},
-                        "tags": {"type": "array", "items": {"type": "string"}}
-                    }
-                }
-            },
-            "total_calories": {"type": "number"},
-            "waste_summary": {"type": "string"}
+            "waste_level": {"type": "number"},
+            "confidence": {"type": "number"}
         }
     },
     "room-readiness": {
         "type": "object",
-        "required": ["processed_frames", "total_frames", "is_ready", "checklist", "issues"],
+        "required": ["overall_score", "total_issues"],
         "properties": {
-            "processed_frames": {"type": "number"},
-            "total_frames": {"type": "number"},
-            "is_ready": {"type": "boolean"},
-            "checklist": {
-                "type": "object",
-                "required": ["bed_made", "trash_empty", "surfaces_clean", "floor_clean", "no_items_left"],
-                "properties": {
-                    "bed_made": {"type": "boolean"},
-                    "trash_empty": {"type": "boolean"},
-                    "surfaces_clean": {"type": "boolean"},
-                    "floor_clean": {"type": "boolean"},
-                    "no_items_left": {"type": "boolean"}
-                },
-                "additionalProperties": {"type": "boolean"}
-            },
-            "issues": {"type": "array", "items": {"type": "string"}}
+            "overall_score": {"type": "number"},
+            "total_issues": {"type": "number"}
+        }
+    },
+    "pothole-detection": {
+        "type": "object",
+        "required": ["pothole_count", "total_frames"],
+        "properties": {
+            "pothole_count": {"type": "number"},
+            "total_frames": {"type": "number"}
         }
     },
     "wildlife-detection": {
         "type": "object",
-        "required": ["processed_frames", "total_frames"],
+        "required": ["animal_count", "total_frames"],
         "properties": {
-            "processed_frames": {"type": "number"},
-            "total_frames": {"type": "number"},
-            "wildlife_detected": {"type": "boolean"},
-            "wildlife_count": {"type": "number"},
-            "wildlife_types": {"type": "array", "items": {"type": "string"}},
-            "risk_level": {"type": "string", "enum": ["low", "medium", "high"]}
+            "animal_count": {"type": "number"},
+            "total_frames": {"type": "number"}
         }
     },
     "lobby-detection": {
         "type": "object",
-        "required": ["processed_frames", "total_frames", "overall_people_count", "crowd_density", "average_wait_time_seconds", "zones"],
+        "required": ["people_count", "crowd_density"],
         "properties": {
-            "processed_frames": {"type": "number"},
-            "total_frames": {"type": "number"},
-            "overall_people_count": {"type": "number"},
-            "crowd_density": {"type": "number"},
-            "average_wait_time_seconds": {"type": "number"},
-            "zones": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "required": ["zone_id", "people_count"],
-                    "properties": {
-                        "zone_id": {"type": "string"},
-                        "people_count": {"type": "number"},
-                        "queue_length": {"type": "number"}
-                    }
-                }
-            }
+            "people_count": {"type": "number"},
+            "crowd_density": {"type": "number"}
         }
     },
     "parking-analysis": {
         "type": "object",
-        "required": ["processed_frames", "total_frames"],
+        "required": ["total_spots", "occupied_spots"],
         "properties": {
-            "processed_frames": {"type": "number"},
-            "total_frames": {"type": "number"},
-            "occupied_spaces": {"type": "number"},
-            "total_spaces": {"type": "number"},
-            "availability": {"type": "number"},
-            "zones_analyzed": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "required": ["zone", "occupied", "total"],
-                    "properties": {
-                        "zone": {"type": "string"},
-                        "occupied": {"type": "number"},
-                        "total": {"type": "number"}
-                    }
-                }
-            }
+            "total_spots": {"type": "number"},
+            "occupied_spots": {"type": "number"}
+        }
+    },
+    "youtube_frame_extraction": {
+        "type": "object",
+        "required": ["frame_url"],
+        "properties": {
+            "frame_url": {"type": "string"},
+            "method": {"type": "string"},
+            "title": {"type": "string"},
+            "file_size_mb": {"type": "number"},
+            "processing_time": {"type": "number"}
         }
     }
 }
@@ -257,6 +189,7 @@ class VideoJob(models.Model):
         ("room-readiness", "Room Readiness Analysis"),
         ("wildlife-detection", "Wildlife Detection"),
         ("lobby-detection", "Lobby / Crowd Detection"),
+        ("youtube_frame_extraction", "YouTube Frame Extraction"),
     ]
 
     user = models.ForeignKey(

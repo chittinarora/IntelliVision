@@ -11,15 +11,24 @@ import os
 import time
 import logging
 import traceback
+import tempfile
+import requests
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any
+from uuid import uuid4
+from io import BytesIO
 
 from celery import shared_task
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.utils import timezone
 import mimetypes
+
+# Third-party imports for YouTube processing
+import cv2
+import yt_dlp
+from PIL import Image
 
 from .models import VideoJob
 from .rate_limiting import release_job_slot
@@ -108,6 +117,31 @@ to align with models.py and job.ts, fixing status field mismatch (Critical Issue
 and ensuring job type consistency (Critical Issue #2).
 """
 
+def get_job_with_retry(job_id: int, max_retries: int = 3, retry_delay: float = 0.5) -> VideoJob:
+    """
+    Get job from database with retry logic to handle race conditions.
+
+    Args:
+        job_id: ID of the job to fetch
+        max_retries: Maximum number of retries
+        retry_delay: Delay between retries in seconds
+
+    Returns:
+        VideoJob instance
+
+    Raises:
+        VideoJob.DoesNotExist if job not found after all retries
+    """
+    for attempt in range(max_retries):
+        try:
+            return VideoJob.objects.get(id=job_id)
+        except VideoJob.DoesNotExist:
+            if attempt == max_retries - 1:  # Last attempt
+                logger.error(f"Job {job_id}: Not found in database after {max_retries} attempts")
+                raise
+            logger.info(f"Job {job_id}: Not found, retrying in {retry_delay}s (attempt {attempt + 1}/{max_retries})")
+            time.sleep(retry_delay)
+
 @shared_task(bind=True)
 def process_video_job(self, job_id: int) -> None:
     """
@@ -120,9 +154,10 @@ def process_video_job(self, job_id: int) -> None:
     """
     logger.info(f"🚀 STARTING CELERY JOB {job_id} 🚀")
     try:
-        job = VideoJob.objects.get(id=job_id)
+        # Use retry logic when fetching the job
+        job = get_job_with_retry(job_id)
     except VideoJob.DoesNotExist:
-        logger.error(f"Job {job_id}: Not found in database")
+        logger.error(f"Job {job_id}: Not found in database after retries")
         raise
 
     # Log job details
@@ -131,13 +166,58 @@ def process_video_job(self, job_id: int) -> None:
     if job.youtube_url:
         logger.info(f"🎬 Job {job_id}: YouTube URL={job.youtube_url}")
 
-    # Validate input file
+    # ======================================
+    # HANDLE YOUTUBE DOWNLOADS IN CELERY
+    # ======================================
+    if job.youtube_url and not job.input_video:
+        logger.info(f"📥 Job {job_id}: Downloading YouTube video for processing")
+
+        import tempfile
+        temp_video_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4").name
+        download_result = download_youtube_video(job.youtube_url, temp_video_path, quality='best')
+
+        if not download_result['success']:
+            job.status = 'failed'
+            job.results = {'error': f"YouTube download failed: {download_result['error']}", 'error_time': datetime.now().isoformat()}
+            job.save()
+            logger.error(f"Job {job_id}: YouTube download failed: {download_result['error']}")
+            release_job_slot()
+            return
+
+        # Save downloaded video to Django storage
+        try:
+            with open(temp_video_path, 'rb') as f:
+                from uuid import uuid4
+                file_name = f"yt_{job.job_type}_{uuid4().hex}.mp4"
+                input_file_content = ContentFile(f.read(), name=file_name)
+                job.input_video = input_file_content
+                job.save()
+                logger.info(f"✅ Job {job_id}: YouTube video downloaded and saved: {file_name} ({download_result['file_size'] / (1024*1024):.2f}MB)")
+        finally:
+            # Clean up temporary file
+            if os.path.exists(temp_video_path):
+                try:
+                    os.unlink(temp_video_path)
+                except Exception as e:
+                    logger.warning(f"Job {job_id}: Failed to clean up temp video: {e}")
+
+    # Validate input file (now works for both uploaded files and downloaded YouTube videos)
+    if not job.input_video:
+        error_msg = "No input file or YouTube URL provided"
+        job.status = 'failed'
+        job.results = {'error': error_msg, 'error_time': datetime.now().isoformat()}
+        job.save()
+        logger.error(f"Job {job_id}: {error_msg}")
+        release_job_slot()
+        raise ValueError(error_msg)
+
     is_valid, error_msg = validate_input_file(job.input_video.path)
     if not is_valid:
         job.status = 'failed'
         job.results = {'error': error_msg, 'error_time': datetime.now().isoformat()}
         job.save()
         logger.error(f"Job {job_id}: {error_msg}")
+        release_job_slot()
         raise ValueError(error_msg)
 
     # GPU memory check
@@ -264,12 +344,9 @@ def process_video_job(self, job_id: int) -> None:
         job.save(update_fields=['status'])
 
         # Pass job_id to analytics functions for progress logging
-        if len(processor_args) > 0 and isinstance(processor_args[0], str):
-            # For functions that take file path as first argument
-            new_args = [processor_args[0], job_id] + list(processor_args[1:])
-        else:
-            # For functions that don't take file path first
-            new_args = [job_id] + list(processor_args)
+        # The analytics functions are now regular functions, not Celery tasks
+        # So we don't need to pass 'self' anymore
+        new_args = processor_args + [job_id]
 
         result_data = processor_func_instance(*new_args)
         processing_duration = time.time() - start_time
@@ -331,3 +408,258 @@ def process_video_job(self, job_id: int) -> None:
             logger.error(f"Failed to release job slot: {e}")
 
         logger.info(f"💾 Job {job_id}: Final cleanup completed")
+
+"""
+=====================================
+YouTube Processing Functions
+=====================================
+Functions for handling YouTube video downloads and frame extraction in Celery workers.
+"""
+
+def download_youtube_video(youtube_url: str, temp_path: str, quality: str = 'best') -> Dict[str, Any]:
+    """
+    Download YouTube video using yt-dlp in Celery worker.
+
+    Args:
+        youtube_url: YouTube URL to download
+        temp_path: Temporary file path for download
+        quality: Video quality ('best', 'worst', etc.)
+
+    Returns:
+        Dict with download info and status
+    """
+    import yt_dlp
+
+    try:
+        logger.info(f"🎬 Downloading YouTube video: {youtube_url}")
+
+        if quality == 'worst':
+            # For frame extraction, use lowest quality to minimize download
+            format_selector = 'worst[ext=mp4]/worst'
+        else:
+            # For full processing, use best quality
+            format_selector = 'bestvideo[ext=mp4][vcodec=h264]+bestaudio[ext=m4a]/best[ext=mp4][vcodec=h264]/best[ext=mp4]'
+
+        ydl_opts = {
+            'format': format_selector,
+            'outtmpl': temp_path,
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': False,
+            'socket_timeout': 60,  # Longer timeout for Celery
+        }
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            # First validate URL
+            info = ydl.extract_info(youtube_url, download=False)
+            if not info:
+                return {'success': False, 'error': 'Invalid YouTube URL or video not available'}
+
+            # Check file size limits
+            filesize = info.get('filesize') or info.get('filesize_approx', 0)
+            if filesize and filesize > MAX_FILE_SIZE:
+                return {
+                    'success': False,
+                    'error': f'Video size {filesize / (1024*1024):.1f}MB exceeds {MAX_FILE_SIZE / (1024*1024):.0f}MB limit'
+                }
+
+            # Download the video
+            ydl.download([youtube_url])
+
+        # Verify download
+        if not os.path.exists(temp_path):
+            return {'success': False, 'error': 'Download failed - file not found'}
+
+        actual_size = os.path.getsize(temp_path)
+        if actual_size > MAX_FILE_SIZE:
+            os.unlink(temp_path)  # Clean up oversized file
+            return {
+                'success': False,
+                'error': f'Downloaded video size {actual_size / (1024*1024):.2f}MB exceeds limit'
+            }
+
+        logger.info(f"✅ YouTube download successful: {actual_size / (1024*1024):.2f}MB")
+        return {
+            'success': True,
+            'file_size': actual_size,
+            'title': info.get('title', 'Unknown'),
+            'duration': info.get('duration', 0)
+        }
+
+    except Exception as e:
+        logger.error(f"YouTube download failed: {e}")
+        # Clean up partial download
+        if os.path.exists(temp_path):
+            try:
+                os.unlink(temp_path)
+            except Exception:
+                pass
+        return {'success': False, 'error': str(e)}
+
+@shared_task(bind=True)
+def extract_youtube_frame(self, job_id: int) -> None:
+    """
+    Celery task to extract first frame from YouTube video.
+
+    Args:
+        self: Celery task instance
+        job_id: ID of the VideoJob
+    """
+    import tempfile
+    import cv2
+    from uuid import uuid4
+    from io import BytesIO
+    from PIL import Image
+    import requests
+
+    logger.info(f"🚀 STARTING YouTube Frame Extraction Job {job_id} 🚀")
+
+    try:
+        job = get_job_with_retry(job_id)
+    except VideoJob.DoesNotExist:
+        logger.error(f"Job {job_id}: Not found in database")
+        return
+
+    if not job.youtube_url:
+        logger.error(f"Job {job_id}: No YouTube URL provided")
+        job.status = 'failed'
+        job.results = {'error': 'No YouTube URL provided'}
+        job.save()
+        return
+
+    logger.info(f"📋 Job {job_id}: Extracting frame from YouTube URL: {job.youtube_url}")
+
+    temp_video_path = None
+    temp_frame_path = None
+
+    try:
+        job.status = 'processing'
+        job.save()
+
+        # ======================================
+        # STRATEGY 1: Try YouTube thumbnail first
+        # ======================================
+        try:
+            logger.info(f"📸 Job {job_id}: Attempting thumbnail extraction")
+
+            import yt_dlp
+            with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+                info = ydl.extract_info(job.youtube_url, download=False)
+                if info and 'thumbnails' in info and info['thumbnails']:
+                    # Get highest quality thumbnail
+                    best_thumbnail = max(info['thumbnails'], key=lambda x: x.get('width', 0) * x.get('height', 0))
+                    thumbnail_url = best_thumbnail.get('url')
+
+                    if thumbnail_url:
+                        logger.info(f"📸 Job {job_id}: Found thumbnail: {thumbnail_url}")
+
+                        # Download thumbnail
+                        response = requests.get(thumbnail_url, timeout=30)
+                        response.raise_for_status()
+
+                        if len(response.content) < 50 * 1024 * 1024:  # Under 50MB
+                            # Convert thumbnail to standard format
+                            img = Image.open(BytesIO(response.content))
+                            temp_frame_path = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg").name
+
+                            if img.format not in ['JPEG', 'JPG']:
+                                img.convert('RGB').save(temp_frame_path, 'JPEG', quality=90)
+                            else:
+                                with open(temp_frame_path, 'wb') as f:
+                                    f.write(response.content)
+
+                            # Save to storage
+                            with open(temp_frame_path, 'rb') as f:
+                                frame_filename = f"thumbnails/yt_thumb_{uuid4().hex}.jpg"
+                                saved_path = default_storage.save(frame_filename, ContentFile(f.read()))
+                                frame_url = ensure_api_media_url(default_storage.url(saved_path))
+
+                            # Success with thumbnail
+                            job.status = 'completed'
+                            job.results = {
+                                'frame_url': frame_url,
+                                'method': 'thumbnail',
+                                'title': info.get('title', 'Unknown'),
+                                'processing_time': time.time()
+                            }
+                            job.output_image = frame_url
+                            job.save()
+
+                            logger.info(f"✅ Job {job_id}: Frame extracted via thumbnail: {frame_url}")
+                            return
+
+        except Exception as thumbnail_error:
+            logger.warning(f"Job {job_id}: Thumbnail extraction failed: {thumbnail_error}, falling back to video download")
+
+        # ======================================
+        # STRATEGY 2: Download video and extract frame
+        # ======================================
+        logger.info(f"📥 Job {job_id}: Downloading video for frame extraction")
+
+        temp_video_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4").name
+        download_result = download_youtube_video(job.youtube_url, temp_video_path, quality='worst')
+
+        if not download_result['success']:
+            job.status = 'failed'
+            job.results = {'error': download_result['error']}
+            job.save()
+            logger.error(f"Job {job_id}: Download failed: {download_result['error']}")
+            return
+
+        # Extract frame using OpenCV
+        cap = cv2.VideoCapture(temp_video_path)
+        try:
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Minimize memory usage
+            success, frame = cap.read()
+            if not success:
+                job.status = 'failed'
+                job.results = {'error': 'Could not extract frame from video'}
+                job.save()
+                logger.error(f"Job {job_id}: Frame extraction failed")
+                return
+        finally:
+            cap.release()
+
+        # Save frame
+        temp_frame_path = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg").name
+        cv2.imwrite(temp_frame_path, frame)
+        del frame  # Free memory
+
+        # Save to storage
+        with open(temp_frame_path, 'rb') as f:
+            frame_filename = f"thumbnails/yt_frame_{uuid4().hex}.jpg"
+            saved_path = default_storage.save(frame_filename, ContentFile(f.read()))
+            frame_url = ensure_api_media_url(default_storage.url(saved_path))
+
+        # Success with video download
+        job.status = 'completed'
+        job.results = {
+            'frame_url': frame_url,
+            'method': 'video_download',
+            'title': download_result.get('title', 'Unknown'),
+            'file_size_mb': download_result['file_size'] / (1024*1024),
+            'processing_time': time.time()
+        }
+        job.output_image = frame_url
+        job.save()
+
+        logger.info(f"✅ Job {job_id}: Frame extracted via video download: {frame_url}")
+
+    except Exception as e:
+        logger.error(f"Job {job_id}: Frame extraction error: {e}", exc_info=True)
+        job.status = 'failed'
+        job.results = {'error': str(e)}
+        job.save()
+
+    finally:
+        # Clean up temporary files
+        for path in [temp_video_path, temp_frame_path]:
+            if path and os.path.exists(path):
+                try:
+                    os.unlink(path)
+                    logger.info(f"Job {job_id}: Cleaned up {path}")
+                except Exception as e:
+                    logger.warning(f"Job {job_id}: Failed to clean up {path}: {e}")
+
+        # Release job slot
+        release_job_slot()

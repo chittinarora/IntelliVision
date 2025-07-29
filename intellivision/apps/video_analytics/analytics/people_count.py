@@ -10,6 +10,7 @@ import os
 import glob
 import cv2
 import torch
+import time
 import numpy as np
 import logging
 import re
@@ -836,7 +837,7 @@ class DubsComprehensivePeopleCounting:
     def process_image(self, image_path: str) -> Dict:
         """Process a single image for people counting."""
         start_time = time.time()
-        image_path = Path(image_path).name
+        # Validate with full path, but get filename for storage operations
         is_valid, error_msg = validate_input_file(image_path)
         if not is_valid:
             logger.error(f"Invalid input: {error_msg}")
@@ -849,6 +850,9 @@ class DubsComprehensivePeopleCounting:
                 'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
                 'error': {'message': error_msg, 'code': 'INVALID_INPUT'}
             }
+
+        # Get just the filename for storage operations
+        image_filename = Path(image_path).name
 
         try:
             with default_storage.open(image_path, 'rb') as f:
@@ -866,7 +870,7 @@ class DubsComprehensivePeopleCounting:
                 self.tracker.reset()
                 tracks = self.tracker.update(detections, frame) if len(detections) > 0 else np.empty((0, 7))
                 person_count = len(tracks) if len(tracks) > 0 else person_count
-            output_filename = f"outputs/dubs_comprehensive_output_{image_path}"
+            output_filename = f"outputs/dubs_comprehensive_output_{image_filename}"
             with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
                 if len(detections) > 0:
                     results = self.detector.yolo(frame, conf=YOLO_CONF_CLOSE, classes=[0], verbose=False)[0] if self.detector.yolo else \
@@ -918,7 +922,7 @@ class DubsComprehensivePeopleCounting:
     def process_video(self, video_path: str, output_path: str) -> Dict:
         """Process video or image sequence for people counting."""
         start_time = time.time()
-        video_path = Path(video_path).name
+        # Validate with full path, but get filename for storage operations
         is_valid, error_msg = validate_input_file(video_path)
         if not is_valid:
             logger.error(f"Invalid input: {error_msg}")
@@ -931,6 +935,9 @@ class DubsComprehensivePeopleCounting:
                 'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
                 'error': {'message': error_msg, 'code': 'INVALID_INPUT'}
             }
+
+        # Get just the filename for storage operations
+        video_filename = Path(video_path).name
 
         try:
             image_files = []
@@ -952,14 +959,14 @@ class DubsComprehensivePeopleCounting:
                         tmp_path = tmp.name
                 cap = cv2.VideoCapture(tmp_path)
                 if not cap.isOpened():
-                    raise ValueError(f"Cannot open video: {video_path}")
+                    raise ValueError(f"Cannot open video: {video_filename}")
                 width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                 height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                 fps = cap.get(cv2.CAP_PROP_FPS) or 25
                 total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
                 logger.info(f"🎥 Processing video: {total_frames} frames at {fps} FPS")
 
-            job_id = re.search(r'(\d+)', video_path)
+            job_id = re.search(r'(\d+)', video_filename)
             job_id = job_id.group(1) if job_id else str(int(time.time()))
             output_filename = f"outputs/dubs_comprehensive_output_{job_id}.mp4"
             with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp_out:
@@ -1152,13 +1159,11 @@ class DubsComprehensivePeopleCounting:
 # Celery Integration
 # ======================================
 
-@shared_task(bind=True)
-def tracking_video(self, input_path: str, output_path: str, job_id: str = None) -> Dict:
+def tracking_video(input_path: str, output_path: str, job_id: str = None) -> Dict:
     """
-    Celery task for people counting.
+    Analytics function for people counting.
 
     Args:
-        self: Celery task instance
         input_path: Path to input video or image sequence
         output_path: Path to save output video
         job_id: VideoJob ID
@@ -1198,17 +1203,6 @@ def tracking_video(self, input_path: str, output_path: str, job_id: str = None) 
         progress_logger.update_progress(100, status="Video processing completed", force_log=True)
         progress_logger.log_completion(100)
 
-    self.update_state(
-        state='PROGRESS',
-        meta={
-            'progress': 100.0,
-            'time_remaining': 0,
-            'frame': result['meta'].get('frame_count', 1),
-            'total_frames': result['meta'].get('frame_count', 1),
-            'status': result['status'],
-            'job_id': job_id
-        }
-    )
     processing_time = time.time() - start_time
     result['meta']['processing_time_seconds'] = processing_time
     result['meta']['timestamp'] = timezone.now().isoformat()
@@ -1221,7 +1215,6 @@ def tracking_video(self, input_path: str, output_path: str, job_id: str = None) 
 
 def validate_input_file(file_path: str) -> tuple[bool, str]:
     """Validate file type and size."""
-    file_path = Path(file_path).name
     if not default_storage.exists(file_path):
         return False, f"File not found: {file_path}"
     ext = os.path.splitext(file_path)[1].lower()

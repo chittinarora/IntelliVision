@@ -1035,8 +1035,7 @@ def get_actionable_fixes(data: Dict) -> List[Dict]:
 # Celery Integration
 # ======================================
 
-@shared_task(bind=True)
-def tracking_video(self, video_path: str, output_dir: str = str(OUTPUT_DIR)) -> Dict:
+def tracking_video(video_path: str, output_dir: str = str(OUTPUT_DIR)) -> Dict:
     """
     Celery task for room readiness analysis.
 
@@ -1065,17 +1064,6 @@ def tracking_video(self, video_path: str, output_dir: str = str(OUTPUT_DIR)) -> 
     progress_logger.update_progress(100, status="Room readiness analysis completed", force_log=True)
     progress_logger.log_completion(100)
 
-    self.update_state(
-        state='PROGRESS',
-        meta={
-            'progress': 100.0,
-            'time_remaining': 0,
-            'frame': result['meta'].get('frames_analyzed', 1),
-            'total_frames': result['meta'].get('frames_analyzed', 1),
-            'status': result['status'],
-            'job_id': job_id
-        }
-    )
     processing_time = time.time() - start_time
     result['meta']['processing_time_seconds'] = processing_time
     result['meta']['timestamp'] = timezone.now().isoformat()

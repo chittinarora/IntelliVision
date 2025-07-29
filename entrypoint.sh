@@ -58,9 +58,18 @@ echo "✅ Database connection established"
 # =====================================
 echo "🔴 Checking Redis connection..."
 
-# Extract Redis host and port from REDIS_URL
-REDIS_HOST=$(echo $REDIS_URL | sed 's/redis:\/\///' | sed 's/:[0-9]*\/.*//')
-REDIS_PORT=$(echo $REDIS_URL | sed 's/.*://' | sed 's/\/.*//')
+# Parse Redis URL using Python (more robust than sed)
+REDIS_PARTS=$(python3 -c "
+from urllib.parse import urlparse
+url = '$REDIS_URL'
+result = urlparse(url)
+print(f'{result.hostname} {result.port or 6379}')
+")
+read -r REDIS_HOST REDIS_PORT <<< "$REDIS_PARTS"
+
+# Fallback to defaults if parsing fails
+REDIS_HOST=${REDIS_HOST:-redis}
+REDIS_PORT=${REDIS_PORT:-6379}
 
 until redis-cli -h $REDIS_HOST -p $REDIS_PORT ping; do
     echo "⏳ Waiting for Redis to be ready..."
@@ -74,9 +83,18 @@ echo "✅ Redis connection established"
 # =====================================
 echo "🔍 Checking Qdrant connection..."
 
-# Extract Qdrant host and port from QDRANT_URL
-QDRANT_HOST=$(echo $QDRANT_URL | sed 's/http:\/\///' | sed 's/:[0-9]*//')
-QDRANT_PORT=$(echo $QDRANT_URL | sed 's/.*://' | sed 's/\/.*//')
+# Parse Qdrant URL using Python (more robust than sed)
+QDRANT_PARTS=$(python3 -c "
+from urllib.parse import urlparse
+url = '$QDRANT_URL'
+result = urlparse(url)
+print(f'{result.hostname} {result.port or 6333}')
+")
+read -r QDRANT_HOST QDRANT_PORT <<< "$QDRANT_PARTS"
+
+# Fallback to defaults if parsing fails
+QDRANT_HOST=${QDRANT_HOST:-qdrant}
+QDRANT_PORT=${QDRANT_PORT:-6333}
 
 until curl -f http://$QDRANT_HOST:$QDRANT_PORT/collections; do
     echo "⏳ Waiting for Qdrant to be ready..."
@@ -130,10 +148,11 @@ case $SERVICE_TYPE in
     "celery")
         echo "⚡ Starting Celery worker..."
         exec celery -A intellivision worker \
-            --loglevel=warning \
+            --loglevel=info \
+            -Q gpu_queue,celery \
             --concurrency=3 \
             --max-tasks-per-child=1000 \
-            --max-memory-per-child=5000000 | /app/intellivision/log_filter.sh
+            --max-memory-per-child=5000000
         ;;
     *)
         echo "❌ Unknown service type: $SERVICE_TYPE"

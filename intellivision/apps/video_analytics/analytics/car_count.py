@@ -1040,8 +1040,7 @@ def get_system_config() -> Dict:
 # Celery Integration
 # ======================================
 
-@shared_task(bind=True)
-def tracking_video(self, input_path: str, output_path: str = None, job_id: str = None) -> Dict:
+def tracking_video(input_path: str, output_path: str = None, job_id: str = None) -> Dict:
     """
     Celery task for car counting and ANPR.
 
@@ -1086,17 +1085,6 @@ def tracking_video(self, input_path: str, output_path: str = None, job_id: str =
         progress_logger.update_progress(100, status="Video processing completed", force_log=True)
         progress_logger.log_completion(100)
 
-    self.update_state(
-        state='PROGRESS',
-        meta={
-            'progress': 100.0,
-            'time_remaining': 0,
-            'frame': result['meta'].get('frame_count', 1),
-            'total_frames': result['meta'].get('frame_count', 1),
-            'status': result['status'],
-            'job_id': job_id
-        }
-    )
     processing_time = time.time() - start_time
     result['meta']['processing_time_seconds'] = processing_time
     result['meta']['timestamp'] = timezone.now().isoformat()
