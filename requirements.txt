@@ -18,7 +18,7 @@
 # =============================================================================
 # 1. Core Django and Related Packages
 # =============================================================================
-Django==5.2.4
+Django>=5.0,<6.0
 djangorestframework==3.16.0
 djangorestframework-simplejwt==5.5.1
 django-cors-headers==4.4.0
@@ -47,9 +47,8 @@ pymongo==4.13.2
 # =============================================================================
 numpy==1.26.4
 Cython==3.1.2
---find-links https://download.pytorch.org/whl/cu121
-torch==2.7.1+cu121
-torchvision==0.22.1+cu121
+torch==2.7.1
+torchvision==0.22.1
 ultralytics==8.3.0
 scikit-learn==1.7.1
 scipy==1.16.1

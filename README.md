@@ -218,7 +218,7 @@ IntelliVision/
 - **File Uploads**: Limited to 100MB via Apache
 - **Authentication**: JWT-based with face recognition
 - **CORS**: Configured for production domain
-- **Rate Limiting**: 20 requests/minute per user
+- **Rate Limiting**: Disabled (removed for better user experience)
 
 ## 🚨 Troubleshooting
 

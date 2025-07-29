@@ -32,7 +32,7 @@ from .models import VideoJob
 from .serializers import VideoJobSerializer
 from .tasks import process_video_job, ensure_api_media_url
 from .utils import create_standardized_response, create_error_response, validate_file_upload_for_job_type
-from .rate_limiting import check_rate_limit, check_resource_availability, acquire_job_slot, release_job_slot
+from .rate_limiting import check_resource_availability, acquire_job_slot, release_job_slot
 
 logger = logging.getLogger(__name__)
 
@@ -72,15 +72,7 @@ def _create_and_dispatch_job(request, job_type: str, extra_data: Dict[str, Any] 
     start_time = time.time()
     user = request.user
 
-    # Check rate limiting
-    is_allowed, remaining = check_rate_limit(str(user.id))
-    if not is_allowed:
-        return create_error_response(
-            f"Rate limit exceeded. Try again in 60 seconds. Remaining requests: {remaining}",
-            'RATE_LIMIT_EXCEEDED',
-            job_type,
-            status.HTTP_429_TOO_MANY_REQUESTS
-        )
+
 
     # Check resource availability
     if not check_resource_availability():
@@ -156,9 +148,10 @@ def _create_and_dispatch_job(request, job_type: str, extra_data: Dict[str, Any] 
                     job_type
                 )
 
-            if not os.path.exists(temp_video_path):
+            # Check if download was successful and file exists
+            if not temp_video_path or not os.path.exists(temp_video_path):
                 return create_error_response(
-                    'Failed to download YouTube video',
+                    'Failed to download YouTube video - file not found',
                     'DOWNLOAD_FAILED',
                     job_type
                 )
@@ -404,14 +397,21 @@ def get_youtube_frame_view(request):
             'error': {'message': f"Unexpected error: {str(e)}", 'code': 'SERVER_ERROR'}
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     finally:
-        # Clean up temporary files
+        # Clean up temporary files with better error handling
         for path in [temp_video_path, temp_frame_path]:
-            if path and os.path.exists(path):
+            if path:
                 try:
-                    os.unlink(path)
-                    logger.info(f"Cleaned up temporary file: {path}")
+                    if os.path.exists(path):
+                        os.unlink(path)
+                        logger.info(f"Cleaned up temporary file: {path}")
+                    else:
+                        logger.debug(f"Temporary file already removed: {path}")
+                except PermissionError as e:
+                    logger.warning(f"Permission denied cleaning up {path}: {e}")
+                except OSError as e:
+                    logger.warning(f"OS error cleaning up {path}: {e}")
                 except Exception as e:
-                    logger.warning(f"Failed to clean up temporary file {path}: {e}")
+                    logger.error(f"Unexpected error cleaning up {path}: {e}")
 
 """
 =====================================

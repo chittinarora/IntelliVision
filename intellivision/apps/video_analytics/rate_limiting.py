@@ -18,41 +18,7 @@ from django.conf import settings
 logger = logging.getLogger(__name__)
 
 
-class RateLimiter:
-    """Simple rate limiter using Redis."""
 
-    def __init__(self, max_requests: int = 10, window_seconds: int = 60):
-        self.max_requests = max_requests
-        self.window_seconds = window_seconds
-
-    def is_allowed(self, key: str) -> Tuple[bool, int]:
-        """
-        Check if request is allowed for the given key.
-
-        Args:
-            key: Unique identifier (e.g., user ID, IP address)
-
-        Returns:
-            Tuple of (is_allowed, remaining_requests)
-        """
-        redis_key = f"rate_limit:{key}"
-
-        try:
-            # Get current count
-            current_requests = cache.get(redis_key, 0)
-
-            if current_requests >= self.max_requests:
-                return False, 0
-
-            # Increment counter
-            cache.set(redis_key, current_requests + 1, timeout=self.window_seconds)
-
-            return True, self.max_requests - current_requests - 1
-
-        except Exception as e:
-            logger.error(f"Rate limiting failed: {e}")
-            # Allow request if Redis is unavailable
-            return True, self.max_requests
 
 
 class ResourceManager:
@@ -122,22 +88,8 @@ class ResourceManager:
             logger.error(f"Job end failed: {e}")
 
 
-# Simple rate limiter for all operations
-rate_limiter = RateLimiter(max_requests=20, window_seconds=60)  # 20 requests per minute
+# Resource manager for system resources
 resource_manager = ResourceManager()
-
-
-def check_rate_limit(user_id: str) -> Tuple[bool, int]:
-    """
-    Check if user has exceeded rate limit.
-
-    Args:
-        user_id: User identifier
-
-    Returns:
-        Tuple of (is_allowed, remaining_requests)
-    """
-    return rate_limiter.is_allowed(f"user_{user_id}")
 
 
 def check_resource_availability() -> bool:
@@ -177,31 +129,7 @@ def cleanup_stale_jobs():
     except Exception as e:
         logger.error(f"Cleanup failed: {e}")
 
-def get_rate_limit_info(user_id: str) -> Dict[str, Any]:
-    """
-    Get rate limit information for monitoring.
 
-    Args:
-        user_id: User identifier
-
-    Returns:
-        Dictionary with rate limit information
-    """
-    try:
-        redis_key = f"rate_limit:user_{user_id}"
-        current_requests = cache.get(redis_key, 0)
-
-        return {
-            'current_requests': current_requests,
-            'max_requests': rate_limiter.max_requests,
-            'remaining_requests': max(0, rate_limiter.max_requests - current_requests),
-            'window_seconds': rate_limiter.window_seconds
-        }
-    except Exception as e:
-        logger.error(f"Rate limit info failed: {e}")
-        return {
-            'error': 'Rate limit info unavailable'
-        }
 
 
 def get_system_status() -> Dict:

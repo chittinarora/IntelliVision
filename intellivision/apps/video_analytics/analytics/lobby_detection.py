@@ -64,6 +64,28 @@ except ImportError as e:
 # Logger and Constants
 # ======================================
 logger = logging.getLogger(__name__)
+
+# Import progress logger
+try:
+    from ..progress_logger import create_progress_logger
+except ImportError:
+    def create_progress_logger(job_id, total_items, job_type, logger_name=None):
+        """Fallback progress logger if module not available."""
+        class DummyLogger:
+            def __init__(self, job_id, total_items, job_type, logger_name=None):
+                self.job_id = job_id
+                self.total_items = total_items
+                self.job_type = job_type
+                self.logger = logging.getLogger(logger_name or job_type)
+
+            def update_progress(self, processed_count, status=None, force_log=False):
+                self.logger.info(f"**Job {self.job_id}**: Progress {processed_count}/{self.total_items}")
+
+            def log_completion(self, final_count=None):
+                self.logger.info(f"**Job {self.job_id}**: Completed {self.job_type}")
+
+        return DummyLogger(job_id, total_items, job_type, logger_name)
+
 VALID_EXTENSIONS = {'.mp4'}
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
@@ -285,23 +307,66 @@ def run_crowd_analysis(source_path: str, zone_configs: dict) -> Dict:
         }
 
     try:
-        # Open video
-        with default_storage.open(source_path, 'rb') as f:
-            with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
-                tmp.write(f.read())
-                tmp_path = tmp.name
-        video_info = sv.VideoInfo.from_video_path(tmp_path)
-        cap = cv2.VideoCapture(tmp_path)
-        if not cap.isOpened():
-            logger.error("Failed to open video")
+        # Validate file exists and is accessible
+        if not default_storage.exists(source_path):
+            error_msg = f"Video file not found: {source_path}"
+            logger.error(error_msg)
             return {
                 'status': 'failed',
                 'job_type': 'lobby_detection',
                 'output_image': None,
                 'output_video': None,
-                'data': {'alerts': [], 'error': 'Failed to open video'},
+                'data': {'alerts': [], 'error': error_msg},
                 'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
-                'error': {'message': 'Failed to open video', 'code': 'VIDEO_READ_ERROR'}
+                'error': {'message': error_msg, 'code': 'FILE_NOT_FOUND'}
+            }
+
+        # Open video with proper error handling
+        try:
+            with default_storage.open(source_path, 'rb') as f:
+                with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
+                    tmp.write(f.read())
+                    tmp_path = tmp.name
+        except Exception as e:
+            error_msg = f"Failed to read video file: {str(e)}"
+            logger.error(error_msg)
+            return {
+                'status': 'failed',
+                'job_type': 'lobby_detection',
+                'output_image': None,
+                'output_video': None,
+                'data': {'alerts': [], 'error': error_msg},
+                'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
+                'error': {'message': error_msg, 'code': 'FILE_READ_ERROR'}
+            }
+
+        try:
+            video_info = sv.VideoInfo.from_video_path(tmp_path)
+        except Exception as e:
+            error_msg = f"Failed to analyze video properties: {str(e)}"
+            logger.error(error_msg)
+            return {
+                'status': 'failed',
+                'job_type': 'lobby_detection',
+                'output_image': None,
+                'output_video': None,
+                'data': {'alerts': [], 'error': error_msg},
+                'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
+                'error': {'message': error_msg, 'code': 'VIDEO_ANALYSIS_ERROR'}
+            }
+
+        cap = cv2.VideoCapture(tmp_path)
+        if not cap.isOpened():
+            error_msg = "Failed to open video - file may be corrupted or in unsupported format"
+            logger.error(error_msg)
+            return {
+                'status': 'failed',
+                'job_type': 'lobby_detection',
+                'output_image': None,
+                'output_video': None,
+                'data': {'alerts': [], 'error': error_msg},
+                'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
+                'error': {'message': error_msg, 'code': 'VIDEO_OPEN_ERROR'}
             }
 
         # Setup model
@@ -322,8 +387,38 @@ def run_crowd_analysis(source_path: str, zone_configs: dict) -> Dict:
             tracker, tracker_name = setup_best_tracker(device, video_info.fps)
             logger.info(f"🔍 ACTIVE TRACKER: {tracker_name}")
 
-            # Setup zones
-            zones = [EnhancedZone(data['points'], name, data['threshold']) for name, data in zone_configs.items()]
+                    # Setup zones with validation
+        try:
+            zones = []
+            for name, data in zone_configs.items():
+                if not isinstance(data, dict):
+                    raise ValueError(f"Zone '{name}' configuration must be a dictionary")
+                if 'points' not in data:
+                    raise ValueError(f"Zone '{name}' missing required 'points' field")
+                if 'threshold' not in data:
+                    raise ValueError(f"Zone '{name}' missing required 'threshold' field")
+                if not isinstance(data['points'], list) or len(data['points']) < 3:
+                    raise ValueError(f"Zone '{name}' must have at least 3 points")
+                if not isinstance(data['threshold'], (int, float)) or data['threshold'] <= 0:
+                    raise ValueError(f"Zone '{name}' threshold must be a positive number")
+
+                zones.append(EnhancedZone(data['points'], name, data['threshold']))
+
+            if not zones:
+                raise ValueError("At least one zone must be configured")
+
+        except Exception as e:
+            error_msg = f"Zone configuration error: {str(e)}"
+            logger.error(error_msg)
+            return {
+                'status': 'failed',
+                'job_type': 'lobby_detection',
+                'output_image': None,
+                'output_video': None,
+                'data': {'alerts': [], 'error': error_msg},
+                'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
+                'error': {'message': error_msg, 'code': 'ZONE_CONFIG_ERROR'}
+            }
             box_annotator = sv.BoxAnnotator(thickness=1, color=sv.Color(r=218, g=165, b=32))
             alert_log = []
             last_alert_times = {}
@@ -525,7 +620,19 @@ def tracking_video(self, source_path: str, zone_configs: dict, output_path: str 
     """
     start_time = time.time()
     logger.info(f"🚀 Starting lobby detection job {job_id}")
+
+    # Initialize progress logger for video processing
+    progress_logger = create_progress_logger(
+        job_id=str(job_id) if job_id else "unknown",
+        total_items=100,  # Estimate for video frames
+        job_type="lobby_detection"
+    )
+
+    progress_logger.update_progress(0, status="Starting lobby crowd analysis...", force_log=True)
     result = run_crowd_analysis(source_path, zone_configs)
+    progress_logger.update_progress(100, status="Lobby detection completed", force_log=True)
+    progress_logger.log_completion(100)
+
     self.update_state(
         state='PROGRESS',
         meta={
@@ -540,6 +647,5 @@ def tracking_video(self, source_path: str, zone_configs: dict, output_path: str 
     processing_time = time.time() - start_time
     result['meta']['processing_time_seconds'] = processing_time
     result['meta']['timestamp'] = timezone.now().isoformat()
-    logger.info(f"**Job {job_id}**: Progress **100.0%** ({result['meta'].get('frame_count', 1)}/{result['meta'].get('frame_count', 1)}), Status: {result['status']}...")
-    logger.info(f"[##########] Done: {int(processing_time // 60):02d}:{int(processing_time % 60):02d} | Left: 00:00 | Avg FPS: {result['meta'].get('fps', 'N/A')}")
+
     return result

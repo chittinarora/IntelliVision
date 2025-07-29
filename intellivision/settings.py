@@ -525,9 +525,13 @@ FRAME_SKIP_THRESHOLD = 1  # Process every frame for Tesla P100 performance
 GPU_MEMORY_FRACTION = 0.8  # Use 80% of GPU memory
 
 # Resource management
-MAX_CONCURRENT_JOBS = 10  # Maximum concurrent video processing jobs
-RATE_LIMIT_REQUESTS = 20  # Requests per minute per user
-RATE_LIMIT_WINDOW = 60  # Rate limit window in seconds
+MAX_CONCURRENT_JOBS = 6  # Reduced from 10 to 6 for better memory management
+
+# Memory management for web workers
+import gc
+gc.set_threshold(700, 10, 10)  # More aggressive garbage collection
+
+# Rate limiting has been removed for better user experience
 
 """
 =====================================

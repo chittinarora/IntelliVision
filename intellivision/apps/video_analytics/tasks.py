@@ -196,30 +196,35 @@ def process_video_job(self, job_id: int) -> None:
             else:
                 raise ValueError(f"Unknown job type: {job_type}")
 
+        # Create unique output paths with timestamp to prevent conflicts
+        timestamp = int(time.time())
         JOB_PROCESSORS = {
-            "people-count": {"args": [job.input_video.path, f"/tmp/output_{job_id}.mp4"]},
-            "car-count": {"args": [os.path.basename(job.input_video.path)]},
-            "parking-analysis": {"args": [os.path.basename(job.input_video.path)]},
-            "wildlife-detection": {"args": [job.input_video.path, f"/tmp/output_{job_id}.mp4"]},
-            "food-waste-estimation": {"args": [job.input_video.path]},
-            "room-readiness": {"args": [job.input_video.path]},
-            "lobby-detection": {"args": [job.input_video.path, job.lobby_zones, f"/tmp/output_{job_id}.mp4"]},
-            "emergency-count": {"args": [job.input_video.path, f"/tmp/output_{job_id}.mp4", job.emergency_lines,
+            "people-count": {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.mp4"]},
+            "car-count": {"args": [os.path.basename(job.input_video.path), f"/tmp/output_{job_id}_{timestamp}.mp4"]},
+            "parking-analysis": {"args": [os.path.basename(job.input_video.path), f"/tmp/output_{job_id}_{timestamp}.mp4"]},
+            "wildlife-detection": {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.mp4"]},
+            "food-waste-estimation": {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.mp4"]},
+            "room-readiness": {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.mp4"]},
+            "lobby-detection": {"args": [job.input_video.path, job.lobby_zones, f"/tmp/output_{job_id}_{timestamp}.mp4"]},
+            "emergency-count": {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.mp4", job.emergency_lines,
                                          job.video_width, job.video_height]},
-            "pothole-detection": {"args": [job.input_video.path, f"/tmp/output_{job_id}.mp4"]},
+            "pothole-detection": {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.mp4"]},
         }
 
         # Handle image inputs - override function for special cases
         ext = os.path.splitext(job.input_video.name)[1].lower()
         if job.job_type == "pothole-detection" and ext in ['.jpg', '.jpeg', '.png']:
-            JOB_PROCESSORS["pothole-detection"] = {"args": [job.input_video.path, f"/tmp/output_{job_id}.jpg"]}
+            JOB_PROCESSORS["pothole-detection"] = {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.jpg"]}
             processor_func = lambda job_type: get_processor_func("pothole-detection-image")
         elif job.job_type == "room-readiness" and ext in ['.jpg', '.jpeg', '.png']:
-            JOB_PROCESSORS["room-readiness"] = {"args": [job.input_video.path]}
+            JOB_PROCESSORS["room-readiness"] = {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.jpg"]}
             processor_func = lambda job_type: get_processor_func("room-readiness-image")
         elif job.job_type == "wildlife-detection" and ext in ['.jpg', '.jpeg', '.png']:
-            JOB_PROCESSORS["wildlife-detection"] = {"args": [job.input_video.path, f"/tmp/output_{job_id}.jpg"]}
+            JOB_PROCESSORS["wildlife-detection"] = {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.jpg"]}
             processor_func = lambda job_type: get_processor_func("wildlife-detection-image")
+        elif job.job_type == "emergency-count" and ext in ['.jpg', '.jpeg', '.png']:
+            # Emergency count doesn't support images, return error
+            raise ValueError(f"Emergency count job type does not support image files ({ext}). Please use video files.")
         else:
             processor_func = get_processor_func
 

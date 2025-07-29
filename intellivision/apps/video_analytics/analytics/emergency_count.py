@@ -33,6 +33,28 @@ from ..utils import load_yolo_model
 # Logger and Constants
 # ======================================
 logger = logging.getLogger(__name__)
+
+# Import progress logger
+try:
+    from ..progress_logger import create_progress_logger
+except ImportError:
+    def create_progress_logger(job_id, total_items, job_type, logger_name=None):
+        """Fallback progress logger if module not available."""
+        class DummyLogger:
+            def __init__(self, job_id, total_items, job_type, logger_name=None):
+                self.job_id = job_id
+                self.total_items = total_items
+                self.job_type = job_type
+                self.logger = logging.getLogger(logger_name or job_type)
+
+            def update_progress(self, processed_count, status=None, force_log=False):
+                self.logger.info(f"**Job {self.job_id}**: Progress {processed_count}/{self.total_items}")
+
+            def log_completion(self, final_count=None):
+                self.logger.info(f"**Job {self.job_id}**: Completed {self.job_type}")
+
+        return DummyLogger(job_id, total_items, job_type, logger_name)
+
 VALID_EXTENSIONS = {'.mp4'}
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
@@ -330,6 +352,35 @@ def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, custo
     """
     start_time = time.time()
     video_path = Path(video_path).name
+
+    # Validate file exists and is accessible
+    try:
+        if not default_storage.exists(video_path):
+            error_msg = f"Video file not found: {video_path}"
+            logger.error(f"Invalid input: {error_msg}")
+            return {
+                'status': 'failed',
+                'job_type': 'emergency_count',
+                'output_image': None,
+                'output_video': None,
+                'data': {'alerts': [], 'error': error_msg},
+                'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
+                'error': {'message': error_msg, 'code': 'FILE_NOT_FOUND'}
+            }
+    except Exception as e:
+        error_msg = f"Error accessing video file: {str(e)}"
+        logger.error(f"File access error: {error_msg}")
+        return {
+            'status': 'failed',
+            'job_type': 'emergency_count',
+            'output_image': None,
+            'output_video': None,
+            'data': {'alerts': [], 'error': error_msg},
+            'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
+            'error': {'message': error_msg, 'code': 'FILE_ACCESS_ERROR'}
+        }
+
+    # Validate file format
     is_valid, error_msg = validate_input_file(video_path)
     if not is_valid:
         logger.error(f"Invalid input: {error_msg}")
@@ -341,6 +392,42 @@ def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, custo
             'data': {'alerts': [], 'error': error_msg},
             'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
             'error': {'message': error_msg, 'code': 'INVALID_INPUT'}
+        }
+
+    # Validate emergency lines configuration
+    try:
+        if not emergency_lines or not isinstance(emergency_lines, list):
+            raise ValueError("Emergency lines configuration is required and must be a list")
+
+        if len(emergency_lines) != 2:
+            raise ValueError("Exactly 2 emergency lines are required (entry and exit)")
+
+        for i, line in enumerate(emergency_lines):
+            if not isinstance(line, dict):
+                raise ValueError(f"Emergency line {i+1} must be a dictionary")
+            required_fields = ['startX', 'startY', 'endX', 'endY']
+            if not all(field in line for field in required_fields):
+                raise ValueError(f"Emergency line {i+1} missing required fields: {required_fields}")
+            if not all(isinstance(line[field], (int, float)) for field in required_fields):
+                raise ValueError(f"Emergency line {i+1} coordinates must be numbers")
+
+        # Validate video dimensions if provided
+        if video_width is not None and (not isinstance(video_width, (int, float)) or video_width <= 0):
+            raise ValueError("Video width must be a positive number")
+        if video_height is not None and (not isinstance(video_height, (int, float)) or video_height <= 0):
+            raise ValueError("Video height must be a positive number")
+
+    except Exception as e:
+        error_msg = f"Line configuration error: {str(e)}"
+        logger.error(error_msg)
+        return {
+            'status': 'failed',
+            'job_type': 'emergency_count',
+            'output_image': None,
+            'output_video': None,
+            'data': {'alerts': [], 'error': error_msg},
+            'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
+            'error': {'message': error_msg, 'code': 'LINE_CONFIG_ERROR'}
         }
 
     try:
@@ -577,7 +664,17 @@ def tracking_video(self, video_path: str, output_path: str, line_configs: dict, 
     start_time = time.time()
     logger.info(f"🚀 Starting emergency count job {job_id}")
 
+    # Initialize progress logger for video processing
+    progress_logger = create_progress_logger(
+        job_id=str(job_id) if job_id else "unknown",
+        total_items=100,  # Estimate for video frames
+        job_type="emergency_count"
+    )
+
+    progress_logger.update_progress(0, status="Starting emergency counting analysis...", force_log=True)
     result = run_optimal_yolov12x_counting(video_path, line_configs)
+    progress_logger.update_progress(100, status="Emergency counting completed", force_log=True)
+    progress_logger.log_completion(100)
 
     # Update Celery task state
     self.update_state(
@@ -595,10 +692,5 @@ def tracking_video(self, video_path: str, output_path: str, line_configs: dict, 
     processing_time = time.time() - start_time
     result['meta']['processing_time_seconds'] = processing_time
     result['meta']['timestamp'] = timezone.now().isoformat()
-
-    logger.info(
-        f"**Job {job_id}**: Progress **100.0%** ({result['meta'].get('frame_count', 0)}/{result['meta'].get('frame_count', 0)}), Status: {result['status']}...")
-    logger.info(
-        f"[##########] Done: {int(processing_time // 60):02d}:{int(processing_time % 60):02d} | Left: 00:00 | Avg FPS: {result['meta'].get('fps', 'N/A')}")
 
     return result

@@ -55,6 +55,28 @@ except ImportError:
 # Logger and Constants
 # ======================================
 logger = logging.getLogger(__name__)
+
+# Import progress logger
+try:
+    from ..progress_logger import create_progress_logger
+except ImportError:
+    def create_progress_logger(job_id, total_items, job_type, logger_name=None):
+        """Fallback progress logger if module not available."""
+        class DummyLogger:
+            def __init__(self, job_id, total_items, job_type, logger_name=None):
+                self.job_id = job_id
+                self.total_items = total_items
+                self.job_type = job_type
+                self.logger = logging.getLogger(logger_name or job_type)
+
+            def update_progress(self, processed_count, status=None, force_log=False):
+                self.logger.info(f"**Job {self.job_id}**: Progress {processed_count}/{self.total_items}")
+
+            def log_completion(self, final_count=None):
+                self.logger.info(f"**Job {self.job_id}**: Completed {self.job_type}")
+
+        return DummyLogger(job_id, total_items, job_type, logger_name)
+
 VALID_EXTENSIONS = {'.mp4', '.jpg', '.jpeg', '.png'}
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
@@ -469,12 +491,35 @@ def tracking_video(self, input_path: str, output_path: str = None, job_id: str =
     """
     start_time = time.time()
     logger.info(f"🚀 Starting pest monitoring job {job_id}")
+
     ext = os.path.splitext(input_path)[1].lower()
     image_exts = ['.jpg', '.jpeg', '.png']
+
     if ext in image_exts:
+        # Initialize progress logger for image processing
+        progress_logger = create_progress_logger(
+            job_id=str(job_id) if job_id else "unknown",
+            total_items=1,  # Single image
+            job_type="wildlife_detection"
+        )
+
+        progress_logger.update_progress(0, status="Processing image for wildlife detection...", force_log=True)
         result = detect_snakes_in_image(input_path)
+        progress_logger.update_progress(1, status="Wildlife detection completed", force_log=True)
+        progress_logger.log_completion(1)
     else:
+        # Initialize progress logger for video processing
+        progress_logger = create_progress_logger(
+            job_id=str(job_id) if job_id else "unknown",
+            total_items=100,  # Estimate for video frames
+            job_type="wildlife_detection"
+        )
+
+        progress_logger.update_progress(0, status="Starting video processing for wildlife detection...", force_log=True)
         result = detect_snakes_in_video(input_path)
+        progress_logger.update_progress(100, status="Video processing completed", force_log=True)
+        progress_logger.log_completion(100)
+
     self.update_state(
         state='PROGRESS',
         meta={
@@ -489,6 +534,5 @@ def tracking_video(self, input_path: str, output_path: str = None, job_id: str =
     processing_time = time.time() - start_time
     result['meta']['processing_time_seconds'] = processing_time
     result['meta']['timestamp'] = timezone.now().isoformat()
-    logger.info(f"**Job {job_id}**: Progress **100.0%** ({result['meta'].get('frame_count', 1)}/{result['meta'].get('frame_count', 1)}), Status: {result['status']}...")
-    logger.info(f"[##########] Done: {int(processing_time // 60):02d}:{int(processing_time % 60):02d} | Left: 00:00 | Avg FPS: {result['meta'].get('fps', 'N/A')}")
+
     return result

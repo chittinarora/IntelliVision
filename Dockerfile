@@ -14,7 +14,7 @@ WORKDIR /app
 # - Added pip cache dir mount for faster rebuilds (uses Docker BuildKit cache).
 # - This section is cached if no deps change.
 ################################################################
-RUN apt-get update && \
+RUN apt-get update && apt-get upgrade -y && \
     apt-get install -y build-essential libpq-dev gcc cmake git qtbase5-dev qtchooser qt5-qmake qtbase5-dev-tools ffmpeg tesseract-ocr postgresql-client && \
     apt-get clean
 
@@ -28,7 +28,7 @@ COPY requirements.txt /app/
 ################################################################
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --find-links https://download.pytorch.org/whl/cu121 --no-cache-dir -r requirements.txt
 
 # Final stage (unchanged, but benefits from cached builder)
 FROM python:3.11-slim
@@ -46,7 +46,7 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 COPY --from=builder /usr/lib /usr/lib
 
 # Install postgresql-client and curl in final stage too (ensures pg_isready and health check are available at runtime)
-RUN apt-get update && \
+RUN apt-get update && apt-get upgrade -y && \
     apt-get install -y postgresql-client curl redis-tools && \
     apt-get clean
 

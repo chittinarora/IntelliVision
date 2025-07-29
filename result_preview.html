@@ -1,0 +1,1401 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IntelliVision - Job Results Preview</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+          Roboto, sans-serif;
+        background: linear-gradient(
+          135deg,
+          #0c0c0c 0%,
+          #1a1a1a 50%,
+          #0f0f23 100%
+        );
+        color: white;
+        min-height: 100vh;
+        padding: 2rem;
+      }
+
+      .container {
+        max-width: 1400px;
+        margin: 0 auto;
+      }
+
+      .header {
+        text-align: center;
+        margin-bottom: 3rem;
+      }
+
+      .header h1 {
+        font-size: 2.5rem;
+        font-weight: 800;
+        background: linear-gradient(135deg, #00d4ff, #ff00ff);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 0.5rem;
+      }
+
+      .header p {
+        font-size: 1.1rem;
+        color: #9ca3af;
+      }
+
+      .job-section {
+        margin-bottom: 4rem;
+      }
+
+      .job-title {
+        font-size: 1.8rem;
+        font-weight: 700;
+        margin-bottom: 1.5rem;
+        color: #ffffff;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .job-icon {
+        width: 2rem;
+        height: 2rem;
+        padding: 0.4rem;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      /* Glass morphism effect */
+      .glass-card {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 1.5rem;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+      }
+
+      .results-container {
+        padding: 2rem;
+      }
+
+      .results-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 2rem;
+      }
+
+      .metric-card {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 1rem;
+        padding: 1.5rem;
+        text-align: center;
+        min-height: 140px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        transition: all 0.3s ease;
+      }
+
+      .metric-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 12px 48px rgba(0, 0, 0, 0.4);
+      }
+
+      .metric-label {
+        font-size: 1rem;
+        font-weight: 600;
+        color: #ffffff;
+        margin-bottom: 0.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+      }
+
+      .metric-value {
+        font-size: 2.5rem;
+        font-weight: 800;
+        color: #ffffff;
+        margin-bottom: 0.25rem;
+        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+      }
+
+      .metric-sub {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: #06b6d4;
+      }
+
+      .alerts-section,
+      .details-section {
+        margin-top: 2rem;
+      }
+
+      .section-title {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: #ffffff;
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .alert-item,
+      .detail-item {
+        background: rgba(255, 255, 255, 0.05);
+        border-left: 4px solid;
+        padding: 1rem;
+        margin-bottom: 0.75rem;
+        border-radius: 0 0.75rem 0.75rem 0;
+      }
+
+      .alert-item {
+        border-left-color: #ef4444;
+      }
+
+      .alert-high {
+        border-left-color: #ef4444;
+      }
+      .alert-medium {
+        border-left-color: #f59e0b;
+      }
+      .alert-low {
+        border-left-color: #10b981;
+      }
+
+      .alert-severity {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #ef4444;
+        text-transform: uppercase;
+      }
+
+      .alert-message {
+        color: #ffffff;
+        margin: 0.25rem 0;
+      }
+
+      .alert-time {
+        font-size: 0.75rem;
+        color: rgba(255, 255, 255, 0.6);
+      }
+
+      .plates-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+        gap: 1rem;
+        margin-top: 1rem;
+      }
+
+      .plate-item {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 0.75rem;
+        padding: 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        transition: all 0.3s ease;
+      }
+
+      .plate-item:hover {
+        transform: scale(1.02);
+      }
+
+      .plate-text {
+        font-family: "JetBrains Mono", monospace;
+        font-weight: 700;
+        font-size: 1rem;
+        color: #ffffff;
+        letter-spacing: 0.1em;
+      }
+
+      .plate-time {
+        font-size: 0.75rem;
+        color: rgba(255, 255, 255, 0.7);
+        margin-left: auto;
+      }
+
+      .zones-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: 1rem;
+        margin-top: 1rem;
+      }
+
+      .zone-item {
+        background: rgba(147, 51, 234, 0.1);
+        border: 1px solid rgba(147, 51, 234, 0.3);
+        border-radius: 0.75rem;
+        padding: 1rem;
+        text-align: center;
+      }
+
+      .zone-name {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: #d8b4fe;
+        margin-bottom: 0.5rem;
+      }
+
+      .zone-count {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: #ffffff;
+      }
+
+      .species-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-top: 1rem;
+      }
+
+      .species-tag {
+        background: rgba(34, 197, 94, 0.2);
+        color: #86efac;
+        padding: 0.25rem 0.75rem;
+        border-radius: 9999px;
+        font-size: 0.875rem;
+        font-weight: 600;
+      }
+
+      .potholes-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 1rem;
+        margin-top: 1rem;
+      }
+
+      .pothole-item {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 0.75rem;
+        padding: 1rem;
+      }
+
+      .pothole-id {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: #fb923c;
+        margin-bottom: 0.5rem;
+      }
+
+      .pothole-severity {
+        color: #ffffff;
+        margin-bottom: 0.25rem;
+      }
+
+      .pothole-confidence {
+        font-size: 0.75rem;
+        color: rgba(255, 255, 255, 0.6);
+      }
+
+      /* Job-specific colors */
+      .people-count .job-icon {
+        background: rgba(59, 130, 246, 0.2);
+      }
+      .emergency-count .job-icon {
+        background: rgba(239, 68, 68, 0.2);
+      }
+      .car-count .job-icon {
+        background: rgba(6, 182, 212, 0.2);
+      }
+      .parking-analysis .job-icon {
+        background: rgba(59, 130, 246, 0.2);
+      }
+      .pothole-detection .job-icon {
+        background: rgba(251, 146, 60, 0.2);
+      }
+      .lobby-detection .job-icon {
+        background: rgba(147, 51, 234, 0.2);
+      }
+      .wildlife-detection .job-icon {
+        background: rgba(34, 197, 94, 0.2);
+      }
+      .food-waste .job-icon {
+        background: rgba(245, 158, 11, 0.2);
+      }
+      .room-readiness .job-icon {
+        background: rgba(168, 85, 247, 0.2);
+      }
+
+      .risk-high {
+        color: #ef4444;
+      }
+      .risk-medium {
+        color: #f59e0b;
+      }
+      .risk-low {
+        color: #10b981;
+      }
+
+      /* Media Preview Styles */
+      .media-preview {
+        margin-bottom: 2rem;
+      }
+
+      .media-title {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: #60a5fa;
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .video-container {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 16/9;
+        background: #000;
+        border-radius: 1.5rem;
+        overflow: hidden;
+        border: 2px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+      }
+
+      .video-placeholder {
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(
+          135deg,
+          #1a1a1a 0%,
+          #2d2d2d 50%,
+          #1a1a1a 100%
+        );
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: #9ca3af;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .video-placeholder::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          rgba(255, 255, 255, 0.1),
+          transparent
+        );
+        animation: shimmer 2s infinite;
+      }
+
+      @keyframes shimmer {
+        0% {
+          left: -100%;
+        }
+        100% {
+          left: 100%;
+        }
+      }
+
+      .video-icon {
+        width: 4rem;
+        height: 4rem;
+        margin-bottom: 1rem;
+        opacity: 0.7;
+      }
+
+      .video-text {
+        font-size: 1.125rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+      }
+
+      .video-subtext {
+        font-size: 0.875rem;
+        opacity: 0.7;
+        text-align: center;
+        max-width: 300px;
+      }
+
+      .play-button {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 4rem;
+        height: 4rem;
+        background: rgba(255, 255, 255, 0.2);
+        backdrop-filter: blur(10px);
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 1.5rem;
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+
+      .play-button:hover {
+        background: rgba(255, 255, 255, 0.3);
+        transform: translate(-50%, -50%) scale(1.1);
+      }
+
+      .image-container {
+        position: relative;
+        width: 100%;
+        max-width: 600px;
+        margin: 0 auto;
+        border-radius: 1.5rem;
+        overflow: hidden;
+        border: 2px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+      }
+
+      .image-placeholder {
+        width: 100%;
+        aspect-ratio: 4/3;
+        background: linear-gradient(
+          135deg,
+          #1a1a1a 0%,
+          #2d2d2d 50%,
+          #1a1a1a 100%
+        );
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: #9ca3af;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .image-placeholder::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          rgba(255, 255, 255, 0.1),
+          transparent
+        );
+        animation: shimmer 2s infinite;
+      }
+
+      .annotations-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        pointer-events: none;
+      }
+
+      .detection-box {
+        position: absolute;
+        border: 2px solid #00ff88;
+        background: rgba(0, 255, 136, 0.1);
+        border-radius: 4px;
+      }
+
+      .detection-label {
+        position: absolute;
+        top: -1.5rem;
+        left: 0;
+        background: #00ff88;
+        color: #000;
+        padding: 0.125rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 600;
+      }
+
+      .counting-line {
+        position: absolute;
+        background: #ff3366;
+        height: 3px;
+        border-radius: 2px;
+      }
+
+      .zone-polygon {
+        position: absolute;
+        border: 2px dashed #8b5cf6;
+        background: rgba(139, 92, 246, 0.1);
+        border-radius: 8px;
+      }
+
+      .media-controls {
+        position: absolute;
+        bottom: 1rem;
+        left: 1rem;
+        right: 1rem;
+        background: rgba(0, 0, 0, 0.7);
+        backdrop-filter: blur(10px);
+        border-radius: 0.5rem;
+        padding: 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+      }
+
+      .progress-bar {
+        flex: 1;
+        height: 4px;
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 2px;
+        overflow: hidden;
+      }
+
+      .progress-fill {
+        height: 100%;
+        background: #00d4ff;
+        width: 35%;
+        border-radius: 2px;
+      }
+
+      @media (max-width: 768px) {
+        body {
+          padding: 1rem;
+        }
+        .header h1 {
+          font-size: 2rem;
+        }
+        .results-grid {
+          grid-template-columns: 1fr;
+        }
+        .metric-value {
+          font-size: 2rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>IntelliVision Analytics Results</h1>
+        <p>Real-time preview of job result rendering for all analytics types</p>
+      </div>
+
+      <!-- People Count Results -->
+      <div class="job-section people-count">
+        <div class="job-title">
+          <div class="job-icon">👥</div>
+          People Count Analysis
+        </div>
+        <div class="glass-card">
+          <div class="results-container">
+            <!-- Media Preview -->
+            <div class="media-preview">
+              <div class="media-title">📹 Analysis Result</div>
+              <div class="video-container">
+                <div class="video-placeholder">
+                  <div class="video-icon">🎬</div>
+                  <div class="video-text">People Counting Video</div>
+                  <div class="video-subtext">
+                    Processed video with tracking annotations and count overlays
+                  </div>
+                </div>
+                <div class="play-button">▶</div>
+                <div class="annotations-overlay">
+                  <!-- Person detection boxes -->
+                  <div
+                    class="detection-box"
+                    style="top: 25%; left: 15%; width: 8%; height: 20%"
+                  >
+                    <div class="detection-label">Person 1</div>
+                  </div>
+                  <div
+                    class="detection-box"
+                    style="top: 35%; left: 45%; width: 7%; height: 18%"
+                  >
+                    <div class="detection-label">Person 2</div>
+                  </div>
+                  <div
+                    class="detection-box"
+                    style="top: 40%; left: 75%; width: 6%; height: 15%"
+                  >
+                    <div class="detection-label">Person 3</div>
+                  </div>
+                </div>
+                <div class="media-controls">
+                  <span style="color: white; font-size: 0.875rem">⏸️</span>
+                  <div class="progress-bar">
+                    <div class="progress-fill"></div>
+                  </div>
+                  <span style="color: white; font-size: 0.75rem"
+                    >1:23 / 3:45</span
+                  >
+                </div>
+              </div>
+            </div>
+            <div class="results-grid">
+              <div class="metric-card">
+                <div class="metric-label">👥 People Counted</div>
+                <div class="metric-value">42</div>
+                <div class="metric-sub">Raw Tracks: 45</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Emergency Count Results -->
+      <div class="job-section emergency-count">
+        <div class="job-title">
+          <div class="job-icon">🚨</div>
+          Emergency Analysis
+        </div>
+        <div class="glass-card">
+          <div class="results-container">
+            <!-- Media Preview -->
+            <div class="media-preview">
+              <div class="media-title">📹 Analysis Result</div>
+              <div class="video-container">
+                <div class="video-placeholder">
+                  <div class="video-icon">🚨</div>
+                  <div class="video-text">Emergency Analysis Video</div>
+                  <div class="video-subtext">
+                    Video with counting lines and emergency movement detection
+                  </div>
+                </div>
+                <div class="play-button">▶</div>
+                <div class="annotations-overlay">
+                  <!-- Emergency counting lines -->
+                  <div
+                    class="counting-line"
+                    style="
+                      top: 30%;
+                      left: 20%;
+                      width: 60%;
+                      transform: rotate(-15deg);
+                    "
+                  ></div>
+                  <div
+                    class="counting-line"
+                    style="
+                      top: 70%;
+                      left: 25%;
+                      width: 50%;
+                      transform: rotate(10deg);
+                    "
+                  ></div>
+                  <!-- Person detection boxes -->
+                  <div
+                    class="detection-box"
+                    style="top: 20%; left: 30%; width: 6%; height: 15%"
+                  >
+                    <div class="detection-label">Person</div>
+                  </div>
+                  <div
+                    class="detection-box"
+                    style="top: 50%; left: 55%; width: 7%; height: 18%"
+                  >
+                    <div class="detection-label">Alert</div>
+                  </div>
+                </div>
+                <div class="media-controls">
+                  <span style="color: white; font-size: 0.875rem">⏸️</span>
+                  <div class="progress-bar">
+                    <div class="progress-fill"></div>
+                  </div>
+                  <span style="color: white; font-size: 0.75rem"
+                    >2:15 / 5:30</span
+                  >
+                </div>
+              </div>
+            </div>
+            <div class="results-grid">
+              <div class="metric-card">
+                <div class="metric-label">🚶‍♂️ People In</div>
+                <div class="metric-value">28</div>
+                <div class="metric-sub">Fast: 25</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">🚶‍♀️ People Out</div>
+                <div class="metric-value">15</div>
+                <div class="metric-sub">Fast: 13</div>
+              </div>
+            </div>
+            <div class="alerts-section">
+              <div class="section-title">
+                🚨 Emergency Alerts
+                <span
+                  style="
+                    background: rgba(239, 68, 68, 0.2);
+                    color: #fca5a5;
+                    padding: 0.25rem 0.5rem;
+                    border-radius: 9999px;
+                    font-size: 0.75rem;
+                  "
+                  >3</span
+                >
+              </div>
+              <div class="alert-item alert-high">
+                <div class="alert-severity">HIGH</div>
+                <div class="alert-message">
+                  Crowd density exceeded threshold in main entrance
+                </div>
+                <div class="alert-time">2024-01-15 14:32:15</div>
+              </div>
+              <div class="alert-item alert-medium">
+                <div class="alert-severity">MEDIUM</div>
+                <div class="alert-message">
+                  Rapid movement detected near exit zone
+                </div>
+                <div class="alert-time">2024-01-15 14:28:42</div>
+              </div>
+              <div class="alert-item alert-low">
+                <div class="alert-severity">LOW</div>
+                <div class="alert-message">Normal flow restored</div>
+                <div class="alert-time">2024-01-15 14:35:18</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Car Count / ANPR Results -->
+      <div class="job-section car-count">
+        <div class="job-title">
+          <div class="job-icon">🚗</div>
+          Number Plate Detection
+        </div>
+        <div class="glass-card">
+          <div class="results-container">
+            <!-- Media Preview -->
+            <div class="media-preview">
+              <div class="media-title">📹 Analysis Result</div>
+              <div class="video-container">
+                <div class="video-placeholder">
+                  <div class="video-icon">🚗</div>
+                  <div class="video-text">ANPR Detection Video</div>
+                  <div class="video-subtext">
+                    Video with license plate detection and recognition
+                  </div>
+                </div>
+                <div class="play-button">▶</div>
+                <div class="annotations-overlay">
+                  <!-- Car and plate detection boxes -->
+                  <div
+                    class="detection-box"
+                    style="top: 45%; left: 25%; width: 20%; height: 12%"
+                  >
+                    <div class="detection-label">ABC-123</div>
+                  </div>
+                  <div
+                    class="detection-box"
+                    style="top: 35%; left: 60%; width: 18%; height: 10%"
+                  >
+                    <div class="detection-label">XYZ-789</div>
+                  </div>
+                  <div
+                    class="detection-box"
+                    style="top: 55%; left: 10%; width: 15%; height: 8%"
+                  >
+                    <div class="detection-label">LMN-456</div>
+                  </div>
+                </div>
+                <div class="media-controls">
+                  <span style="color: white; font-size: 0.875rem">⏸️</span>
+                  <div class="progress-bar">
+                    <div class="progress-fill"></div>
+                  </div>
+                  <span style="color: white; font-size: 0.75rem"
+                    >1:45 / 4:12</span
+                  >
+                </div>
+              </div>
+            </div>
+            <div class="results-grid">
+              <div class="metric-card">
+                <div class="metric-label">🔢 Number Plates</div>
+                <div class="metric-value">12</div>
+                <div class="metric-sub">Cars: 11</div>
+              </div>
+            </div>
+            <div class="details-section">
+              <div class="section-title">
+                📋 Recognized Number Plates
+                <span
+                  style="
+                    background: rgba(147, 51, 234, 0.2);
+                    color: #c084fc;
+                    padding: 0.25rem 0.5rem;
+                    border-radius: 9999px;
+                    font-size: 0.75rem;
+                  "
+                  >12</span
+                >
+              </div>
+              <div class="plates-grid">
+                <div class="plate-item">
+                  <div style="color: #a855f7">🚗</div>
+                  <div class="plate-text">ABC-123</div>
+                  <div class="plate-time">@ 14:25:30</div>
+                </div>
+                <div class="plate-item">
+                  <div style="color: #a855f7">🚗</div>
+                  <div class="plate-text">XYZ-789</div>
+                  <div class="plate-time">@ 14:27:15</div>
+                </div>
+                <div class="plate-item">
+                  <div style="color: #a855f7">🚗</div>
+                  <div class="plate-text">LMN-456</div>
+                  <div class="plate-time">@ 14:29:42</div>
+                </div>
+                <div class="plate-item">
+                  <div style="color: #a855f7">🚗</div>
+                  <div class="plate-text">DEF-321</div>
+                  <div class="plate-time">@ 14:31:18</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Parking Analysis Results -->
+      <div class="job-section parking-analysis">
+        <div class="job-title">
+          <div class="job-icon">🅿️</div>
+          Parking Analysis
+        </div>
+        <div class="glass-card">
+          <div class="results-container">
+            <div class="results-grid">
+              <div class="metric-card">
+                <div class="metric-label">📥 Entries</div>
+                <div class="metric-value">18</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">📤 Exits</div>
+                <div class="metric-value">12</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">📊 Max Occupancy</div>
+                <div class="metric-value">25</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">🏁 Final Occupancy</div>
+                <div class="metric-value">6</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pothole Detection Results -->
+      <div class="job-section pothole-detection">
+        <div class="job-title">
+          <div class="job-icon">🕳️</div>
+          Pothole Detection
+        </div>
+        <div class="glass-card">
+          <div class="results-container">
+            <!-- Media Preview -->
+            <div class="media-preview">
+              <div class="media-title">🖼️ Analysis Result</div>
+              <div class="image-container">
+                <div class="image-placeholder">
+                  <div class="video-icon">🛣️</div>
+                  <div class="video-text">Road Surface Analysis</div>
+                  <div class="video-subtext">
+                    Processed image with pothole detection and severity mapping
+                  </div>
+                </div>
+                <div class="annotations-overlay">
+                  <!-- Pothole detection boxes -->
+                  <div
+                    class="detection-box"
+                    style="
+                      top: 35%;
+                      left: 25%;
+                      width: 12%;
+                      height: 8%;
+                      border-color: #ef4444;
+                    "
+                  >
+                    <div class="detection-label" style="background: #ef4444">
+                      High Risk
+                    </div>
+                  </div>
+                  <div
+                    class="detection-box"
+                    style="
+                      top: 60%;
+                      left: 55%;
+                      width: 15%;
+                      height: 10%;
+                      border-color: #f59e0b;
+                    "
+                  >
+                    <div class="detection-label" style="background: #f59e0b">
+                      Medium Risk
+                    </div>
+                  </div>
+                  <div
+                    class="detection-box"
+                    style="
+                      top: 45%;
+                      left: 70%;
+                      width: 8%;
+                      height: 6%;
+                      border-color: #10b981;
+                    "
+                  >
+                    <div class="detection-label" style="background: #10b981">
+                      Low Risk
+                    </div>
+                  </div>
+                  <div
+                    class="detection-box"
+                    style="
+                      top: 25%;
+                      left: 65%;
+                      width: 10%;
+                      height: 7%;
+                      border-color: #ef4444;
+                    "
+                  >
+                    <div class="detection-label" style="background: #ef4444">
+                      High Risk
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="results-grid">
+              <div class="metric-card">
+                <div class="metric-label">🕳️ Potholes Detected</div>
+                <div class="metric-value">7</div>
+              </div>
+            </div>
+            <div class="details-section">
+              <div class="section-title">🔍 Detected Potholes</div>
+              <div class="potholes-grid">
+                <div class="pothole-item">
+                  <div class="pothole-id">Pothole #1</div>
+                  <div class="pothole-severity">Severity: High</div>
+                  <div class="pothole-confidence">Confidence: 92.5%</div>
+                </div>
+                <div class="pothole-item">
+                  <div class="pothole-id">Pothole #2</div>
+                  <div class="pothole-severity">Severity: Medium</div>
+                  <div class="pothole-confidence">Confidence: 87.3%</div>
+                </div>
+                <div class="pothole-item">
+                  <div class="pothole-id">Pothole #3</div>
+                  <div class="pothole-severity">Severity: Low</div>
+                  <div class="pothole-confidence">Confidence: 78.9%</div>
+                </div>
+                <div class="pothole-item">
+                  <div class="pothole-id">Pothole #4</div>
+                  <div class="pothole-severity">Severity: High</div>
+                  <div class="pothole-confidence">Confidence: 95.1%</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Lobby Detection Results -->
+      <div class="job-section lobby-detection">
+        <div class="job-title">
+          <div class="job-icon">🏢</div>
+          Lobby Detection
+        </div>
+        <div class="glass-card">
+          <div class="results-container">
+            <!-- Media Preview -->
+            <div class="media-preview">
+              <div class="media-title">📹 Analysis Result</div>
+              <div class="video-container">
+                <div class="video-placeholder">
+                  <div class="video-icon">🏢</div>
+                  <div class="video-text">Lobby Crowd Analysis</div>
+                  <div class="video-subtext">
+                    Video with zone detection and crowd density monitoring
+                  </div>
+                </div>
+                <div class="play-button">▶</div>
+                <div class="annotations-overlay">
+                  <!-- Zone overlays -->
+                  <div
+                    class="zone-polygon"
+                    style="top: 20%; left: 15%; width: 25%; height: 30%"
+                  >
+                    <div class="detection-label" style="background: #8b5cf6">
+                      Main Entrance
+                    </div>
+                  </div>
+                  <div
+                    class="zone-polygon"
+                    style="top: 25%; left: 45%; width: 20%; height: 25%"
+                  >
+                    <div class="detection-label" style="background: #8b5cf6">
+                      Reception
+                    </div>
+                  </div>
+                  <div
+                    class="zone-polygon"
+                    style="top: 55%; left: 20%; width: 35%; height: 20%"
+                  >
+                    <div class="detection-label" style="background: #8b5cf6">
+                      Waiting Zone
+                    </div>
+                  </div>
+                  <!-- People in zones -->
+                  <div
+                    class="detection-box"
+                    style="top: 30%; left: 25%; width: 5%; height: 12%"
+                  >
+                    <div class="detection-label">Person</div>
+                  </div>
+                  <div
+                    class="detection-box"
+                    style="top: 35%; left: 50%; width: 4%; height: 10%"
+                  >
+                    <div class="detection-label">Person</div>
+                  </div>
+                </div>
+                <div class="media-controls">
+                  <span style="color: white; font-size: 0.875rem">⏸️</span>
+                  <div class="progress-bar">
+                    <div class="progress-fill"></div>
+                  </div>
+                  <span style="color: white; font-size: 0.75rem"
+                    >3:22 / 8:45</span
+                  >
+                </div>
+              </div>
+            </div>
+            <div class="results-grid">
+              <div class="metric-card">
+                <div class="metric-label">👥 Total People</div>
+                <div class="metric-value">34</div>
+                <div class="metric-sub">Level: Moderate</div>
+              </div>
+            </div>
+            <div class="details-section">
+              <div class="section-title">📍 Zone Counts</div>
+              <div class="zones-grid">
+                <div class="zone-item">
+                  <div class="zone-name">Main Entrance</div>
+                  <div class="zone-count">12</div>
+                </div>
+                <div class="zone-item">
+                  <div class="zone-name">Reception Area</div>
+                  <div class="zone-count">8</div>
+                </div>
+                <div class="zone-item">
+                  <div class="zone-name">Waiting Zone</div>
+                  <div class="zone-count">14</div>
+                </div>
+              </div>
+            </div>
+            <div class="alerts-section">
+              <div class="section-title">
+                ⚠️ Zone Alerts
+                <span
+                  style="
+                    background: rgba(245, 158, 11, 0.2);
+                    color: #fcd34d;
+                    padding: 0.25rem 0.5rem;
+                    border-radius: 9999px;
+                    font-size: 0.75rem;
+                  "
+                  >2</span
+                >
+              </div>
+              <div class="alert-item" style="border-left-color: #f59e0b">
+                <div class="alert-severity" style="color: #f59e0b">
+                  Main Entrance
+                </div>
+                <div class="alert-message">
+                  Crowd threshold exceeded: 12 people (limit: 10)
+                </div>
+                <div class="alert-time">@ 14:35:22</div>
+              </div>
+              <div class="alert-item" style="border-left-color: #f59e0b">
+                <div class="alert-severity" style="color: #f59e0b">
+                  Waiting Zone
+                </div>
+                <div class="alert-message">High density detected</div>
+                <div class="alert-time">@ 14:33:45</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Wildlife Detection Results -->
+      <div class="job-section wildlife-detection">
+        <div class="job-title">
+          <div class="job-icon">🦌</div>
+          Wildlife Detection
+        </div>
+        <div class="glass-card">
+          <div class="results-container">
+            <!-- Media Preview -->
+            <div class="media-preview">
+              <div class="media-title">📹 Analysis Result</div>
+              <div class="video-container">
+                <div class="video-placeholder">
+                  <div class="video-icon">🦌</div>
+                  <div class="video-text">Wildlife Detection Video</div>
+                  <div class="video-subtext">
+                    Video with animal detection and species classification
+                  </div>
+                </div>
+                <div class="play-button">▶</div>
+                <div class="annotations-overlay">
+                  <!-- Wildlife detection boxes -->
+                  <div
+                    class="detection-box"
+                    style="
+                      top: 25%;
+                      left: 20%;
+                      width: 15%;
+                      height: 20%;
+                      border-color: #34d399;
+                    "
+                  >
+                    <div class="detection-label" style="background: #34d399">
+                      Deer - 94%
+                    </div>
+                  </div>
+                  <div
+                    class="detection-box"
+                    style="
+                      top: 50%;
+                      left: 60%;
+                      width: 8%;
+                      height: 12%;
+                      border-color: #34d399;
+                    "
+                  >
+                    <div class="detection-label" style="background: #34d399">
+                      Rabbit - 87%
+                    </div>
+                  </div>
+                  <div
+                    class="detection-box"
+                    style="
+                      top: 20%;
+                      left: 70%;
+                      width: 6%;
+                      height: 8%;
+                      border-color: #34d399;
+                    "
+                  >
+                    <div class="detection-label" style="background: #34d399">
+                      Bird - 91%
+                    </div>
+                  </div>
+                </div>
+                <div class="media-controls">
+                  <span style="color: white; font-size: 0.875rem">⏸️</span>
+                  <div class="progress-bar">
+                    <div class="progress-fill"></div>
+                  </div>
+                  <span style="color: white; font-size: 0.75rem"
+                    >4:15 / 7:20</span
+                  >
+                </div>
+              </div>
+            </div>
+            <div class="results-grid">
+              <div class="metric-card">
+                <div class="metric-label">🐾 Wildlife Detected</div>
+                <div class="metric-value">5</div>
+                <div class="metric-sub risk-medium">Risk: MEDIUM</div>
+              </div>
+            </div>
+            <div class="details-section">
+              <div class="section-title">🦋 Species Detected</div>
+              <div class="species-tags">
+                <div class="species-tag">Deer</div>
+                <div class="species-tag">Rabbit</div>
+                <div class="species-tag">Squirrel</div>
+                <div class="species-tag">Bird</div>
+              </div>
+            </div>
+            <div class="details-section">
+              <div class="section-title">📊 Detection Details</div>
+              <div class="alert-item" style="border-left-color: #10b981">
+                <div class="alert-severity" style="color: #34d399">Deer</div>
+                <div class="alert-time">Confidence: 94.2%</div>
+              </div>
+              <div class="alert-item" style="border-left-color: #10b981">
+                <div class="alert-severity" style="color: #34d399">Rabbit</div>
+                <div class="alert-time">Confidence: 87.6%</div>
+              </div>
+              <div class="alert-item" style="border-left-color: #10b981">
+                <div class="alert-severity" style="color: #34d399">
+                  Squirrel
+                </div>
+                <div class="alert-time">Confidence: 82.1%</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Food Waste Estimation Results -->
+      <div class="job-section food-waste">
+        <div class="job-title">
+          <div class="job-icon">🍽️</div>
+          Food Waste Estimation
+        </div>
+        <div class="glass-card">
+          <div class="results-container">
+            <!-- Note: Food waste estimation excludes media preview in JobResultRenderer -->
+            <div
+              style="
+                background: rgba(245, 158, 11, 0.1);
+                border: 1px solid rgba(245, 158, 11, 0.3);
+                border-radius: 1rem;
+                padding: 1.5rem;
+                margin-bottom: 2rem;
+                text-align: center;
+              "
+            >
+              <div
+                style="color: #fbbf24; font-weight: 600; margin-bottom: 0.5rem"
+              >
+                📝 Special Media Handling
+              </div>
+              <div style="color: #ffffff; font-size: 0.875rem">
+                Media display is handled internally by the specialized
+                FoodWasteResult component to provide customized nutrition
+                analysis visualization
+              </div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">📊 Uses Specialized Component</div>
+              <div class="metric-value" style="font-size: 1.5rem">
+                FoodWasteResult
+              </div>
+              <div class="metric-sub">
+                Detailed nutrition analysis with item breakdown
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Room Readiness Results -->
+      <div class="job-section room-readiness">
+        <div class="job-title">
+          <div class="job-icon">🛏️</div>
+          Room Readiness Analysis
+        </div>
+        <div class="glass-card">
+          <div class="results-container">
+            <!-- Media Preview -->
+            <div class="media-preview">
+              <div class="media-title">🖼️ Analysis Result</div>
+              <div class="image-container">
+                <div class="image-placeholder">
+                  <div class="video-icon">🛏️</div>
+                  <div class="video-text">Room Analysis Image</div>
+                  <div class="video-subtext">
+                    Processed image with room readiness assessment annotations
+                  </div>
+                </div>
+                <div class="annotations-overlay">
+                  <!-- Room element detection boxes -->
+                  <div
+                    class="detection-box"
+                    style="
+                      top: 20%;
+                      left: 30%;
+                      width: 25%;
+                      height: 15%;
+                      border-color: #10b981;
+                    "
+                  >
+                    <div class="detection-label" style="background: #10b981">
+                      Bed Made ✓
+                    </div>
+                  </div>
+                  <div
+                    class="detection-box"
+                    style="
+                      top: 60%;
+                      left: 15%;
+                      width: 20%;
+                      height: 12%;
+                      border-color: #10b981;
+                    "
+                  >
+                    <div class="detection-label" style="background: #10b981">
+                      Floor Clean ✓
+                    </div>
+                  </div>
+                  <div
+                    class="detection-box"
+                    style="
+                      top: 35%;
+                      left: 70%;
+                      width: 15%;
+                      height: 20%;
+                      border-color: #ef4444;
+                    "
+                  >
+                    <div class="detection-label" style="background: #ef4444">
+                      Trash Full ✗
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">🏨 Uses Specialized Component</div>
+              <div class="metric-value" style="font-size: 1.5rem">
+                RoomReadinessResult
+              </div>
+              <div class="metric-sub">
+                Comprehensive room checklist and readiness status
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div
+        style="
+          text-align: center;
+          margin-top: 4rem;
+          padding: 2rem;
+          border-top: 1px solid rgba(255, 255, 255, 0.1);
+        "
+      >
+        <p style="color: #9ca3af; font-size: 0.875rem">
+          IntelliVision Analytics Platform - All job types now support
+          comprehensive result rendering
+        </p>
+      </div>
+    </div>
+  </body>
+</html>
