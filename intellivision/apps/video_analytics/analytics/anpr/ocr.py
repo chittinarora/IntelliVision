@@ -85,8 +85,8 @@ class PlateOCR:
             try:
                 conf = float(data['conf'][i]) / 100.0
             except Exception as e:
-            logger.debug(f"OCR processing failed for plate {i}: {e}")
-            continue
+                logger.debug(f"OCR processing failed for plate {i}: {e}")
+                continue
             if conf > best_conf:
                 clean = re.sub(r'[^A-Za-z0-9]', '', raw).upper()
                 if clean:

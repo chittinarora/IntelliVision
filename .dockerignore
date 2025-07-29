@@ -1,118 +1,71 @@
-# Git
-.git
-.gitignore
-.gitattributes
-
-# Documentation
-README.md
-*.md
-docs/
-Documentation/
-
-# Logs
-logs/
-*.log
-
-# Media files (will be mounted as volumes)
-media/
-intellivision/media/
-
-# Cache directories
+# Python artifacts
 __pycache__/
 *.pyc
 *.pyo
+*.pyz
 *.pyd
-.Python
-*.so
-.cache/
-.pytest_cache/
-.coverage
-htmlcov/
 
 # Virtual environments
-venv/
-env/
-.venv/
-.env/
+intell_venv/
+p_venv/
+ultra_venv/
+*/venv/
 
-# IDE files
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
+# Media files
+*.jpg
+*.mp4
+samples/
+videos/
+intellivision/media/
 
-# OS files
-.DS_Store
-Thumbs.db
+# SQLite and Redis
+intellivision/db.sqlite3
+dump.rdb
 
-# Docker files
-Dockerfile*
-docker-compose*
-.dockerignore
+# Logs
+intellivision/logs/
+*.log
 
-# Test files
-tests/
-test_*.py
-*_test.py
+# Old installer scripts
+Miniconda3-latest-MacOSX-arm64.sh
 
-# Temporary files
-tmp/
-temp/
-*.tmp
+# Miscellaneous
+data.html
+test_youtube_api.sh
+folder_structure.txt
+package-lock.json
 
-# Build artifacts
-build/
-dist/
-*.egg-info/
+# Documentation duplicates
+Documentation/
+Overview/
 
-# Node modules (if any)
-node_modules/
-npm-debug.log*
+# Frontend (separate Git repo)
+intelli-vision/
 
-# YOLO cache (will be downloaded at runtime)
+# Backend temporary files
 intellivision/apps/video_analytics/models/yolo_cache/
 
-# Database files
-*.db
-*.sqlite3
+# Backend model files
+*.pt
+*.pth
 
 # Environment files
-.env.local
-.env.production
-.env.staging
+.env
+.env.*
+!.env.example
 
-# Backup files
-*.bak
-*.backup
+# macOS system files
+.DS_Store
 
-# Large files that shouldn't be in image
-videos/
-samples/
-*.mp4
-*.avi
-*.mov
-*.mkv
-*.wmv
-*.flv
-*.webm
-
-# Model files (will be downloaded at runtime)
-*.pth
-*.pt
-*.onnx
-*.tflite
-*.pb
-
-# Jupyter notebooks
-*.ipynb
-.ipynb_checkpoints/
+# IDE/editor folders
+.vscode/
+.idea/
+.ruff_cache/
+*.swp
 
 # Coverage reports
-.coverage
-coverage.xml
-htmlcov/
+coverage/
 
-# Profiling data
-*.prof
-*.lprof
+# Temporary files
+*.bak
+*.tmp

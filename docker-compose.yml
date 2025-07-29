@@ -113,10 +113,10 @@ services:
       - shared-tmp:/tmp
       - ./intellivision/media:/app/intellivision/media # Mount to where Apache expects files
       - ./logs:/app/intellivision/logs
-    runtime: nvidia
+    # runtime: nvidia  # Using --gpus flag instead (modern approach)
     environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      # - NVIDIA_VISIBLE_DEVICES=all  # Not needed with --gpus flag
+      # - NVIDIA_DRIVER_CAPABILITIES=compute,utility  # Not needed with --gpus flag
       - PYTHONPATH=/app/intellivision:/app
       - POSTGRES_DB=${POSTGRES_DB:-intellivision}
       - POSTGRES_USER=${POSTGRES_USER:-adminvision}
@@ -150,6 +150,11 @@ services:
         limits:
           cpus: "3.0"
           memory: 16G
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     logging:
       driver: "json-file"
       options:

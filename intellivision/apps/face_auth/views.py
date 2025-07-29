@@ -106,11 +106,11 @@ class RegisterFaceView(APIView):
 
         # Create temporary file for processing
         try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp:
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp:
                 for chunk in image.chunks():
                     tmp.write(chunk)
-            tmp.flush()
-            image_path = tmp.name
+                tmp.flush()
+                image_path = tmp.name
         except Exception as e:
             logger.error(f"Failed to save uploaded image: {e}")
             return standardized_error_response(
@@ -122,7 +122,7 @@ class RegisterFaceView(APIView):
 
         # Start background task
         try:
-        task = register_face_user_task.delay(username, image_path)
+            task = register_face_user_task.delay(username, image_path)
             logger.info(f"Registration task created for user {username}: {task.id}")
             return standardized_success_response(
                 task_id=task.id,
@@ -184,11 +184,11 @@ class LoginFaceView(APIView):
 
         # Create temporary file for processing
         try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp:
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp:
                 for chunk in image.chunks():
                     tmp.write(chunk)
-            tmp.flush()
-            image_path = tmp.name
+                tmp.flush()
+                image_path = tmp.name
         except Exception as e:
             logger.error(f"Failed to save uploaded image: {e}")
             return standardized_error_response(
@@ -200,7 +200,7 @@ class LoginFaceView(APIView):
 
         # Start background task
         try:
-        task = login_face_user_task.delay(image_path)
+            task = login_face_user_task.delay(image_path)
             logger.info(f"Login task created: {task.id}")
             return standardized_success_response(
                 task_id=task.id,
@@ -223,7 +223,7 @@ class TaskStatusView(APIView):
     def get(self, request, task_id):
         """Returns the current state and result of the given Celery task ID."""
         try:
-        result = AsyncResult(task_id)
+            result = AsyncResult(task_id)
         except Exception as e:
             logger.error(f"Failed to get task result for {task_id}: {e}")
             return standardized_error_response(
@@ -252,12 +252,12 @@ class TaskStatusView(APIView):
         if isinstance(res, dict):
             if res.get("success", False):
                 # Successful authentication/registration
-            return Response({
+                return Response({
                     "success": True,
-                "state": result.state,
+                    "state": result.state,
                     "message": res.get("message", "Authentication successful!"),
-                "token": res.get("token", None),
-                "name": res.get("name", ""),
+                    "token": res.get("token", None),
+                    "name": res.get("name", ""),
                     "image": res.get("image", ""),
                     "status": "completed"
                 })
@@ -287,7 +287,7 @@ class TaskStatusView(APIView):
                         "guidance": guidance
                     },
                     "status": "failed"
-            })
+                })
         else:
             # Handle unexpected result format or exceptions
             if isinstance(res, Exception):

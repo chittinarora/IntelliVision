@@ -78,7 +78,7 @@ echo "🔍 Checking Qdrant connection..."
 QDRANT_HOST=$(echo $QDRANT_URL | sed 's/http:\/\///' | sed 's/:[0-9]*//')
 QDRANT_PORT=$(echo $QDRANT_URL | sed 's/.*://' | sed 's/\/.*//')
 
-until curl -f http://$QDRANT_HOST:$QDRANT_PORT/health; do
+until curl -f http://$QDRANT_HOST:$QDRANT_PORT/collections; do
     echo "⏳ Waiting for Qdrant to be ready..."
     sleep 2
 done

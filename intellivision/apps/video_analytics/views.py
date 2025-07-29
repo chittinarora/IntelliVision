@@ -314,7 +314,7 @@ def get_youtube_frame_view(request):
     temp_frame_path = None
     try:
         logger.info(f"🎬 Fetching frame for YouTube URL: {youtube_url}")
-                    temp_video_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4").name
+        temp_video_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4").name
         ydl_opts = {
             'format': 'bestvideo[ext=mp4][vcodec=h264]+bestaudio[ext=m4a]/best[ext=mp4][vcodec=h264]/best[ext=mp4]',
             'outtmpl': temp_video_path,
@@ -362,7 +362,7 @@ def get_youtube_frame_view(request):
         finally:
             cap.release()
 
-                    temp_frame_path = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg").name
+        temp_frame_path = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg").name
         cv2.imwrite(temp_frame_path, frame)
 
         with open(temp_frame_path, 'rb') as f:
@@ -906,13 +906,13 @@ class VideoJobViewSet(viewsets.ModelViewSet):
                 }
             }, status=status.HTTP_404_NOT_FOUND)
 
-            except Exception as e:
+        except Exception as e:
             logger.error(f"Unexpected error during job deletion: {e}", exc_info=True)
-        return Response({
+            return Response({
                 'status': 'failed',
-            'job_type': 'job_deletion',
-            'output_image': None,
-            'output_video': None,
+                'job_type': 'job_deletion',
+                'output_image': None,
+                'output_video': None,
                 'data': {},
                 'meta': {
                     'timestamp': timezone.now().isoformat(),
