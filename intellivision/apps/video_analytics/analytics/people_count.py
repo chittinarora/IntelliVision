@@ -14,6 +14,7 @@ import time
 import numpy as np
 import logging
 import re
+import tempfile
 from pathlib import Path
 from tqdm import tqdm
 from typing import Dict, List, Optional
@@ -29,6 +30,9 @@ import torch.nn.functional as F
 
 from ..utils import load_yolo_model
 from ..convert import convert_to_web_mp4
+
+# Configure logging first
+logger = logging.getLogger("dubs_people_counting_comprehensive")
 
 # Import scipy with fallback
 try:
@@ -49,28 +53,6 @@ except ImportError:
 # ======================================
 # Logger and Constants
 # ======================================
-logger = logging.getLogger("dubs_people_counting_comprehensive")
-
-# Import progress logger
-try:
-    from ..progress_logger import create_progress_logger
-except ImportError:
-    def create_progress_logger(job_id, total_items, job_type, logger_name=None):
-        """Fallback progress logger if module not available."""
-        class DummyLogger:
-            def __init__(self, job_id, total_items, job_type, logger_name=None):
-                self.job_id = job_id
-                self.total_items = total_items
-                self.job_type = job_type
-                self.logger = logging.getLogger(logger_name or job_type)
-
-            def update_progress(self, processed_count, status=None, force_log=False):
-                self.logger.info(f"**Job {self.job_id}**: Progress {processed_count}/{self.total_items}")
-
-            def log_completion(self, final_count=None):
-                self.logger.info(f"**Job {self.job_id}**: Completed {self.job_type}")
-
-        return DummyLogger(job_id, total_items, job_type, logger_name)
 VALID_EXTENSIONS = {'.mp4', '.jpg', '.jpeg', '.png'}
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
@@ -804,15 +786,15 @@ class DubsComprehensivePeopleCounting:
                 self.device = 'mps'
                 logger.info("🍎 Using MPS (Apple Silicon GPU) for acceleration")
             elif torch.cuda.is_available():
-                self.device = 0  # Use first CUDA device
-                logger.info(f"🚀 Using CUDA GPU (device 0) for acceleration")
+                self.device = 'cuda:0'  # Fixed: Use cuda:0 instead of 0
+                logger.info(f"🚀 Using CUDA GPU (device cuda:0) for acceleration")
             else:
                 self.device = 'cpu'
                 logger.info("💻 Using CPU")
         elif device == 'cuda':
             if torch.cuda.is_available():
-                self.device = 0  # Use first CUDA device
-                logger.info(f"🚀 Using CUDA GPU (device 0) for acceleration")
+                self.device = 'cuda:0'  # Fixed: Use cuda:0 instead of 0
+                logger.info(f"🚀 Using CUDA GPU (device cuda:0) for acceleration")
             else:
                 self.device = 'cpu'
                 logger.warning("CUDA requested but not available, falling back to CPU")
@@ -834,13 +816,13 @@ class DubsComprehensivePeopleCounting:
                 )
             else:
                 logger.info("✅ Initializing ByteTrack (Re-ID disabled)...")
-                self.tracker = BotSort( # Changed from ByteTrack to BotSort
-                    reid_weights=REID_MODEL_PATH, # Assuming REID_MODEL_PATH is available for BotSort
+                self.tracker = BotSort(
+                    reid_weights=REID_MODEL_PATH,
                     device=self.device,
                     half=False,
-                    track_buffer=150, # Changed from 300 to 150
-                    match_thresh=0.65, # Changed from 0.65 to 0.65
-                    frame_rate=25 # Added frame_rate
+                    track_buffer=150,
+                    match_thresh=0.65,
+                    frame_rate=25
                 )
         except Exception as e:
             self.tracker = None
