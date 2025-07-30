@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IntelliVision - Job Results Preview</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                container: {
+                    center: true,
+                    padding: '2rem',
+                    screens: {
+                        '2xl': '1400px'
+                    }
+                },
+                extend: {
+                    colors: {
+                        border: 'hsl(var(--border))',
+                        input: 'hsl(var(--input))',
+                        ring: 'hsl(var(--ring))',
+                        background: 'hsl(var(--background))',
+                        foreground: 'hsl(var(--foreground))',
+                        primary: {
+                            DEFAULT: 'hsl(var(--primary))',
+                            foreground: 'hsl(var(--primary-foreground))'
+                        },
+                        secondary: {
+                            DEFAULT: 'hsl(var(--secondary))',
+                            foreground: 'hsl(var(--secondary-foreground))'
+                        },
+                        destructive: {
+                            DEFAULT: 'hsl(var(--destructive))',
+                            foreground: 'hsl(var(--destructive-foreground))'
+                        },
+                        muted: {
+                            DEFAULT: 'hsl(var(--muted))',
+                            foreground: 'hsl(var(--muted-foreground))'
+                        },
+                        accent: {
+                            DEFAULT: 'hsl(var(--accent))',
+                            foreground: 'hsl(var(--accent-foreground))'
+                        },
+                        popover: {
+                            DEFAULT: 'hsl(var(--popover))',
+                            foreground: 'hsl(var(--popover-foreground))'
+                        },
+                        card: {
+                            DEFAULT: 'hsl(var(--card))',
+                            foreground: 'hsl(var(--card-foreground))'
+                        },
+                    },
+                    borderRadius: {
+                        lg: 'var(--radius)',
+                        md: 'calc(var(--radius) - 2px)',
+                        sm: 'calc(var(--radius) - 4px)',
+                        '3xl': '1.5rem',
+                        '4xl': '2rem',
+                        '5xl': '2.5rem',
+                    },
+                }
+            }
+        }
+    </script>
+    <style type="text/tailwindcss">
+        @layer base {
+          :root {
+            --background: 222 84% 5%;
+            --foreground: 210 40% 98%;
+            --card: 222 84% 6%;
+            --card-foreground: 210 40% 98%;
+            --popover: 222 84% 5%;
+            --popover-foreground: 210 40% 98%;
+            --primary: 217 91% 60%;
+            --primary-foreground: 222 84% 5%;
+            --secondary: 217 33% 17%;
+            --secondary-foreground: 210 40% 98%;
+            --muted: 217 33% 17%;
+            --muted-foreground: 215 20% 65%;
+            --accent: 217 33% 17%;
+            --accent-foreground: 210 40% 98%;
+            --destructive: 0 63% 31%;
+            --destructive-foreground: 210 40% 98%;
+            --border: 217 33% 17%;
+            --input: 217 33% 17%;
+            --ring: 212 27% 84%;
+            --radius: 0.5rem;
+          }
+        }
+
+        @layer base {
+          * {
+            @apply border-border;
+          }
+          body {
+            @apply bg-background text-foreground;
+            font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          }
+        }
+
+        .job-section {
+            margin-bottom: 4rem;
+        }
+
+        .job-title {
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .job-icon {
+            width: 2rem;
+            height: 2rem;
+            padding: 0.4rem;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 1.5rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .results-container {
+            padding: 2rem;
+        }
+    </style>
+</head>
+<body class="p-8">
+    <div class="container mx-auto">
+        <div class="text-center mb-12">
+            <h1 class="text-4xl font-extrabold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent mb-2">
+                IntelliVision Analytics Results
+            </h1>
+            <p class="text-lg text-muted-foreground">
+                Real-time preview of job result rendering for all analytics types
+            </p>
+        </div>
+
+        <div id="previews-container"></div>
+
+    </div>
+
+    <script>
+        const jobTypes = [
+            'people-count',
+            'car-count',
+            'parking-analysis',
+            'emergency-count',
+            'pothole-detection',
+            'food-waste-estimation',
+            'room-readiness',
+            'lobby-detection',
+            'wildlife-detection'
+        ];
+
+        const jobIcons = {
+            'people-count': '👥',
+            'car-count': '🚗',
+            'parking-analysis': '🅿️',
+            'emergency-count': '🚨',
+            'pothole-detection': '🕳️',
+            'food-waste-estimation': '🍽️',
+            'room-readiness': '🛏️',
+            'lobby-detection': '🏢',
+            'wildlife-detection': '🦌'
+        };
+
+        const jobResults = {
+            'people-count': `
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div class="bg-card p-4 rounded-lg text-center">
+                        <div class="text-sm text-muted-foreground">People Counted</div>
+                        <div class="text-3xl font-bold">42</div>
+                    </div>
+                    <div class="bg-card p-4 rounded-lg text-center">
+                        <div class="text-sm text-muted-foreground">Raw Tracks</div>
+                        <div class="text-3xl font-bold">45</div>
+                    </div>
+                </div>`,
+            'car-count': `
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div class="bg-card p-4 rounded-lg text-center">
+                        <div class="text-sm text-muted-foreground">Vehicles Detected</div>
+                        <div class="text-3xl font-bold">11</div>
+                    </div>
+                    <div class="bg-card p-4 rounded-lg text-center">
+                        <div class="text-sm text-muted-foreground">License Plates</div>
+                        <div class="text-3xl font-bold">8</div>
+                    </div>
+                </div>
+                <div class="mt-4">
+                    <h5 class="text-lg font-bold mb-3">Detected Plates</h5>
+                    <div class="flex flex-wrap gap-2">
+                        <span class="px-3 py-1 bg-secondary text-secondary-foreground rounded-full text-sm font-semibold">ABC-123</span>
+                        <span class="px-3 py-1 bg-secondary text-secondary-foreground rounded-full text-sm font-semibold">XYZ-789</span>
+                        <span class="px-3 py-1 bg-secondary text-secondary-foreground rounded-full text-sm font-semibold">LMN-456</span>
+                    </div>
+                </div>`,
+            'parking-analysis': `
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div class="bg-card p-4 rounded-lg text-center">
+                        <div class="text-sm text-muted-foreground">Entries</div>
+                        <div class="text-3xl font-bold">18</div>
+                    </div>
+                    <div class="bg-card p-4 rounded-lg text-center">
+                        <div class="text-sm text-muted-foreground">Exits</div>
+                        <div class="text-3xl font-bold">12</div>
+                    </div>
+                    <div class="bg-card p-4 rounded-lg text-center">
+                        <div class="text-sm text-muted-foreground">Max Occupancy</div>
+                        <div class="text-3xl font-bold">25</div>
+                    </div>
+                    <div class="bg-card p-4 rounded-lg text-center">
+                        <div class="text-sm text-muted-foreground">Final Occupancy</div>
+                        <div class="text-3xl font-bold">6</div>
+                    </div>
+                </div>`,
+            'emergency-count': `
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="bg-card p-4 rounded-lg text-center">
+                        <div class="text-sm text-muted-foreground">People In</div>
+                        <div class="text-3xl font-bold">28</div>
+                        <div class="text-sm text-cyan-400">Fast: 25</div>
+                    </div>
+                    <div class="bg-card p-4 rounded-lg text-center">
+                        <div class="text-sm text-muted-foreground">People Out</div>
+                        <div class="text-3xl font-bold">15</div>
+                        <div class="text-sm text-cyan-400">Fast: 13</div>
+                    </div>
+                </div>
+                <div class="mt-4">
+                    <h5 class="text-lg font-bold mb-3">Emergency Alerts</h5>
+                    <div class="space-y-2">
+                        <div class="bg-card p-3 border-l-4 border-red-400">
+                            <div class="text-sm font-semibold text-red-200">ALERT</div>
+                            <div class="text-white">Crowd density exceeded threshold</div>
+                            <div class="text-xs text-muted-foreground">2024-01-15 14:32:15</div>
+                        </div>
+                    </div>
+                </div>`,
+            'pothole-detection': `
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div class="bg-card p-4 rounded-lg text-center">
+                        <div class="text-sm text-muted-foreground">Potholes Detected</div>
+                        <div class="text-3xl font-bold">7</div>
+                    </div>
+                </div>`,
+            'food-waste-estimation': `
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div class="bg-card text-center p-4">
+                        <div class="text-2xl font-bold text-emerald-400">12,345</div>
+                        <div class="text-sm text-muted-foreground mt-1">Total Calories</div>
+                    </div>
+                    <div class="bg-card text-center p-4">
+                        <div class="text-2xl font-bold text-emerald-400">1,234g</div>
+                        <div class="text-sm text-muted-foreground mt-1">Total Weight</div>
+                    </div>
+                    <div class="bg-card text-center p-4">
+                        <div class="text-2xl font-bold text-emerald-400">56</div>
+                        <div class="text-sm text-muted-foreground mt-1">Items Detected</div>
+                    </div>
+                </div>
+                <div class="mt-4">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                        <div class="bg-card p-3 text-sm">
+                            <div class="font-semibold truncate">Apple</div>
+                            <div class="flex justify-between text-xs text-muted-foreground">
+                                <span>100g</span>
+                                <span>52 cal</span>
+                            </div>
+                        </div>
+                        <div class="bg-card p-3 text-sm">
+                            <div class="font-semibold truncate">Banana</div>
+                            <div class="flex justify-between text-xs text-muted-foreground">
+                                <span>118g</span>
+                                <span>89 cal</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>`,
+            'room-readiness': `
+                <div>
+                    <div class="text-lg font-bold text-cyan-200 mb-2">Summary</div>
+                    <div class="bg-card p-6 flex flex-col items-start w-full rounded-lg">
+                        <div class="grid grid-cols-2 gap-6 items-center mb-1 w-full">
+                            <span class="text-xl font-extrabold text-emerald-400">Guest Ready</span>
+                            <span class="text-xl font-extrabold text-emerald-400 text-right">100/100</span>
+                        </div>
+                        <span class="text-sm text-muted-foreground">All items are ready &middot; Rooms analyzed: 1, Ready: 1, Issues: 0</span>
+                    </div>
+                </div>
+                <div class="mt-8">
+                    <div class="bg-card p-6 rounded-lg">
+                        <div class="flex items-center gap-3 mb-2">
+                            <span class="text-lg font-bold text-white capitalize">Standard Room</span>
+                            <span class="ml-4 flex items-center gap-2 px-3 py-1 rounded-full text-sm font-bold border-2 bg-emerald-500/20 border-emerald-500/40 text-emerald-400">Ready</span>
+                        </div>
+                        <div class="mt-4">
+                            <span class="text-lg font-bold text-blue-300 mb-4 flex items-center gap-2">Room Checklist</span>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div class="bg-secondary flex items-center justify-between p-3 rounded-lg">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-white/90 font-medium text-sm">Bed Made</span>
+                                    </div>
+                                    <span class="text-sm font-semibold text-emerald-400">Ready</span>
+                                </div>
+                                <div class="bg-secondary flex items-center justify-between p-3 rounded-lg">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-white/90 font-medium text-sm">Floor Clean</span>
+                                    </div>
+                                    <span class="text-sm font-semibold text-emerald-400">Ready</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>`,
+            'lobby-detection': `
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div class="bg-card p-4 rounded-lg text-center">
+                        <div class="text-sm text-muted-foreground">Total People</div>
+                        <div class="text-3xl font-bold">34</div>
+                        <div class="text-sm text-cyan-400">Level: Moderate</div>
+                    </div>
+                </div>
+                <div class="mt-4">
+                    <h5 class="text-lg font-bold mb-3">Zone Counts</h5>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        <div class="bg-card p-3">
+                            <div class="text-sm font-semibold text-purple-200">Main Entrance</div>
+                            <div class="text-lg font-bold">12</div>
+                        </div>
+                        <div class="bg-card p-3">
+                            <div class="text-sm font-semibold text-purple-200">Reception Area</div>
+                            <div class="text-lg font-bold">8</div>
+                        </div>
+                        <div class="bg-card p-3">
+                            <div class="text-sm font-semibold text-purple-200">Waiting Zone</div>
+                            <div class="text-lg font-bold">14</div>
+                        </div>
+                    </div>
+                </div>`,
+            'wildlife-detection': `
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div class="bg-card p-4 rounded-lg text-center">
+                        <div class="text-sm text-muted-foreground">Snakes Detected</div>
+                        <div class="text-3xl font-bold">0</div>
+                    </div>
+                    <div class="bg-card p-4 rounded-lg text-center">
+                        <div class="text-sm text-muted-foreground">Animals Detected</div>
+                        <div class="text-3xl font-bold">5</div>
+                    </div>
+                </div>
+                <div class="mt-4">
+                    <h5 class="text-lg font-bold mb-3">Detected Animals</h5>
+                    <div class="space-y-2">
+                        <div class="bg-card p-3">
+                            <div class="text-sm font-semibold text-green-200">Deer</div>
+                            <div class="text-xs text-muted-foreground">Confidence: 94.2%</div>
+                        </div>
+                        <div class="bg-card p-3">
+                            <div class="text-sm font-semibold text-green-200">Rabbit</div>
+                            <div class="text-xs text-muted-foreground">Confidence: 87.6%</div>
+                        </div>
+                    </div>
+                </div>`,
+        };
+
+        const previewsContainer = document.getElementById('previews-container');
+
+        jobTypes.forEach(jobType => {
+            const section = document.createElement('div');
+            section.className = `job-section ${jobType}`;
+
+            const title = document.createElement('div');
+            title.className = 'job-title';
+            title.innerHTML = `<div class="job-icon">${jobIcons[jobType]}</div> ${jobType.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}`;
+
+            const card = document.createElement('div');
+            card.className = 'glass-card';
+
+            const container = document.createElement('div');
+            container.className = 'results-container';
+            container.innerHTML = jobResults[jobType];
+
+            card.appendChild(container);
+            section.appendChild(title);
+            section.appendChild(card);
+            previewsContainer.appendChild(section);
+        });
+    </script>
+
+</body>
+</html>

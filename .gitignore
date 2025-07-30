@@ -5,6 +5,10 @@ __pycache__/
 *.pyz
 *.pyd
 
+.claude
+.cursorignore
+CLAUDE.md
+
 # Virtual environments
 intell_venv/
 p_venv/

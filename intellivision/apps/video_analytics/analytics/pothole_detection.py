@@ -291,6 +291,9 @@ def run_pothole_detection(input_path: str, output_path: str, job_id: str = None)
             job_id = job_id_match.group(1) if job_id_match else str(int(time.time()))
 
         output_filename = output_path if output_path else f"outputs/pothole_{job_id}.mp4"
+        
+        # Define MAX_FRAMES before using it
+        MAX_FRAMES = 200
 
         # Initialize progress logger
         progress_logger = create_progress_logger(
@@ -301,7 +304,6 @@ def run_pothole_detection(input_path: str, output_path: str, job_id: str = None)
 
         with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp_out:
             out = cv2.VideoWriter(tmp_out.name, cv2.VideoWriter_fourcc(*'mp4v'), output_fps, (width, height))
-            MAX_FRAMES = 200
             frame_idx = 0
             processed_frames = 0
             total_potholes = 0

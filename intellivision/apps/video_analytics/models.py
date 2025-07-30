@@ -48,11 +48,22 @@ RESULT_SCHEMAS = {
     },
     "emergency-count": {
         "type": "object",
-        "required": ["processed_frames", "total_frames", "emergency_count"],
+        "required": ["in_count", "out_count", "fast_in_count", "fast_out_count", "alerts"],
         "properties": {
-            "processed_frames": {"type": "number"},
-            "total_frames": {"type": "number"},
-            "emergency_count": {"type": "number"}
+            "in_count": {"type": "number"},
+            "out_count": {"type": "number"},
+            "fast_in_count": {"type": "number"},
+            "fast_out_count": {"type": "number"},
+            "alerts": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "message": {"type": "string"},
+                        "timestamp": {"type": "string"}
+                    }
+                }
+            }
         }
     },
     "food-waste-estimation": {

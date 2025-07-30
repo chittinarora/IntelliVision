@@ -469,13 +469,14 @@ def extract_key_bedroom_frames(video_path: str, output_dir: Path = OUTPUT_DIR) -
     logger.debug("Starting intelligent frame extraction (1 frame/sec sampling)...")
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    original_video_path = str(video_path)
     video_path = Path(video_path)
-    is_valid, error_msg = validate_input_file(video_path.name)
+    is_valid, error_msg = validate_input_file(original_video_path)
     if not is_valid:
         logger.error(f"Invalid input: {error_msg}")
         return []
     try:
-        with default_storage.open(video_path.name, 'rb') as f:
+        with default_storage.open(original_video_path, 'rb') as f:
             with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
                 tmp.write(f.read())
                 tmp_path = tmp.name
@@ -925,8 +926,9 @@ def analyze_room_video_multi_zone_only(video_path: str, output_path: str = None,
     if job_id:
         logger.info(f"🚀 Starting room readiness video job {job_id}")
 
+    original_video_path = str(video_path)
     video_path = Path(video_path)
-    is_valid, error_msg = validate_input_file(video_path.name)
+    is_valid, error_msg = validate_input_file(original_video_path)
     if not is_valid:
         logger.error(f"Invalid input: {error_msg}")
         return {
@@ -938,7 +940,7 @@ def analyze_room_video_multi_zone_only(video_path: str, output_path: str = None,
             'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
             'error': {'message': error_msg, 'code': 'INVALID_INPUT'}
         }
-    frame_paths = extract_key_bedroom_frames(video_path.name, output_dir)
+    frame_paths = extract_key_bedroom_frames(original_video_path, output_dir)
     if not frame_paths:
         return {
             'status': 'failed',

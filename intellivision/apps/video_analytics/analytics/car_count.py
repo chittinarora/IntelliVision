@@ -60,7 +60,7 @@ MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 MODELS_DIR = BASE_DIR / 'video_analytics' / 'models'
 PLATE_MODEL = MODELS_DIR / 'best_car.pt'
-CAR_MODEL = MODELS_DIR / 'yolo11m_car.pt'
+CAR_MODEL = MODELS_DIR / 'yolo11m.pt'
 
 # Define OUTPUT_DIR with fallback
 try:
@@ -71,7 +71,7 @@ except AttributeError:
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Check model existence
-MODEL_FILES = ["best_car.pt", "yolo11m_car.pt"]
+MODEL_FILES = ["best_car.pt", "yolo11m.pt"]
 for model_file in MODEL_FILES:
     if not (MODELS_DIR / model_file).exists():
         logger.error(f"Model file missing: {model_file}")
@@ -374,6 +374,8 @@ def process_image_file(image_path: str, output_path: str = None, job_id: str = N
 
         if output and os.path.exists(output):
             final_output_path = output
+            # Generate URL for the output file
+            output_url = default_storage.url(output) if hasattr(default_storage, 'url') else f"/media/{output}"
             logger.info(f"✅ Car detection completed, output saved to {final_output_path}")
         else:
             logger.error(f"Output image not created: {output}")

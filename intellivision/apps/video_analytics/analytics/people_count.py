@@ -105,7 +105,7 @@ RTDETR_CONF_CLOSE = 0.30
 RTDETR_CONF_MEDIUM = 0.35
 RTDETR_CONF_FAR = 0.40
 DEFAULT_NMS_IOU_THRESH = 0.4
-MIN_LIFETIME_FRAMES = 40
+MIN_LIFETIME_FRAMES = 25
 
 # Define OUTPUT_DIR with fallback
 try:
@@ -1046,9 +1046,6 @@ class DubsComprehensivePeopleCounting:
                 'error': {'message': error_msg, 'code': 'INVALID_INPUT'}
             }
 
-        # Get just the filename for storage operati        # Remove the line that extracts only filename
-        # image_filename = Path(image_path).name
-
         try:
             with default_storage.open(image_path, 'rb') as f:
                 frame = cv2.imdecode(np.frombuffer(f.read(), np.uint8), cv2.IMREAD_COLOR)
@@ -1207,7 +1204,9 @@ class DubsComprehensivePeopleCounting:
                             for t in tracks:
                                 track_info = {'id': int(t[4]), 'bbox': t[:4]}
                                 if len(t) > 7 and t[-1] is not None:
-                                    track_info['reid_features'] = t[-1]
+                                    # Ensure Re-ID features are 1D array for cosine similarity compatibility
+                                    reid_features = np.squeeze(t[-1])
+                                    track_info['reid_features'] = reid_features
                                 x1, y1, x2, y2 = t[:4]
                                 center_x, center_y = int((x1 + x2) / 2), int((y1 + y2) / 2)
                                 if depth_map is not None and 0 <= center_y < height and 0 <= center_x < width:

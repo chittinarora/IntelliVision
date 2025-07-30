@@ -398,28 +398,29 @@ def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, custo
             'error': {'message': error_msg, 'code': 'INVALID_INPUT'}
         }
 
-    # Validate emergency lines configuration
+    # Validate line definitions configuration
     try:
-        if not emergency_lines or not isinstance(emergency_lines, list):
-            raise ValueError("Emergency lines configuration is required and must be a list")
+        if not line_definitions or not isinstance(line_definitions, dict):
+            raise ValueError("Line definitions configuration is required and must be a dictionary")
 
-        if len(emergency_lines) != 2:
-            raise ValueError("Exactly 2 emergency lines are required (entry and exit)")
+        if len(line_definitions) != 2:
+            raise ValueError("Exactly 2 line definitions are required (entry and exit)")
 
-        for i, line in enumerate(emergency_lines):
-            if not isinstance(line, dict):
-                raise ValueError(f"Emergency line {i+1} must be a dictionary")
-            required_fields = ['startX', 'startY', 'endX', 'endY']
-            if not all(field in line for field in required_fields):
-                raise ValueError(f"Emergency line {i+1} missing required fields: {required_fields}")
-            if not all(isinstance(line[field], (int, float)) for field in required_fields):
-                raise ValueError(f"Emergency line {i+1} coordinates must be numbers")
+        for line_name, line_data in line_definitions.items():
+            if not isinstance(line_data, dict):
+                raise ValueError(f"Line definition '{line_name}' must be a dictionary")
+            if 'coords' not in line_data:
+                raise ValueError(f"Line definition '{line_name}' missing 'coords' field")
+            coords = line_data['coords']
+            if not isinstance(coords, list) or len(coords) != 2:
+                raise ValueError(f"Line definition '{line_name}' coords must be a list of 2 points")
+            for i, point in enumerate(coords):
+                if not isinstance(point, list) or len(point) != 2:
+                    raise ValueError(f"Line definition '{line_name}' point {i+1} must be [x, y]")
+                if not all(isinstance(coord, (int, float)) for coord in point):
+                    raise ValueError(f"Line definition '{line_name}' point {i+1} coordinates must be numbers")
 
-        # Validate video dimensions if provided
-        if video_width is not None and (not isinstance(video_width, (int, float)) or video_width <= 0):
-            raise ValueError("Video width must be a positive number")
-        if video_height is not None and (not isinstance(video_height, (int, float)) or video_height <= 0):
-            raise ValueError("Video height must be a positive number")
+        # Video dimensions validation removed - handled by caller
 
     except Exception as e:
         error_msg = f"Line configuration error: {str(e)}"
@@ -680,8 +681,25 @@ def tracking_video(video_path: str, output_path: str, line_configs: dict, video_
         job_type="emergency_count"
     )
 
+    # Convert emergency lines list to line_definitions dictionary format
+    if isinstance(line_configs, list) and len(line_configs) == 2:
+        line_definitions = {
+            "entry_line": {
+                "coords": [[line_configs[0]["start_x"], line_configs[0]["start_y"]], 
+                          [line_configs[0]["end_x"], line_configs[0]["end_y"]]],
+                "inDirection": line_configs[0].get("in_direction", "UP")
+            },
+            "exit_line": {
+                "coords": [[line_configs[1]["start_x"], line_configs[1]["start_y"]], 
+                          [line_configs[1]["end_x"], line_configs[1]["end_y"]]],
+                "inDirection": line_configs[1].get("in_direction", "UP")
+            }
+        }
+    else:
+        line_definitions = line_configs
+
     progress_logger.update_progress(0, status="Starting emergency counting analysis...", force_log=True)
-    result = run_optimal_yolov12x_counting(video_path, line_configs, None, output_path, job_id)
+    result = run_optimal_yolov12x_counting(video_path, line_definitions, None, output_path, job_id)
     progress_logger.update_progress(100, status="Emergency counting completed", force_log=True)
     progress_logger.log_completion(100)
 
