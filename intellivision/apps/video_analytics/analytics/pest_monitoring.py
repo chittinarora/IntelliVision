@@ -236,8 +236,12 @@ def detect_snakes_in_image(image_path: str, output_path: str = None, job_id: str
             'error': {'message': str(e), 'code': 'PROCESSING_ERROR'}
         }
     finally:
-        if 'tmp' in locals() and os.path.exists(tmp.name):
-            os.remove(tmp.name)
+        # Fix: Check if tmp exists before trying to access it
+        if 'tmp' in locals() and hasattr(tmp, 'name') and os.path.exists(tmp.name):
+            try:
+                os.remove(tmp.name)
+            except Exception as e:
+                logger.warning(f"Failed to clean up temporary file: {e}")
 
 def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str = None) -> Dict:
     """
@@ -366,7 +370,6 @@ def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str
             out.release()
 
             # Create temporary file for web conversion
-            import tempfile
             with tempfile.NamedTemporaryFile(suffix='_web.mp4', delete=False) as web_tmp:
                 web_tmp_path = web_tmp.name
 

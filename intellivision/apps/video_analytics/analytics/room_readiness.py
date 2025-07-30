@@ -849,7 +849,6 @@ You MUST provide checklist entries for ALL required parameters. Do not skip any 
             }
         }
         # Create temporary output file for tasks.py integration
-        import tempfile
         if isinstance(image_path, str):
             input_image_path = image_path
         else:

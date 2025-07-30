@@ -593,7 +593,6 @@ def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, custo
 
             # Create temporary file for web conversion
             from ..convert import convert_to_web_mp4
-            import tempfile
             with tempfile.NamedTemporaryFile(suffix='_web.mp4', delete=False) as web_tmp:
                 web_tmp_path = web_tmp.name
 

@@ -237,7 +237,6 @@ def analyze_food_image(image_path: str, output_path: str = None, job_id: str = N
             }
 
         # Create temporary output file for tasks.py integration
-        import tempfile
         with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as output_tmp:
             # Copy original image to temporary file for output
             with default_storage.open(image_path, 'rb') as f:

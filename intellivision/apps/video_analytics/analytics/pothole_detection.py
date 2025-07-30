@@ -367,7 +367,6 @@ def run_pothole_detection(input_path: str, output_path: str, job_id: str = None)
             progress_logger.log_completion(processed_frames)
 
             # Create temporary file for web conversion
-            import tempfile
             with tempfile.NamedTemporaryFile(suffix='_web.mp4', delete=False) as web_tmp:
                 web_tmp_path = web_tmp.name
 

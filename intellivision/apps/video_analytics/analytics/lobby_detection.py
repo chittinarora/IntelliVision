@@ -551,7 +551,6 @@ def run_crowd_analysis(source_path: str, zone_configs: dict, output_path: str = 
             writer.release()
 
             # Create temporary file for web conversion
-            import tempfile
             with tempfile.NamedTemporaryFile(suffix='_web.mp4', delete=False) as web_tmp:
                 web_tmp_path = web_tmp.name
 
