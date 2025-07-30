@@ -71,7 +71,6 @@ HEADERS = {
 
 def validate_input_file(file_path: str) -> tuple[bool, str]:
     """Validate file type and size."""
-    file_path = Path(file_path).name
     if not default_storage.exists(file_path):
         return False, f"File not found: {file_path}"
 
@@ -149,7 +148,6 @@ def analyze_food_image(image_path: str, output_path: str = None, job_id: str = N
     if job_id:
         logger.info(f"🚀 Starting food waste estimation job {job_id}")
 
-    image_path = Path(image_path).name
     is_valid, error_msg = validate_input_file(image_path)
     if not is_valid:
         logger.error(f"Invalid input: {error_msg}")

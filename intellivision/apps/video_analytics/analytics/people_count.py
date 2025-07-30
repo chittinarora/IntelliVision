@@ -1046,8 +1046,8 @@ class DubsComprehensivePeopleCounting:
                 'error': {'message': error_msg, 'code': 'INVALID_INPUT'}
             }
 
-        # Get just the filename for storage operations
-        image_filename = Path(image_path).name
+        # Get just the filename for storage operati        # Remove the line that extracts only filename
+        # image_filename = Path(image_path).name
 
         try:
             with default_storage.open(image_path, 'rb') as f:
@@ -1131,7 +1131,8 @@ class DubsComprehensivePeopleCounting:
             }
 
         # Get just the filename for storage operations
-        video_filename = Path(video_path).name
+        # Remove the line that extracts only filename
+        # video_filename = Path(video_path).name
 
         try:
             image_files = []
@@ -1153,7 +1154,7 @@ class DubsComprehensivePeopleCounting:
                         tmp_path = tmp.name
                 cap = cv2.VideoCapture(tmp_path)
                 if not cap.isOpened():
-                    raise ValueError(f"Cannot open video: {video_filename}")
+                    raise ValueError(f"Cannot open video: {video_path}")
                 width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                 height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                 fps = cap.get(cv2.CAP_PROP_FPS) or 25
@@ -1166,7 +1167,7 @@ class DubsComprehensivePeopleCounting:
                 logger.info(f"🔍 Using passed job_id parameter: {output_job_id}")
             else:
                 # Fallback to filename extraction
-                extracted_id = re.search(r'(\d+)', video_filename)
+                extracted_id = re.search(r'(\d+)', video_path)
                 output_job_id = extracted_id.group(1) if extracted_id else str(int(time.time()))
                 logger.info(f"🔍 Using extracted job_id from filename: {output_job_id}")
 

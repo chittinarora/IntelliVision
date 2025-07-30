@@ -83,7 +83,6 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 def validate_input_file(file_path: str) -> tuple[bool, str]:
     """Validate file type and size."""
-    file_path = Path(file_path).name
     if not default_storage.exists(file_path):
         return False, f"File not found: {file_path}"
     ext = os.path.splitext(file_path)[1].lower()
@@ -137,8 +136,8 @@ def run_pothole_image_detection(image_path: str, output_path: str = None, job_id
         Standardized response dictionary with filesystem paths
     """
     start_time = time.time()
-    input_path = Path(input_path).name
-    is_valid, error_msg = validate_input_file(input_path)
+
+    is_valid, error_msg = validate_input_file(image_path)
     if not is_valid:
         logger.error(f"Invalid input: {error_msg}")
         return {
@@ -153,7 +152,7 @@ def run_pothole_image_detection(image_path: str, output_path: str = None, job_id
 
     try:
         # Load image
-        with default_storage.open(input_path, 'rb') as f:
+        with default_storage.open(image_path, 'rb') as f:
             frame = cv2.imdecode(np.frombuffer(f.read(), np.uint8), cv2.IMREAD_COLOR)
         if frame is None:
             logger.error("Failed to read image")
@@ -248,7 +247,7 @@ def run_pothole_detection(input_path: str, output_path: str, job_id: str = None)
         Standardized response dictionary
     """
     start_time = time.time()
-    input_path = Path(input_path).name
+
     is_valid, error_msg = validate_input_file(input_path)
     if not is_valid:
         logger.error(f"Invalid input: {error_msg}")

@@ -112,7 +112,6 @@ for model_file in MODEL_FILES:
 
 def validate_input_file(file_path: str) -> tuple[bool, str]:
     """Validate file type and size."""
-    file_path = Path(file_path).name
     if not default_storage.exists(file_path):
         return False, f"File not found: {file_path}"
     ext = os.path.splitext(file_path)[1].lower()
@@ -149,7 +148,6 @@ def detect_snakes_in_image(image_path: str, output_path: str = None, job_id: str
     if job_id:
         logger.info(f"🚀 Starting snake detection job {job_id}")
 
-    image_path = Path(image_path).name
     is_valid, error_msg = validate_input_file(image_path)
     if not is_valid:
         logger.error(f"Invalid input: {error_msg}")
@@ -202,7 +200,7 @@ def detect_snakes_in_image(image_path: str, output_path: str = None, job_id: str
             "detected_snakes": num_snakes,
             "detected_animals": detected_animals,
             "timestamp": datetime.now(),
-            "output_url": output_url
+            "output_url": output_path
         }
         result = snake_collection.insert_one(mongo_doc)
 
@@ -259,7 +257,6 @@ def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str
     if job_id:
         logger.info(f"🚀 Starting snake detection video job {job_id}")
 
-    video_path = Path(video_path).name
     is_valid, error_msg = validate_input_file(video_path)
     if not is_valid:
         logger.error(f"Invalid input: {error_msg}")
@@ -388,7 +385,7 @@ def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str
                 "detected_snakes": total_detected,
                 "detected_animals": detected_animals,
                 "timestamp": datetime.now(),
-                "output_url": output_url
+                "output_url": output_path
             }
             result = snake_collection.insert_one(mongo_doc)
 
@@ -454,7 +451,6 @@ def tracking_image(input_path: str, output_path: str = None, job_id: str = None)
         Dict with detection results and filesystem paths
     """
     start_time = time.time()
-    input_path = Path(input_path).name
 
     # Validate input
     is_valid, error_msg = validate_input_file(input_path)

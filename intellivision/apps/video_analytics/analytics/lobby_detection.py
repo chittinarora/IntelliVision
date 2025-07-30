@@ -114,7 +114,6 @@ for model_file in MODEL_FILES:
 
 def validate_input_file(file_path: str) -> tuple[bool, str]:
     """Validate file type and size."""
-    file_path = Path(file_path).name
     if not default_storage.exists(file_path):
         return False, f"File not found: {file_path}"
     ext = os.path.splitext(file_path)[1].lower()
@@ -299,7 +298,6 @@ def run_crowd_analysis(source_path: str, zone_configs: dict, output_path: str = 
     if job_id:
         logger.info(f"🚀 Starting lobby detection job {job_id}")
 
-    source_path = Path(source_path).name
     is_valid, error_msg = validate_input_file(source_path)
     if not is_valid:
         logger.error(f"Invalid input: {error_msg}")

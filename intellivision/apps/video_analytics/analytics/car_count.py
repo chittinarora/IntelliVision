@@ -101,7 +101,6 @@ parking_lock = Lock()
 
 def validate_input_file(file_path: str) -> tuple[bool, str]:
     """Validate file type and size."""
-    file_path = Path(file_path).name
     if not default_storage.exists(file_path):
         return False, f"File not found: {file_path}"
     ext = os.path.splitext(file_path)[1].lower()
@@ -127,7 +126,7 @@ def recognize_number_plates(video_path: str) -> Dict:
         Standardized response dictionary
     """
     start_time = time.time()
-    video_path = Path(video_path).name
+
     is_valid, error_msg = validate_input_file(video_path)
     if not is_valid:
         logger.error(f"Invalid input: {error_msg}")
@@ -233,7 +232,6 @@ def analyze_parking_video(video_path: str, output_path: str = None, job_id: str 
     if job_id:
         logger.info(f"🚀 Starting car detection video job {job_id}")
 
-    video_path = Path(video_path).name
     is_valid, error_msg = validate_input_file(video_path)
     if not is_valid:
         logger.error(f"Invalid input: {error_msg}")
@@ -353,7 +351,6 @@ def process_image_file(image_path: str, output_path: str = None, job_id: str = N
     if job_id:
         logger.info(f"🚀 Starting car detection job {job_id}")
 
-    image_path = Path(image_path).name
     is_valid, error_msg = validate_input_file(image_path)
     if not is_valid:
         logger.error(f"Invalid input: {error_msg}")

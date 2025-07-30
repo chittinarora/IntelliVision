@@ -319,7 +319,6 @@ class EnhancedCleanAnalyzer:
 
 def validate_input_file(file_path: str) -> tuple[bool, str]:
     """Validate file type and size."""
-    file_path = Path(file_path).name
     if not default_storage.exists(file_path):
         return False, f"File not found: {file_path}"
 
@@ -357,8 +356,6 @@ def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, custo
     # Add job_id logging for progress tracking
     if job_id:
         logger.info(f"🚀 Starting emergency count job {job_id}")
-
-    video_path = Path(video_path).name
 
     # Validate file exists and is accessible
     try:
