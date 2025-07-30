@@ -131,17 +131,24 @@ def get_mock_response() -> Dict:
     retry=retry_if_exception_type((requests.exceptions.RequestException,)),
     reraise=True
 )
-def analyze_food_image(image_path: str) -> Dict:
+def analyze_food_image(image_path: str, output_path: str = None, job_id: str = None) -> Dict:
     """
     Analyze a food image to identify items, estimate portions, calories, and waste.
 
     Args:
         image_path: Path to input image
+        output_path: Path to save output image (for tasks.py integration)
+        job_id: VideoJob ID for progress tracking
 
     Returns:
-        Standardized response dictionary
+        Standardized response dictionary with filesystem paths
     """
     start_time = time.time()
+
+    # Add job_id logging for progress tracking
+    if job_id:
+        logger.info(f"🚀 Starting food waste estimation job {job_id}")
+
     image_path = Path(image_path).name
     is_valid, error_msg = validate_input_file(image_path)
     if not is_valid:
@@ -231,16 +238,20 @@ def analyze_food_image(image_path: str) -> Dict:
                 'error': {'message': parsed['error'], 'code': 'API_PARSING_ERROR'}
             }
 
-        # Save output image
-        output_filename = f"outputs/food_waste_{image_path}"
-        with default_storage.open(image_path, 'rb') as f:
-            default_storage.save(output_filename, f)
-        output_url = default_storage.url(output_filename)
+        # Create temporary output file for tasks.py integration
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as output_tmp:
+            # Copy original image to temporary file for output
+            with default_storage.open(image_path, 'rb') as f:
+                output_tmp.write(f.read())
+            final_output_path = output_tmp.name
+
+        logger.info(f"✅ Food waste analysis completed, output saved to {final_output_path}")
 
         return {
             'status': 'completed',
             'job_type': 'food_waste_estimation',
-            'output_image': output_url,
+            'output_image': final_output_path,
             'output_video': None,
             'data': {**parsed, 'alerts': []},
             'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
@@ -288,7 +299,7 @@ def tracking_image(input_path: str, job_id: str) -> Dict:
     # Update progress to show processing started
     progress_logger.update_progress(0, status="Initializing image analysis...", force_log=True)
 
-    result = analyze_food_image(input_path)
+    result = analyze_food_image(input_path, None, job_id)
 
     # Update progress to show completion
     progress_logger.update_progress(1, status="Analysis completed", force_log=True)

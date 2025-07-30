@@ -124,15 +124,17 @@ def send_frame_to_roboflow(frame) -> List[Dict[str, Any]]:
 # Main Analysis Functions
 # ======================================
 
-def run_pothole_image_detection(input_path: str) -> Dict[str, Any]:
+def run_pothole_image_detection(image_path: str, output_path: str = None, job_id: str = None) -> Dict[str, Any]:
     """
     Process an image for pothole detection.
 
     Args:
         input_path: Path to input image
+        output_path: Path to save output image (for tasks.py integration)
+        job_id: VideoJob ID for progress tracking
 
     Returns:
-        Standardized response dictionary
+        Standardized response dictionary with filesystem paths
     """
     start_time = time.time()
     input_path = Path(input_path).name
@@ -193,21 +195,17 @@ def run_pothole_image_detection(input_path: str) -> Dict[str, Any]:
         cv2.putText(frame, f"Total Potholes: {len(potholes)}", (10, 25),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
-        # Save output
-        job_id = re.search(r'(\d+)', input_path)
-        job_id = job_id.group(1) if job_id else str(int(time.time()))
-        output_filename = f"outputs/pothole_{job_id}.jpg"
+        # Create temporary output file for tasks.py integration
         with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
             cv2.imwrite(tmp.name, frame)
-            with open(tmp.name, 'rb') as f:
-                default_storage.save(output_filename, f)
-        output_url = default_storage.url(output_filename)
+            final_output_path = tmp.name
 
+        logger.info(f"✅ Pothole detection completed, output saved to {final_output_path}")
         processing_time = time.time() - start_time
         return {
             'status': 'completed',
             'job_type': 'pothole_detection',
-            'output_image': output_url,
+            'output_image': final_output_path,
             'output_video': None,
             'data': {
                 'total_potholes': len(potholes),
@@ -369,19 +367,25 @@ def run_pothole_detection(input_path: str, output_path: str, job_id: str = None)
             # Log completion
             progress_logger.log_completion(processed_frames)
 
-            with open(tmp_out.name, 'rb') as f:
-                default_storage.save(output_filename, f)
-            output_url = default_storage.url(output_filename)
-            web_output_filename = output_filename.replace('.mp4', '_web.mp4')
-            if convert_to_web_mp4(tmp_out.name, web_output_filename):
-                output_url = default_storage.url(web_output_filename)
-                os.remove(tmp_out.name)
+            # Create temporary file for web conversion
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix='_web.mp4', delete=False) as web_tmp:
+                web_tmp_path = web_tmp.name
+
+            logger.info(f"🔄 Attempting ffmpeg conversion: {tmp_out.name} -> {web_tmp_path}")
+            if convert_to_web_mp4(tmp_out.name, web_tmp_path):
+                final_output_path = web_tmp_path  # Use converted file
+                logger.info(f"✅ FFmpeg conversion successful")
+            else:
+                final_output_path = tmp_out.name  # Fallback to original
+                logger.warning(f"⚠️ FFmpeg conversion failed, using original file")
+
             processing_time = time.time() - start_time
             return {
                 'status': 'completed',
                 'job_type': 'pothole_detection',
                 'output_image': None,
-                'output_video': output_url,
+                'output_video': final_output_path,
                 'data': {
                     'total_potholes': total_potholes,
                     'frames': frame_details,
@@ -413,7 +417,11 @@ def run_pothole_detection(input_path: str, output_path: str, job_id: str = None)
             out.release()
         if 'tmp_path' in locals() and os.path.exists(tmp_path):
             os.remove(tmp_path)
-        if 'tmp_out' in locals() and os.path.exists(tmp_out.name):
+        # Note: final_output_path is not cleaned up here as tasks.py needs it
+        # tasks.py will handle cleanup after saving to Django storage
+        # Only clean up tmp_out if it's not the final_output_path
+        if ('tmp_out' in locals() and 'final_output_path' in locals() and
+            tmp_out.name != final_output_path and os.path.exists(tmp_out.name)):
             os.remove(tmp_out.name)
 
 # ======================================
@@ -438,9 +446,9 @@ def tracking_video(input_path: str, output_path: str = None, job_id: str = None)
     ext = os.path.splitext(input_path)[1].lower()
     image_exts = ['.jpg', '.jpeg', '.png']
     if ext in image_exts:
-        result = run_pothole_image_detection(input_path)
+        result = run_pothole_image_detection(input_path, output_path, job_id)
     else:
-        result = run_pothole_detection(input_path, output_path)
+        result = run_pothole_detection(input_path, output_path, job_id)
 
     processing_time = time.time() - start_time
     result['meta']['processing_time_seconds'] = processing_time

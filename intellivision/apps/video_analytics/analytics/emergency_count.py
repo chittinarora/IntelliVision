@@ -338,7 +338,7 @@ def validate_input_file(file_path: str) -> tuple[bool, str]:
 # Main Analysis Function
 # ======================================
 
-def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, custom_params: OptimalParams = None) -> Dict:
+def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, custom_params: OptimalParams = None, output_path: str = None, job_id: str = None) -> Dict:
     """
     Count people crossing lines in a video for emergency analysis using YOLOv12x and BotSort.
 
@@ -346,11 +346,18 @@ def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, custo
         video_path: Path to input video
         line_definitions: Dictionary of line configs (coords and direction)
         custom_params: Optional custom parameters
+        output_path: Path to save output video (for tasks.py integration)
+        job_id: VideoJob ID for progress tracking
 
     Returns:
-        Standardized response dictionary
+        Standardized response dictionary with filesystem paths
     """
     start_time = time.time()
+
+    # Add job_id logging for progress tracking
+    if job_id:
+        logger.info(f"🚀 Starting emergency count job {job_id}")
+
     video_path = Path(video_path).name
 
     # Validate file exists and is accessible
@@ -445,9 +452,10 @@ def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, custo
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
         # Setup output video
-        job_id = re.search(r'(\d+)', video_path)
-        job_id = job_id.group(1) if job_id else str(int(time.time()))
-        output_filename = f"outputs/output_{job_id}.mp4"
+        # Extract job ID from video path if not provided as parameter
+        extracted_job_id = re.search(r'(\d+)', video_path)
+        file_job_id = extracted_job_id.group(1) if extracted_job_id else str(int(time.time()))
+        output_filename = f"outputs/output_{file_job_id}.mp4"
         with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp_out:
             writer = cv2.VideoWriter(tmp_out.name, cv2.VideoWriter_fourcc(*'mp4v'), fps, (width, height))
 
@@ -586,17 +594,19 @@ def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, custo
             cap.release()
             writer.release()
 
-            # Save output video
-            with open(tmp_out.name, 'rb') as f:
-                default_storage.save(output_filename, f)
-            output_url = default_storage.url(output_filename)
-
-            # Convert to web-friendly MP4
+            # Create temporary file for web conversion
             from ..convert import convert_to_web_mp4
-            web_output_filename = output_filename.replace('.mp4', '_web.mp4')
-            if convert_to_web_mp4(tmp_out.name, web_output_filename):
-                output_url = default_storage.url(web_output_filename)
-                os.remove(tmp_out.name)
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix='_web.mp4', delete=False) as web_tmp:
+                web_tmp_path = web_tmp.name
+
+            logger.info(f"🔄 Attempting ffmpeg conversion: {tmp_out.name} -> {web_tmp_path}")
+            if convert_to_web_mp4(tmp_out.name, web_tmp_path):
+                final_output_path = web_tmp_path  # Use converted file
+                logger.info(f"✅ FFmpeg conversion successful")
+            else:
+                final_output_path = tmp_out.name  # Fallback to original
+                logger.warning(f"⚠️ FFmpeg conversion failed, using original file")
 
             # Finalize analysis
             clean_analyzer.finalize_analysis()
@@ -608,7 +618,7 @@ def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, custo
                 'status': 'completed',
                 'job_type': 'emergency_count',
                 'output_image': None,
-                'output_video': output_url,
+                'output_video': final_output_path,
                 'data': {
                     'in_count': final_clean_in,
                     'out_count': final_clean_out,
@@ -637,9 +647,13 @@ def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, custo
             'error': {'message': str(e), 'code': 'PROCESSING_ERROR'}
         }
     finally:
+        # Note: final_output_path is not cleaned up here as tasks.py needs it
+        # tasks.py will handle cleanup after saving to Django storage
         if 'tmp_path' in locals() and os.path.exists(tmp_path):
             os.remove(tmp_path)
-        if 'tmp_out' in locals() and os.path.exists(tmp_out.name):
+        # Only clean up tmp_out if it's not the final_output_path
+        if ('tmp_out' in locals() and 'final_output_path' in locals() and
+            tmp_out.name != final_output_path and os.path.exists(tmp_out.name)):
             os.remove(tmp_out.name)
 
 
@@ -671,7 +685,7 @@ def tracking_video(video_path: str, output_path: str, line_configs: dict, video_
     )
 
     progress_logger.update_progress(0, status="Starting emergency counting analysis...", force_log=True)
-    result = run_optimal_yolov12x_counting(video_path, line_configs)
+    result = run_optimal_yolov12x_counting(video_path, line_configs, None, output_path, job_id)
     progress_logger.update_progress(100, status="Emergency counting completed", force_log=True)
     progress_logger.log_completion(100)
 

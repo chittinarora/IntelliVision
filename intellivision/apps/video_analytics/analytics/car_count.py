@@ -215,17 +215,24 @@ def recognize_number_plates(video_path: str) -> Dict:
             'error': {'message': str(e), 'code': 'PROCESSING_ERROR'}
         }
 
-def analyze_parking_video(video_path: str) -> Dict:
+def analyze_parking_video(video_path: str, output_path: str = None, job_id: str = None) -> Dict:
     """
     Process video for parking analysis.
 
     Args:
         video_path: Path to input video
+        output_path: Path to save output video (for tasks.py integration)
+        job_id: VideoJob ID for progress tracking
 
     Returns:
-        Standardized response dictionary
+        Standardized response dictionary with filesystem paths
     """
     start_time = time.time()
+
+    # Add job_id logging for progress tracking
+    if job_id:
+        logger.info(f"🚀 Starting car detection video job {job_id}")
+
     video_path = Path(video_path).name
     is_valid, error_msg = validate_input_file(video_path)
     if not is_valid:
@@ -249,17 +256,19 @@ def analyze_parking_video(video_path: str) -> Dict:
             logger.info(f"Starting parking analysis: {video_path}")
             output, summary = sync_parking_processor.process_video(video_path)
 
-        if output and default_storage.exists(output):
-            web_output = output.replace('.mp4', '_web.mp4')
-            with default_storage.open(output, 'rb') as f:
-                with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
-                    tmp.write(f.read())
-                    tmp_path = tmp.name
-            if convert_to_web_mp4(tmp_path, web_output):
-                default_storage.save(web_output, open(tmp_path, 'rb'))
-                output = web_output
-                os.remove(tmp_path)
-            output_url = default_storage.url(output)
+        if output and os.path.exists(output):
+            # Create temporary file for web conversion
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix='_web.mp4', delete=False) as web_tmp:
+                web_tmp_path = web_tmp.name
+
+            logger.info(f"🔄 Attempting ffmpeg conversion: {output} -> {web_tmp_path}")
+            if convert_to_web_mp4(output, web_tmp_path):
+                final_output_path = web_tmp_path  # Use converted file
+                logger.info(f"✅ FFmpeg conversion successful")
+            else:
+                final_output_path = output  # Fallback to original
+                logger.warning(f"⚠️ FFmpeg conversion failed, using original file")
         else:
             logger.error(f"Output video not created: {output}")
             return {
@@ -289,11 +298,11 @@ def analyze_parking_video(video_path: str) -> Dict:
             'status': 'completed',
             'job_type': 'car_count',
             'output_image': None,
-            'output_video': output_url,
+            'output_video': final_output_path,
             'data': {
                 'summary': summary,
-                'preview_url': output_url,
-                'download_url': output_url,
+                'preview_url': final_output_path,
+                'download_url': final_output_path,
                 'alerts': [{"message": f"Plate {p} detected", "timestamp": timezone.now().isoformat()} for p in summary.get('recognized_plates', [])]
             },
             'meta': {
@@ -326,17 +335,24 @@ def analyze_parking_video(video_path: str) -> Dict:
             'error': {'message': str(e), 'code': 'PROCESSING_ERROR'}
         }
 
-def process_image_file(image_path: str) -> Dict:
+def process_image_file(image_path: str, output_path: str = None, job_id: str = None) -> Dict:
     """
     Process an image for license plate detection.
 
     Args:
         image_path: Path to input image
+        output_path: Path to save output image (for tasks.py integration)
+        job_id: VideoJob ID for progress tracking
 
     Returns:
-        Standardized response dictionary
+        Standardized response dictionary with filesystem paths
     """
     start_time = time.time()
+
+    # Add job_id logging for progress tracking
+    if job_id:
+        logger.info(f"🚀 Starting car detection job {job_id}")
+
     image_path = Path(image_path).name
     is_valid, error_msg = validate_input_file(image_path)
     if not is_valid:
@@ -360,8 +376,9 @@ def process_image_file(image_path: str) -> Dict:
             logger.info(f"Processing image: {image_path}")
             output, detections = sync_anpr_processor.process_image(image_path)
 
-        if output and default_storage.exists(output):
-            output_url = default_storage.url(output)
+        if output and os.path.exists(output):
+            final_output_path = output
+            logger.info(f"✅ Car detection completed, output saved to {final_output_path}")
         else:
             logger.error(f"Output image not created: {output}")
             return {
@@ -378,7 +395,7 @@ def process_image_file(image_path: str) -> Dict:
         result = {
             'status': 'completed',
             'job_type': 'car_count',
-            'output_image': output_url,
+            'output_image': final_output_path,
             'output_video': None,
             'data': {
                 'annotated_image': output,
@@ -1068,12 +1085,11 @@ def tracking_video(input_path: str, output_path: str = None, job_id: str = None)
         )
 
         progress_logger.update_progress(0, status="Processing image...", force_log=True)
-        result = process_image_file(input_path)
+        result = process_image_file(input_path, output_path, job_id)
         progress_logger.update_progress(1, status="Analysis completed", force_log=True)
         progress_logger.log_completion(1)
     else:
-        # For video processing, we'll need to modify the analyze_parking_video method to accept job_id
-        # For now, we'll use a simple progress logger
+        # Initialize progress logger for video processing
         progress_logger = create_progress_logger(
             job_id=str(job_id) if job_id else "unknown",
             total_items=100,  # Estimate for video frames
@@ -1081,7 +1097,7 @@ def tracking_video(input_path: str, output_path: str = None, job_id: str = None)
         )
 
         progress_logger.update_progress(0, status="Starting video processing...", force_log=True)
-        result = analyze_parking_video(input_path)
+        result = analyze_parking_video(input_path, output_path, job_id)
         progress_logger.update_progress(100, status="Video processing completed", force_log=True)
         progress_logger.log_completion(100)
 

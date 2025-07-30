@@ -569,17 +569,24 @@ def optimize_image_for_api(image_path: str, max_size: int = MAX_IMAGE_SIZE) -> s
 # Main Analysis Functions
 # ======================================
 
-def analyze_room_image(image_path: Union[str, List[str]]) -> Dict:
+def analyze_room_image(image_path: Union[str, List[str]], output_path: str = None, job_id: str = None) -> Dict:
     """
     Analyze room image(s) for readiness using Azure OpenAI API.
 
     Args:
         image_path: Path to input image or list of images
+        output_path: Path to save output image (for tasks.py integration)
+        job_id: VideoJob ID for progress tracking
 
     Returns:
-        Standardized response dictionary
+        Standardized response dictionary with filesystem paths
     """
     start_time = time.time()
+
+    # Add job_id logging for progress tracking
+    if job_id:
+        logger.info(f"🚀 Starting room readiness image job {job_id}")
+
     if isinstance(image_path, str):
         image_paths, is_multi_frame = [image_path], False
     elif isinstance(image_path, list) and image_path:
@@ -842,13 +849,29 @@ You MUST provide checklist entries for ALL required parameters. Do not skip any 
                 "efficiency": f"{len(all_issues) / max(1, sum(len(r.get('checklist', [])) for r in updated_individual_reports)) * 100:.1f}%"
             }
         }
-        output_image = image_path if isinstance(image_path, str) else valid_paths[0] if valid_paths else None
-        output_url = default_storage.url(output_image) if output_image else None
+        # Create temporary output file for tasks.py integration
+        import tempfile
+        if isinstance(image_path, str):
+            input_image_path = image_path
+        else:
+            input_image_path = valid_paths[0] if valid_paths else None
+
+        if input_image_path:
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as output_tmp:
+                # Copy original image to temporary file for output
+                with default_storage.open(input_image_path, 'rb') as f:
+                    output_tmp.write(f.read())
+                final_output_path = output_tmp.name
+        else:
+            final_output_path = None
+
         processing_time = time.time() - start_time
+        logger.info(f"✅ Room readiness image analysis completed, output saved to {final_output_path}")
+
         return {
             'status': 'completed',
             'job_type': 'room_readiness',
-            'output_image': output_url,
+            'output_image': final_output_path,
             'output_video': None,
             'data': unified_data,
             'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': processing_time, 'frames_analyzed': len(valid_paths)},
@@ -885,18 +908,25 @@ You MUST provide checklist entries for ALL required parameters. Do not skip any 
             'error': {'message': f"Failed to parse API response: {str(e)}", 'code': 'API_PARSING_ERROR'}
         }
 
-def analyze_room_video_multi_zone_only(video_path: str, output_dir: Path = OUTPUT_DIR) -> Dict:
+def analyze_room_video_multi_zone_only(video_path: str, output_path: str = None, job_id: str = None, output_dir: Path = OUTPUT_DIR) -> Dict:
     """
     Analyze video for room readiness by extracting frames and using Azure OpenAI API.
 
     Args:
         video_path: Path to input video
+        output_path: Path to save output video (for tasks.py integration)
+        job_id: VideoJob ID for progress tracking
         output_dir: Directory to save extracted frames
 
     Returns:
-        Standardized response dictionary
+        Standardized response dictionary with filesystem paths
     """
     start_time = time.time()
+
+    # Add job_id logging for progress tracking
+    if job_id:
+        logger.info(f"🚀 Starting room readiness video job {job_id}")
+
     video_path = Path(video_path).name
     is_valid, error_msg = validate_input_file(video_path)
     if not is_valid:
@@ -921,7 +951,7 @@ def analyze_room_video_multi_zone_only(video_path: str, output_dir: Path = OUTPU
             'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
             'error': {'message': 'No frames could be extracted from video', 'code': 'FRAME_EXTRACTION_ERROR'}
         }
-    result = analyze_room_image(frame_paths)
+    result = analyze_room_image(frame_paths, output_path, job_id)
     processing_time = time.time() - start_time
     if result.get('status') == 'completed':
         return {
@@ -1035,32 +1065,37 @@ def get_actionable_fixes(data: Dict) -> List[Dict]:
 # Celery Integration
 # ======================================
 
-def tracking_video(video_path: str, output_dir: str = str(OUTPUT_DIR)) -> Dict:
+def tracking_video(video_path: str, output_path: str = None, job_id: str = None, output_dir: str = str(OUTPUT_DIR)) -> Dict:
     """
     Celery task for room readiness analysis.
 
     Args:
-        self: Celery task instance
         video_path: Path to input video
+        output_path: Path to save output video (for tasks.py integration)
+        job_id: VideoJob ID for progress tracking
         output_dir: Directory to save output frames
 
     Returns:
         Standardized response dictionary
     """
     start_time = time.time()
-    job_id = re.search(r'(\d+)', video_path)
-    job_id = job_id.group(1) if job_id else str(int(time.time()))
-    logger.info(f"🚀 Starting room readiness job {job_id}")
+    # Extract job ID from video path if not provided as parameter
+    extracted_job_id = re.search(r'(\d+)', video_path)
+    file_job_id = extracted_job_id.group(1) if extracted_job_id else str(int(time.time()))
+
+    # Use provided job_id or fallback to extracted/generated one
+    effective_job_id = job_id or file_job_id
+    logger.info(f"🚀 Starting room readiness job {effective_job_id}")
 
     # Initialize progress logger for video processing
     progress_logger = create_progress_logger(
-        job_id=str(job_id) if job_id else "unknown",
+        job_id=str(effective_job_id),
         total_items=100,  # Estimate for video frames
         job_type="room_readiness"
     )
 
     progress_logger.update_progress(0, status="Starting room readiness analysis...", force_log=True)
-    result = analyze_room_video_multi_zone_only(video_path, Path(output_dir))
+    result = analyze_room_video_multi_zone_only(video_path, output_path, job_id, Path(output_dir))
     progress_logger.update_progress(100, status="Room readiness analysis completed", force_log=True)
     progress_logger.log_completion(100)
 

@@ -23,7 +23,6 @@ from celery import shared_task
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.utils import timezone
-import mimetypes
 
 # Third-party imports for YouTube processing
 import cv2
@@ -367,8 +366,23 @@ def process_video_job(self, job_id: int) -> None:
                 result_data[output_path_key] = final_output_url
                 result_data['output_path'] = final_output_url
                 logger.info(f"✅ Job {job_id}: Output saved at {final_output_url}")
+
+                # Clean up temporary file after successful save
+                try:
+                    if os.path.exists(output_file_path):
+                        os.remove(output_file_path)
+                        logger.info(f"🗑️ Job {job_id}: Cleaned up temporary file: {output_file_path}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Job {job_id}: Failed to clean up temporary file {output_file_path}: {e}")
             else:
                 logger.error(f"❌ Job {job_id}: Failed to save output")
+                # Clean up temporary file even if save failed
+                try:
+                    if os.path.exists(output_file_path):
+                        os.remove(output_file_path)
+                        logger.info(f"🗑️ Job {job_id}: Cleaned up temporary file after save failure: {output_file_path}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Job {job_id}: Failed to clean up temporary file after save failure {output_file_path}: {e}")
         else:
             logger.info(f"ℹ️ Job {job_id}: No output file generated")
 
@@ -419,25 +433,18 @@ Functions for handling YouTube video downloads and frame extraction in Celery wo
 def download_youtube_video(youtube_url: str, temp_path: str, quality: str = 'best') -> Dict[str, Any]:
     """
     Download YouTube video using yt-dlp in Celery worker.
-
-    Args:
-        youtube_url: YouTube URL to download
-        temp_path: Temporary file path for download
-        quality: Video quality ('best', 'worst', etc.)
-
-    Returns:
-        Dict with download info and status
+    Supports authenticated downloads if YOUTUBE_COOKIES_PATH is set.
     """
     import yt_dlp
+    from django.conf import settings
+    import os
 
     try:
         logger.info(f"🎬 Downloading YouTube video: {youtube_url}")
 
         if quality == 'worst':
-            # For frame extraction, use lowest quality to minimize download
             format_selector = 'worst[ext=mp4]/worst'
         else:
-            # For full processing, use best quality
             format_selector = 'bestvideo[ext=mp4][vcodec=h264]+bestaudio[ext=m4a]/best[ext=mp4][vcodec=h264]/best[ext=mp4]'
 
         ydl_opts = {
@@ -449,13 +456,26 @@ def download_youtube_video(youtube_url: str, temp_path: str, quality: str = 'bes
             'socket_timeout': 60,  # Longer timeout for Celery
         }
 
+        # Add cookies if available
+        cookies_path = getattr(settings, 'YOUTUBE_COOKIES_PATH', None)
+        if cookies_path and os.path.exists(cookies_path):
+            ydl_opts['cookiefile'] = cookies_path
+            logger.info("Using authentication cookies for YouTube download.")
+        else:
+            logger.info("No authentication cookies provided for YouTube download.")
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # First validate URL
-            info = ydl.extract_info(youtube_url, download=False)
+            try:
+                info = ydl.extract_info(youtube_url, download=False)
+            except yt_dlp.utils.DownloadError as e:
+                # Check for authentication-required error
+                if 'sign in to confirm you’re not a bot' in str(e).lower() or 'cookies' in str(e).lower():
+                    return {'success': False, 'error': 'This video requires authentication. Please provide a valid cookies.txt file for YouTube.'}
+                return {'success': False, 'error': str(e)}
+
             if not info:
                 return {'success': False, 'error': 'Invalid YouTube URL or video not available'}
 
-            # Check file size limits
             filesize = info.get('filesize') or info.get('filesize_approx', 0)
             if filesize and filesize > MAX_FILE_SIZE:
                 return {
@@ -464,7 +484,12 @@ def download_youtube_video(youtube_url: str, temp_path: str, quality: str = 'bes
                 }
 
             # Download the video
-            ydl.download([youtube_url])
+            try:
+                ydl.download([youtube_url])
+            except yt_dlp.utils.DownloadError as e:
+                if 'sign in to confirm you’re not a bot' in str(e).lower() or 'cookies' in str(e).lower():
+                    return {'success': False, 'error': 'This video requires authentication. Please provide a valid cookies.txt file for YouTube.'}
+                return {'success': False, 'error': str(e)}
 
         # Verify download
         if not os.path.exists(temp_path):

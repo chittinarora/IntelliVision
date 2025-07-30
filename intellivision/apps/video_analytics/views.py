@@ -293,6 +293,13 @@ def _create_and_dispatch_job(request, job_type: str, extra_data: Dict[str, Any] 
 
     except yt_dlp.utils.DownloadError as e:
         logger.error(f"YouTube download failed for {job_type}: {e}", exc_info=True)
+        # Custom error for authentication-required videos
+        if 'requires authentication' in str(e).lower() or 'provide a valid cookies.txt' in str(e).lower():
+            return create_error_response(
+                "This YouTube video requires authentication. Please provide a valid cookies.txt file exported from your browser (see documentation).",
+                'YOUTUBE_AUTH_REQUIRED',
+                job_type
+            )
         return create_error_response(
             f"Failed to download YouTube video: {str(e)}",
             'DOWNLOAD_ERROR',

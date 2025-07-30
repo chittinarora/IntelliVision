@@ -36,13 +36,11 @@ def update_job_progress(job_id: int, processed_frames: int, total_frames: int, f
                 'total_frames': total_frames,
             })
 
-            # Update meta with FPS if provided
-            if not job.meta:
-                job.meta = {}
+            # Fix: VideoJob model doesn't have a 'meta' field, store FPS in results instead
             if fps is not None:
-                job.meta['fps'] = fps
+                job.results['fps'] = fps
 
-            job.save(update_fields=['results', 'meta'])
+            job.save(update_fields=['results'])
 
     except Exception as e:
         logger.warning(f"⚠️ Failed to update progress for job {job_id}: {e}")

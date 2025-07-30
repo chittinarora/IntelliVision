@@ -45,9 +45,9 @@ COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/pytho
 COPY --from=builder /usr/local/bin /usr/local/bin
 COPY --from=builder /usr/lib /usr/lib
 
-# Install postgresql-client and curl in final stage too (ensures pg_isready and health check are available at runtime)
+# Install postgresql-client, curl, and ffmpeg in final stage (ensures all tools are available at runtime)
 RUN apt-get update && apt-get upgrade -y && \
-    apt-get install -y postgresql-client curl redis-tools && \
+    apt-get install -y postgresql-client curl redis-tools ffmpeg tesseract-ocr && \
     apt-get clean
 
 # Copy backend files

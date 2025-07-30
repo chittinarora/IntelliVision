@@ -280,18 +280,25 @@ def setup_best_tracker(device, fps):
 # Main Analysis Function
 # ======================================
 
-def run_crowd_analysis(source_path: str, zone_configs: dict) -> Dict:
+def run_crowd_analysis(source_path: str, zone_configs: dict, output_path: str = None, job_id: str = None) -> Dict:
     """
     Process video for crowd analysis in lobby zones.
 
     Args:
         source_path: Path to input video
         zone_configs: Dictionary of zone configurations
+        output_path: Path to save output video (for tasks.py integration)
+        job_id: VideoJob ID for progress tracking
 
     Returns:
-        Standardized response dictionary
+        Standardized response dictionary with filesystem paths
     """
     start_time = time.time()
+
+    # Add job_id logging for progress tracking
+    if job_id:
+        logger.info(f"🚀 Starting lobby detection job {job_id}")
+
     source_path = Path(source_path).name
     is_valid, error_msg = validate_input_file(source_path)
     if not is_valid:
@@ -377,9 +384,10 @@ def run_crowd_analysis(source_path: str, zone_configs: dict) -> Dict:
         logger.info(f"Using model: {model_name} on device: {device}")
 
         # Setup output
-        job_id = re.search(r'(\d+)', source_path)
-        job_id = job_id.group(1) if job_id else str(int(time.time()))
-        output_filename = f"outputs/output_crowd_{job_id}.mp4"
+        # Extract job ID from source path if not provided as parameter
+        extracted_job_id = re.search(r'(\d+)', source_path)
+        file_job_id = extracted_job_id.group(1) if extracted_job_id else str(int(time.time()))
+        output_filename = f"outputs/output_crowd_{file_job_id}.mp4"
         with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp_out:
             writer = cv2.VideoWriter(tmp_out.name, cv2.VideoWriter_fourcc(*'mp4v'), video_info.fps, video_info.resolution_wh)
 
@@ -543,13 +551,19 @@ def run_crowd_analysis(source_path: str, zone_configs: dict) -> Dict:
 
             cap.release()
             writer.release()
-            with open(tmp_out.name, 'rb') as f:
-                default_storage.save(output_filename, f)
-            output_url = default_storage.url(output_filename)
-            web_output_filename = output_filename.replace('.mp4', '_web.mp4')
-            if convert_to_web_mp4(tmp_out.name, web_output_filename):
-                output_url = default_storage.url(web_output_filename)
-                os.remove(tmp_out.name)
+
+            # Create temporary file for web conversion
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix='_web.mp4', delete=False) as web_tmp:
+                web_tmp_path = web_tmp.name
+
+            logger.info(f"🔄 Attempting ffmpeg conversion: {tmp_out.name} -> {web_tmp_path}")
+            if convert_to_web_mp4(tmp_out.name, web_tmp_path):
+                final_output_path = web_tmp_path  # Use converted file
+                logger.info(f"✅ FFmpeg conversion successful")
+            else:
+                final_output_path = tmp_out.name  # Fallback to original
+                logger.warning(f"⚠️ FFmpeg conversion failed, using original file")
             final_zone_counts = {}
             alerts_by_zone = {}
             for zone in zones:
@@ -561,7 +575,7 @@ def run_crowd_analysis(source_path: str, zone_configs: dict) -> Dict:
                 'status': 'completed',
                 'job_type': 'lobby_detection',
                 'output_image': None,
-                'output_video': output_url,
+                'output_video': final_output_path,
                 'data': {
                     'zone_counts': final_zone_counts,
                     'alerts': alert_log,
@@ -596,7 +610,11 @@ def run_crowd_analysis(source_path: str, zone_configs: dict) -> Dict:
             writer.release()
         if 'tmp_path' in locals() and os.path.exists(tmp_path):
             os.remove(tmp_path)
-        if 'tmp_out' in locals() and os.path.exists(tmp_out.name):
+        # Note: final_output_path is not cleaned up here as tasks.py needs it
+        # tasks.py will handle cleanup after saving to Django storage
+        # Only clean up tmp_out if it's not the final_output_path
+        if ('tmp_out' in locals() and 'final_output_path' in locals() and
+            tmp_out.name != final_output_path and os.path.exists(tmp_out.name)):
             os.remove(tmp_out.name)
 
 # ======================================
@@ -628,7 +646,7 @@ def tracking_video(source_path: str, zone_configs: dict, output_path: str = None
     )
 
     progress_logger.update_progress(0, status="Starting lobby crowd analysis...", force_log=True)
-    result = run_crowd_analysis(source_path, zone_configs)
+    result = run_crowd_analysis(source_path, zone_configs, output_path, job_id)
     progress_logger.update_progress(100, status="Lobby detection completed", force_log=True)
     progress_logger.log_completion(100)
 

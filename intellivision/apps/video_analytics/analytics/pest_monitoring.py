@@ -131,17 +131,24 @@ def get_timestamp():
 # Main Analysis Functions
 # ======================================
 
-def detect_snakes_in_image(image_path: str) -> Dict:
+def detect_snakes_in_image(image_path: str, output_path: str = None, job_id: str = None) -> Dict:
     """
     Detect snakes in an image.
 
     Args:
         image_path: Path to input image
+        output_path: Path to save output image (for tasks.py integration)
+        job_id: VideoJob ID for progress tracking
 
     Returns:
-        Standardized response dictionary
+        Standardized response dictionary with filesystem paths
     """
     start_time = time.time()
+
+    # Add job_id logging for progress tracking
+    if job_id:
+        logger.info(f"🚀 Starting snake detection job {job_id}")
+
     image_path = Path(image_path).name
     is_valid, error_msg = validate_input_file(image_path)
     if not is_valid:
@@ -181,14 +188,12 @@ def detect_snakes_in_image(image_path: str) -> Dict:
                 "timestamp": timezone.now().isoformat()
             })
 
-        # Save annotated image
-        timestamp = get_timestamp()
-        output_filename = f"outputs/detection_img_{timestamp}.jpg"
+        # Create temporary output file for tasks.py integration
         with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
             cv2.imwrite(tmp.name, cv2.cvtColor(plotted, cv2.COLOR_RGB2BGR))
-            with open(tmp.name, 'rb') as f:
-                default_storage.save(output_filename, f)
-        output_url = default_storage.url(output_filename)
+            final_output_path = tmp.name
+
+        logger.info(f"✅ Snake detection completed, output saved to {final_output_path}")
 
         # Log to MongoDB
         mongo_doc = {
@@ -205,7 +210,7 @@ def detect_snakes_in_image(image_path: str) -> Dict:
         return {
             'status': 'completed',
             'job_type': 'pest_monitoring',
-            'output_image': output_url,
+            'output_image': final_output_path,
             'output_video': None,
             'data': {
                 'detected_snakes': num_snakes,
@@ -236,17 +241,24 @@ def detect_snakes_in_image(image_path: str) -> Dict:
         if 'tmp' in locals() and os.path.exists(tmp.name):
             os.remove(tmp.name)
 
-def detect_snakes_in_video(video_path: str) -> Dict:
+def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str = None) -> Dict:
     """
     Detect snakes in a video using YOLO and BotSort.
 
     Args:
         video_path: Path to input video
+        output_path: Path to save output video (for tasks.py integration)
+        job_id: VideoJob ID for progress tracking
 
     Returns:
-        Standardized response dictionary
+        Standardized response dictionary with filesystem paths
     """
     start_time = time.time()
+
+    # Add job_id logging for progress tracking
+    if job_id:
+        logger.info(f"🚀 Starting snake detection video job {job_id}")
+
     video_path = Path(video_path).name
     is_valid, error_msg = validate_input_file(video_path)
     if not is_valid:
@@ -356,14 +368,18 @@ def detect_snakes_in_video(video_path: str) -> Dict:
             cap.release()
             out.release()
 
-            # Save output
-            with open(tmp_out.name, 'rb') as f:
-                default_storage.save(output_filename, f)
-            output_url = default_storage.url(output_filename)
-            web_output_filename = output_filename.replace('.mp4', '_web.mp4')
-            if convert_to_web_mp4(tmp_out.name, web_output_filename):
-                output_url = default_storage.url(web_output_filename)
-                os.remove(tmp_out.name)
+            # Create temporary file for web conversion
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix='_web.mp4', delete=False) as web_tmp:
+                web_tmp_path = web_tmp.name
+
+            logger.info(f"🔄 Attempting ffmpeg conversion: {tmp_out.name} -> {web_tmp_path}")
+            if convert_to_web_mp4(tmp_out.name, web_tmp_path):
+                final_output_path = web_tmp_path  # Use converted file
+                logger.info(f"✅ FFmpeg conversion successful")
+            else:
+                final_output_path = tmp_out.name  # Fallback to original
+                logger.warning(f"⚠️ FFmpeg conversion failed, using original file")
 
             # Log to MongoDB
             mongo_doc = {
@@ -381,7 +397,7 @@ def detect_snakes_in_video(video_path: str) -> Dict:
                 'status': 'completed',
                 'job_type': 'pest_monitoring',
                 'output_image': None,
-                'output_video': output_url,
+                'output_video': final_output_path,
                 'data': {
                     'detected_snakes': total_detected,
                     'detected_animals': detected_animals,
@@ -414,23 +430,28 @@ def detect_snakes_in_video(video_path: str) -> Dict:
             out.release()
         if 'tmp_path' in locals() and os.path.exists(tmp_path):
             os.remove(tmp_path)
-        if 'tmp_out' in locals() and os.path.exists(tmp_out.name):
+        # Note: final_output_path is not cleaned up here as tasks.py needs it
+        # tasks.py will handle cleanup after saving to Django storage
+        # Only clean up tmp_out if it's not the final_output_path
+        if ('tmp_out' in locals() and 'final_output_path' in locals() and
+            tmp_out.name != final_output_path and os.path.exists(tmp_out.name)):
             os.remove(tmp_out.name)
 
 # ======================================
 # Celery Integration
 # ======================================
 
-def tracking_image(input_path: str, job_id: str = None) -> Dict:
+def tracking_image(input_path: str, output_path: str = None, job_id: str = None) -> Dict:
     """
     Process image for wildlife detection.
 
     Args:
         input_path: Path to input image
+        output_path: Path to save output image (for tasks.py integration)
         job_id: Optional job ID for progress tracking
 
     Returns:
-        Dict with detection results
+        Dict with detection results and filesystem paths
     """
     start_time = time.time()
     input_path = Path(input_path).name
@@ -451,7 +472,7 @@ def tracking_image(input_path: str, job_id: str = None) -> Dict:
 
     try:
         # Process image for wildlife detection
-        result = detect_snakes_in_image(input_path)
+        result = detect_snakes_in_image(input_path, output_path, job_id)
 
         # Add metadata
         result['meta'] = {
@@ -503,7 +524,7 @@ def tracking_video(input_path: str, output_path: str = None, job_id: str = None)
         )
 
         progress_logger.update_progress(0, status="Processing image for wildlife detection...", force_log=True)
-        result = detect_snakes_in_image(input_path)
+        result = detect_snakes_in_image(input_path, output_path, job_id)
         progress_logger.update_progress(1, status="Wildlife detection completed", force_log=True)
         progress_logger.log_completion(1)
     else:
@@ -515,7 +536,7 @@ def tracking_video(input_path: str, output_path: str = None, job_id: str = None)
         )
 
         progress_logger.update_progress(0, status="Starting video processing for wildlife detection...", force_log=True)
-        result = detect_snakes_in_video(input_path)
+        result = detect_snakes_in_video(input_path, output_path, job_id)
         progress_logger.update_progress(100, status="Video processing completed", force_log=True)
         progress_logger.log_completion(100)
 

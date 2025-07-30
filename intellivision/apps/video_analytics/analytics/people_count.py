@@ -14,6 +14,10 @@ import time
 import numpy as np
 import logging
 import re
+import requests
+import tempfile
+import shutil  # FIX: Added missing import
+import urllib.request  # FIX: Added missing import
 from pathlib import Path
 from tqdm import tqdm
 from typing import Dict, List, Optional
@@ -25,6 +29,19 @@ from celery import shared_task
 from ultralytics import RTDETR
 from boxmot import BotSort
 import torch.nn.functional as F
+
+# ======================================
+# Logger Setup (must be first)
+# ======================================
+logger = logging.getLogger("dubs_people_counting_comprehensive")
+
+# Hugging Face imports with fallback
+try:
+    from huggingface_hub import snapshot_download
+    HF_AVAILABLE = True
+except ImportError:
+    HF_AVAILABLE = False
+    logger.warning("⚠️ huggingface_hub not available - HF model downloads will be skipped")
 
 from ..utils import load_yolo_model
 from ..convert import convert_to_web_mp4
@@ -44,11 +61,6 @@ try:
 except ImportError:
     MIDAS_AVAILABLE = False
     logger.warning("⚠️ torch.hub not available for MiDaS")
-
-# ======================================
-# Logger and Constants
-# ======================================
-logger = logging.getLogger("dubs_people_counting_comprehensive")
 
 # Import progress logger
 try:
@@ -73,10 +85,11 @@ except ImportError:
 VALID_EXTENSIONS = {'.mp4', '.jpg', '.jpeg', '.png'}
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
-REID_MODEL_PATH = MODELS_DIR / "osnet_x0_25_msmt17.pt"
-YOLO_MODEL_PATH = MODELS_DIR / "yolo12x.pt"
+# Re-ID model is now downloaded to torch cache directory by the new download_models function
+REID_MODEL_PATH = Path.home() / ".cache/torch/checkpoints/osnet_x0_25_msmt17.pt"
+YOLO_MODEL_PATH = MODELS_DIR / "yolov12x.pt"  # Updated to match new naming
 RTDETR_MODEL_PATH = MODELS_DIR / "rtdetr-l.pt"
-MIDAS_WEIGHTS_PATH = MODELS_DIR / "midas/weights/dpt_large_384.pt"
+MIDAS_WEIGHTS_PATH = MODELS_DIR / "dpt_large_384.pt"  # Updated to match new naming
 MIDAS_REPO = 'intel-isl/MiDaS'
 MIDAS_MODEL_NAME = 'DPT_Large'
 DPT_HF_MODEL = 'Intel/dpt-large'
@@ -102,12 +115,172 @@ except AttributeError:
     OUTPUT_DIR = Path(settings.MEDIA_ROOT) / 'outputs'
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Check model existence
-MODEL_FILES = ["yolo12x.pt", "rtdetr-l.pt", "osnet_x0_25_msmt17.pt"]
-for model_file in MODEL_FILES:
-    if not (MODELS_DIR / model_file).exists():
-        logger.error(f"Model file missing: {model_file}")
-        raise FileNotFoundError(f"Model file {model_file} not found in {MODELS_DIR}")
+# ======================================
+# Model Download Function
+# ======================================
+
+def download_models(models_dir=None):
+    """
+    Ensure all required models are present.
+    - Ultralytics YOLO and RT-DETR models
+    - MiDaS DPT_Large (torch.hub)
+    - DPT/GLPN (Hugging Face Transformers)
+    - BotSort Re-ID weights
+    Downloads them as needed using the same library mechanisms as in your analytics code.
+    """
+    # Use MODELS_DIR if no specific directory provided
+    if models_dir is None:
+        models_dir = MODELS_DIR
+    else:
+        models_dir = Path(models_dir)
+
+    # FIX: Create models directory with proper permissions handling
+    try:
+        models_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"📁 Models directory: {models_dir}")
+    except PermissionError:
+        # Fallback to user home directory if system directory fails
+        models_dir = Path.home() / ".cache" / "dubs_models"
+        models_dir.mkdir(parents=True, exist_ok=True)
+        logger.warning(f"⚠️ Permission denied for models directory. Using fallback: {models_dir}")
+
+    # 1. Ultralytics YOLO & RT-DETR (auto-download via library)
+    try:
+        from ultralytics import YOLO, RTDETR
+        models = [
+            ("yolov12x.pt", YOLO),
+            ("rtdetr-l.pt", RTDETR)
+        ]
+        for fname, loader in models:
+            fpath = models_dir / fname
+            if not fpath.exists():
+                logger.info(f"🔄 Downloading {fname} using Ultralytics library...")
+                try:
+                    # FIX: Handle yolov12x fallback to yolov8x
+                    if fname == "yolov12x.pt":
+                        try:
+                            # Try to load yolov12x first
+                            model = loader("yolov12x")
+                        except Exception:
+                            # Fallback to yolov8x if yolov12x doesn't exist
+                            logger.warning("⚠️ yolov12x not available, falling back to yolov8x")
+                            model = loader("yolov8x")
+                    else:
+                        model = loader(fname.replace(".pt", ""))  # Remove extension for model name
+
+                    # Save the model
+                    if hasattr(model, 'save'):
+                        model.save(str(fpath))
+                    else:
+                        # For older versions, use export
+                        model.export(format='pt', imgsz=640)
+                        exported_path = Path(model.trainer.save_dir) / "weights" / "best.pt"
+                        if exported_path.exists():
+                            shutil.copy(exported_path, fpath)
+
+                    logger.info(f"✅ Downloaded {fname}")
+                except Exception as e:
+                    logger.error(f"❌ Failed to download {fname}: {e}")
+            else:
+                logger.info(f"✅ {fname} already exists.")
+    except ImportError as e:
+        logger.error(f"❌ Ultralytics not installed: {e}")
+
+    # 2. MiDaS DPT_Large (torch.hub)
+    try:
+        import torch
+        logger.info("🔄 Ensuring MiDaS (DPT_Large) weights via torch.hub...")
+
+        # FIX: MiDaS models are downloaded to torch hub cache, not MODELS_DIR
+        # Just ensure the model is cached by loading it
+        torch.hub.load('intel-isl/MiDaS', 'DPT_Large', pretrained=True)
+        torch.hub.load('intel-isl/MiDaS', 'transforms')
+
+        logger.info("✅ MiDaS (DPT_Large) weights present or downloaded.")
+    except Exception as e:
+        logger.error(f"❌ Could not ensure MiDaS weights: {e}")
+
+    # 3. Hugging Face DPT & GLPN
+    try:
+        from transformers import (
+            DPTImageProcessor, DPTForDepthEstimation,
+            GLPNImageProcessor, GLPNForDepthEstimation
+        )
+        logger.info("🔄 Ensuring DPT and GLPN models via Hugging Face Transformers...")
+        DPTImageProcessor.from_pretrained("Intel/dpt-large")
+        DPTForDepthEstimation.from_pretrained("Intel/dpt-large")
+        GLPNImageProcessor.from_pretrained("vinvino02/glpn-nyu")
+        GLPNForDepthEstimation.from_pretrained("vinvino02/glpn-nyu")
+        logger.info("✅ DPT and GLPN models present or downloaded.")
+    except ImportError:
+        logger.warning("transformers not installed, skipping Hugging Face models.")
+    except Exception as e:
+        logger.error(f"❌ Could not ensure Hugging Face depth models: {e}")
+
+    # 4. BotSort Re-ID model
+    reid_path = Path.home() / ".cache/torch/checkpoints/osnet_x0_25_msmt17.pt"
+
+    # FIX: Create directory before downloading
+    if not reid_path.exists():
+        logger.info("🔄 Downloading BotSort Re-ID model...")
+        # FIX: Correct URL with .pth extension
+        url = "https://github.com/KaiyangZhou/deep-person-reid/releases/download/v1.0/osnet_x0_25_msmt17.pth"
+        try:
+            reid_path.parent.mkdir(parents=True, exist_ok=True)
+            urllib.request.urlretrieve(url, reid_path)
+            logger.info("✅ BotSort Re-ID model downloaded.")
+        except PermissionError:
+            # Fallback location if permission denied
+            reid_path = Path.home() / ".cache" / "dubs_models" / "osnet_x0_25_msmt17.pt"
+            reid_path.parent.mkdir(parents=True, exist_ok=True)
+            urllib.request.urlretrieve(url, reid_path)
+            logger.warning(f"⚠️ Using fallback Re-ID location: {reid_path}")
+            # Update global path
+            global REID_MODEL_PATH
+            REID_MODEL_PATH = reid_path
+        except Exception as e:
+            logger.error(f"❌ Could not download BotSort Re-ID model: {e}")
+    else:
+        logger.info("✅ BotSort Re-ID model already exists.")
+
+def ensure_models_available():
+    """
+    Ensure all required models are available, downloading if necessary.
+    This function is called during module initialization to set up models.
+    """
+    # Check for critical model files
+    MODEL_FILES = ["yolov12x.pt", "rtdetr-l.pt"]  # Core detection models
+    missing_models = []
+    for model_file in MODEL_FILES:
+        if not (MODELS_DIR / model_file).exists():
+            missing_models.append(model_file)
+
+    if missing_models:
+        logger.warning(f"⚠️ Missing models detected: {missing_models}")
+        logger.info("🔄 Attempting to download missing models...")
+        try:
+            download_models()  # Use the new download_models function
+            # Re-check after download attempt
+            still_missing = []
+            for model_file in MODEL_FILES:
+                if not (MODELS_DIR / model_file).exists():
+                    still_missing.append(model_file)
+            if still_missing:
+                logger.error(f"❌ Model files still missing after download attempt: {still_missing}")
+                logger.warning(f"⚠️ Some models are missing: {still_missing}. Processing may fail.")
+            else:
+                logger.info("✅ All required models are now available")
+        except Exception as e:
+            logger.error(f"❌ Model download failed: {e}")
+            logger.warning(f"⚠️ Model download failed: {e}. Processing may fail.")
+    else:
+        logger.info("✅ All required models are available")
+
+# Initialize models on module import (but don't fail if models are missing)
+try:
+    ensure_models_available()
+except Exception as e:
+    logger.warning(f"⚠️ Model initialization failed: {e}. Models will be downloaded on first use.")
 
 # ======================================
 # Depth Estimator
@@ -149,19 +322,11 @@ class DepthEstimator:
         if not MIDAS_AVAILABLE:
             return False
         try:
-            weights_path = Path(MIDAS_WEIGHTS_PATH)
-            if weights_path.exists():
-                logger.info(f"Loading MiDaS from local weights (FAST): {weights_path}")
-                midas_model = torch.hub.load(MIDAS_REPO, MIDAS_MODEL_NAME, pretrained=False)
-                state_dict = torch.load(weights_path, map_location=self.device)
-                midas_model.load_state_dict(state_dict)
-                self.model = midas_model.to(self.device).eval()
-                self.transform = torch.hub.load(MIDAS_REPO, 'transforms').dpt_transform
-            else:
-                logger.info("Loading MiDaS from torch.hub (FAST, will download if needed)")
-                self.model = torch.hub.load(MIDAS_REPO, MIDAS_MODEL_NAME, pretrained=True)
-                self.model = self.model.to(self.device).eval()
-                self.transform = torch.hub.load(MIDAS_REPO, 'transforms').dpt_transform
+            # FIX: MiDaS models are cached in torch hub directory, not MODELS_DIR
+            logger.info("Loading MiDaS from torch.hub (FAST, will use cache if available)")
+            self.model = torch.hub.load(MIDAS_REPO, MIDAS_MODEL_NAME, pretrained=True)
+            self.model = self.model.to(self.device).eval()
+            self.transform = torch.hub.load(MIDAS_REPO, 'transforms').dpt_transform
             self.method = "midas"
             logger.info("✅ MiDaS loaded successfully (PRIMARY - optimized for speed)")
             return True
@@ -174,8 +339,12 @@ class DepthEstimator:
         try:
             from transformers import DPTImageProcessor, DPTForDepthEstimation
             logger.info("Loading DPT via Hugging Face...")
+
+            # Load directly from HF hub (models are cached by download_models function)
+            logger.info("Loading DPT from Hugging Face hub...")
             self.processor = DPTImageProcessor.from_pretrained(DPT_HF_MODEL)
             self.model = DPTForDepthEstimation.from_pretrained(DPT_HF_MODEL)
+
             self.model = self.model.to(self.device).eval()
             self.method = "dpt_hf"
             logger.info("✅ DPT (Hugging Face) loaded successfully")
@@ -192,8 +361,12 @@ class DepthEstimator:
         try:
             from transformers import GLPNImageProcessor, GLPNForDepthEstimation
             logger.info("Loading GLPN (FALLBACK - slower but accurate)...")
+
+            # Load directly from HF hub (models are cached by download_models function)
+            logger.info("Loading GLPN from Hugging Face hub...")
             self.processor = GLPNImageProcessor.from_pretrained(GLPN_HF_MODEL)
             self.model = GLPNForDepthEstimation.from_pretrained(GLPN_HF_MODEL)
+
             self.model = self.model.to(self.device).eval()
             self.method = "glpn"
             logger.info("✅ GLPN loaded successfully (WARNING: This will be slow ~0.3 FPS)")
@@ -309,7 +482,8 @@ class SmartAdaptiveDetector:
             if torch.backends.mps.is_available():
                 self.device = 'mps'
             elif torch.cuda.is_available():
-                self.device = 'cuda'
+                # Fix: Use explicit device index for CUDA
+                self.device = 'cuda:0'
             else:
                 self.device = 'cpu'
         else:
@@ -798,21 +972,30 @@ class PostProcessingEngine:
 class DubsComprehensivePeopleCounting:
     """Comprehensive people counting with adaptive detection and post-processing."""
     def __init__(self, device='auto', use_reid=DEFAULT_USE_REID):
+        # Ensure models are available before initialization
+        try:
+            ensure_models_available()
+        except Exception as e:
+            logger.warning(f"⚠️ Model availability check failed: {e}")
+
         if device == 'auto':
             if torch.backends.mps.is_available():
                 self.device = 'mps'
                 logger.info("🍎 Using MPS (Apple Silicon GPU) for acceleration")
             elif torch.cuda.is_available():
-                self.device = 'cuda'
-                logger.info("🚀 Using CUDA GPU for acceleration")
+                # Fix: Use explicit device index for CUDA
+                self.device = 'cuda:0'
+                logger.info("🚀 Using CUDA GPU (device 0) for acceleration")
             else:
                 self.device = 'cpu'
                 logger.info("💻 Using CPU")
         else:
             self.device = str(device)
         logger.info(f"Using device: {self.device}")
+
         self.depth_estimator = DepthEstimator(device)
         self.detector = SmartAdaptiveDetector(self.device)
+
         try:
             if use_reid:
                 logger.info("✅ Initializing BoTSORT with Re-ID enabled...")
@@ -825,11 +1008,23 @@ class DubsComprehensivePeopleCounting:
                 )
             else:
                 logger.info("✅ Initializing ByteTrack (Re-ID disabled)...")
-                self.tracker = ByteTrack(
-                    track_buffer=150,
-                    match_thresh=0.65,
-                    frame_rate=25
-                )
+                # Import ByteTrack here to avoid import issues
+                try:
+                    from boxmot import ByteTrack
+                    self.tracker = ByteTrack(
+                        track_buffer=150,
+                        match_thresh=0.65,
+                        frame_rate=25
+                    )
+                except ImportError:
+                    logger.warning("⚠️ ByteTrack not available, using BotSortLite (BotSort without Re-ID)")
+                    self.tracker = BotSort(
+                        reid_weights=None,
+                        device=self.device,
+                        half=False,
+                        track_buffer=150,
+                        appearance_thresh=0.60
+                    )
         except Exception as e:
             self.tracker = None
             logger.error(f"❌ Failed to initialize tracker: {e}")
@@ -870,7 +1065,7 @@ class DubsComprehensivePeopleCounting:
                 self.tracker.reset()
                 tracks = self.tracker.update(detections, frame) if len(detections) > 0 else np.empty((0, 7))
                 person_count = len(tracks) if len(tracks) > 0 else person_count
-            output_filename = f"outputs/dubs_comprehensive_output_{image_filename}"
+            # Create output file in temporary location for tasks.py to handle
             with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
                 if len(detections) > 0:
                     results = self.detector.yolo(frame, conf=YOLO_CONF_CLOSE, classes=[0], verbose=False)[0] if self.detector.yolo else \
@@ -879,14 +1074,12 @@ class DubsComprehensivePeopleCounting:
                 else:
                     annotated_frame = frame
                 cv2.imwrite(tmp.name, annotated_frame)
-                with open(tmp.name, 'rb') as f:
-                    default_storage.save(output_filename, f)
-            output_url = default_storage.url(output_filename)
+                output_file_path = tmp.name
             processing_time = time.time() - start_time
             return {
                 'status': 'completed',
                 'job_type': 'people_count',
-                'output_image': output_url,
+                'output_image': output_file_path,
                 'output_video': None,
                 'data': {
                     'person_count': person_count,
@@ -916,10 +1109,11 @@ class DubsComprehensivePeopleCounting:
                 'error': {'message': str(e), 'code': 'PROCESSING_ERROR'}
             }
         finally:
-            if 'tmp' in locals() and os.path.exists(tmp.name):
-                os.remove(tmp.name)
+            # Note: tmp files are not cleaned up here as tasks.py needs them
+            # tasks.py will handle cleanup after saving to Django storage
+            pass
 
-    def process_video(self, video_path: str, output_path: str) -> Dict:
+    def process_video(self, video_path: str, output_path: str, job_id: str = None) -> Dict:
         """Process video or image sequence for people counting."""
         start_time = time.time()
         # Validate with full path, but get filename for storage operations
@@ -941,7 +1135,7 @@ class DubsComprehensivePeopleCounting:
 
         try:
             image_files = []
-            if default_storage.exists(video_path) and default_storage.isdir(video_path):
+            if default_storage.exists(video_path) and os.path.splitext(video_path)[1] == "":
                 image_files = sorted([f for f in default_storage.listdir(video_path)[1] if f.endswith(('.jpg', '.jpeg', '.png'))])
                 if not image_files:
                     raise ValueError(f"No JPG images found in directory: {video_path}")
@@ -966,9 +1160,18 @@ class DubsComprehensivePeopleCounting:
                 total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
                 logger.info(f"🎥 Processing video: {total_frames} frames at {fps} FPS")
 
-            job_id = re.search(r'(\d+)', video_filename)
-            job_id = job_id.group(1) if job_id else str(int(time.time()))
-            output_filename = f"outputs/dubs_comprehensive_output_{job_id}.mp4"
+            # Extract job ID from the tracking_video function parameter first, then fallback to filename
+            if job_id:
+                output_job_id = str(job_id)
+                logger.info(f"🔍 Using passed job_id parameter: {output_job_id}")
+            else:
+                # Fallback to filename extraction
+                extracted_id = re.search(r'(\d+)', video_filename)
+                output_job_id = extracted_id.group(1) if extracted_id else str(int(time.time()))
+                logger.info(f"🔍 Using extracted job_id from filename: {output_job_id}")
+
+            output_filename = f"outputs/dubs_comprehensive_output_{output_job_id}.mp4"
+            logger.info(f"📁 Output will be saved to: {output_filename}")
             with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp_out:
                 writer = cv2.VideoWriter(tmp_out.name, cv2.VideoWriter_fourcc(*'mp4v'), fps, (width, height))
                 all_tracks_by_frame = {}
@@ -1016,15 +1219,28 @@ class DubsComprehensivePeopleCounting:
                                 "message": f"High crowd density detected: {len(track_data)} people at frame {frame_num}",
                                 "timestamp": timezone.now().isoformat()
                             })
-                    # Periodic logging
+                    # Periodic logging with frame-level summaries
                     current_time = time.time()
-                    if current_time - last_log_time >= 5 or frame_num == total_frames:
+                    if current_time - last_log_time >= 1 or frame_num == total_frames:  # Update every second
                         progress = (frame_num / total_frames) * 100
                         elapsed_time = current_time - start_time
                         time_remaining = (elapsed_time / frame_num) * (total_frames - frame_num) if frame_num > 0 else 0
                         avg_fps = frame_num / elapsed_time if elapsed_time > 0 else 0
-                        logger.info(f"**Job {job_id}**: Progress **{progress:.1f}%** ({frame_num}/{total_frames}), Status: Processing...")
+
+                        # Frame-level detection summary
+                        current_detections = len(detections)
+                        current_tracks = len(track_data) if 'track_data' in locals() else 0
+                        strategy_used = self.detector._last_strategy or "unknown"
+
+                        # FIX: Update progress in the progress monitor, not the tracker
+                        if hasattr(self, 'progress_monitor'):
+                            self.progress_monitor.update(frame_num, f"Processing frame {frame_num}/{total_frames}")
+
+                        # Log detailed status
+                        logger.info(f"**Job {output_job_id}**: Progress **{progress:.1f}%** ({frame_num}/{total_frames}), Status: Processing...")
                         logger.info(f"[{'#' * int(progress // 10)}{'-' * (10 - int(progress // 10))}] Done: {int(elapsed_time // 60):02d}:{int(elapsed_time % 60):02d} | Left: {int(time_remaining // 60):02d}:{int(time_remaining % 60):02d} | Avg FPS: {avg_fps:.1f}")
+                        logger.info(f"📊 Frame {frame_num}: {current_detections} detections → {current_tracks} tracks | Strategy: {strategy_used.upper()}")
+
                         last_log_time = current_time
                 if cap:
                     cap.release()
@@ -1089,19 +1305,34 @@ class DubsComprehensivePeopleCounting:
                 if cap:
                     cap.release()
                 writer.release()
-                with open(tmp_out.name, 'rb') as f:
-                    default_storage.save(output_filename, f)
-                output_url = default_storage.url(output_filename)
-                web_output_filename = output_filename.replace('.mp4', '_web.mp4')
-                if convert_to_web_mp4(tmp_out.name, web_output_filename):
-                    output_url = default_storage.url(web_output_filename)
-                    os.remove(tmp_out.name)
+
+                # Try to create web-optimized version, fallback to original if it fails
+                final_output_path = tmp_out.name
+                with tempfile.NamedTemporaryFile(suffix='_web.mp4', delete=False) as web_tmp:
+                    web_tmp_path = web_tmp.name
+
+                logger.info(f"🔄 Attempting ffmpeg conversion: {tmp_out.name} -> {web_tmp_path}")
+                if convert_to_web_mp4(tmp_out.name, web_tmp_path):
+                    logger.info(f"✅ Web-optimized video created successfully")
+                    # Use web-optimized version and clean up original
+                    final_output_path = web_tmp_path
+                    try:
+                        os.remove(tmp_out.name)  # Clean up original temp file
+                    except Exception as e:
+                        logger.warning(f"Failed to clean up original temp file: {e}")
+                else:
+                    logger.warning(f"⚠️ ffmpeg conversion failed, using original file")
+                    # Use original file and clean up failed web version
+                    try:
+                        os.remove(web_tmp_path)  # Clean up failed web conversion
+                    except Exception as e:
+                        logger.warning(f"Failed to clean up failed web conversion: {e}")
                 processing_time = time.time() - start_time
                 return {
                     'status': 'completed',
                     'job_type': 'people_count',
                     'output_image': None,
-                    'output_video': output_url,
+                    'output_video': final_output_path,
                     'data': {
                         'person_count': final_count,
                         'raw_track_count': len(track_history_for_merge),
@@ -1149,8 +1380,12 @@ class DubsComprehensivePeopleCounting:
             except Exception as e:
                 logger.warning(f"Failed to remove temporary file {tmp_path}: {e}")
 
+            # Note: final_output_path is not cleaned up here as tasks.py needs it
+            # tasks.py will handle cleanup after saving to Django storage
             try:
-                if 'tmp_out' in locals() and os.path.exists(tmp_out.name):
+                # Only clean up tmp_out if it's not the final_output_path
+                if ('tmp_out' in locals() and 'final_output_path' in locals() and
+                    tmp_out.name != final_output_path and os.path.exists(tmp_out.name)):
                     os.remove(tmp_out.name)
             except Exception as e:
                 logger.warning(f"Failed to remove temporary output file {tmp_out.name}: {e}")
@@ -1173,35 +1408,88 @@ def tracking_video(input_path: str, output_path: str, job_id: str = None) -> Dic
     """
     start_time = time.time()
     logger.info(f"🚀 Starting people count job {job_id}")
+    logger.info(f"📥 Input path: {input_path}")
+    logger.info(f"📤 Output path: {output_path}")
 
     ext = os.path.splitext(input_path)[1].lower()
     image_exts = ['.jpg', '.jpeg', '.png']
 
-    if ext in image_exts:
-        # Initialize progress logger for image processing
-        progress_logger = create_progress_logger(
-            job_id=str(job_id) if job_id else "unknown",
-            total_items=1,  # Single image
-            job_type="people_count"
-        )
+    # Get total frames for accurate progress tracking
+    total_frames = 1  # Default for images
+    if ext not in image_exts:
+        try:
+            with default_storage.open(input_path, 'rb') as f:
+                with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
+                    tmp.write(f.read())
+                    cap = cv2.VideoCapture(tmp.name)
+                    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                    cap.release()
+                    os.remove(tmp.name)
+        except Exception as e:
+            logger.warning(f"Could not get frame count: {e}. Using estimate.")
+            total_frames = 100  # Fallback estimate
 
+    # Initialize progress logger with accurate frame count
+    progress_logger = create_progress_logger(
+        job_id=str(job_id) if job_id else "unknown",
+        total_items=total_frames,
+        job_type="people_count",
+        logger_name="dubs_people_counting_comprehensive"
+    )
+
+    if ext in image_exts:
         progress_logger.update_progress(0, status="Processing image...", force_log=True)
         result = DubsComprehensivePeopleCounting(device='auto').process_image(input_path)
         progress_logger.update_progress(1, status="Analysis completed", force_log=True)
         progress_logger.log_completion(1)
     else:
-        # For video processing, we'll need to modify the process_video method to accept job_id
-        # For now, we'll use a simple progress logger
-        progress_logger = create_progress_logger(
-            job_id=str(job_id) if job_id else "unknown",
-            total_items=100,  # Estimate for video frames
-            job_type="people_count"
-        )
+        # FIX: Rename ProgressTracker to ProgressMonitor to avoid naming conflict
+        class ProgressMonitor:
+            def __init__(self, logger, total_frames):
+                self.logger = logger
+                self.total_frames = total_frames
+                self.last_update_time = time.time()
+                self.start_time = time.time()
+                self.processed_frames = 0
 
+            def update(self, frame_num, status=None):
+                self.processed_frames = frame_num
+                current_time = time.time()
+                if current_time - self.last_update_time >= 1.0:  # Update every second
+                    elapsed = current_time - self.start_time
+                    fps = frame_num / elapsed if elapsed > 0 else 0
+                    remaining = (self.total_frames - frame_num) / fps if fps > 0 else 0
+                    eta = f"{int(remaining // 60):02d}:{int(remaining % 60):02d}"
+                    progress = (frame_num / self.total_frames) * 100
+                    status_msg = f"Processing frame {frame_num}/{self.total_frames} ({fps:.1f} FPS, ETA: {eta})"
+                    self.logger.update_progress(frame_num, status=status_msg, force_log=True)
+                    self.last_update_time = current_time
+
+        monitor = ProgressMonitor(progress_logger, total_frames)
         progress_logger.update_progress(0, status="Starting video processing...", force_log=True)
-        result = DubsComprehensivePeopleCounting(device='auto').process_video(input_path, output_path)
-        progress_logger.update_progress(100, status="Video processing completed", force_log=True)
-        progress_logger.log_completion(100)
+
+        # Create a subclass of DubsComprehensivePeopleCounting to track progress
+        class ProgressDubsComprehensivePeopleCounting(DubsComprehensivePeopleCounting):
+            def __init__(self, progress_monitor, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                # FIX: Use self.progress_monitor instead of self.tracker to avoid conflict
+                self.progress_monitor = progress_monitor
+
+            def process_video(self, video_path: str, output_path: str, job_id: str = None) -> Dict:
+                # Override process_video to track progress
+                result = super().process_video(video_path, output_path, job_id)
+                # Update progress based on actual frames processed
+                if 'frame_count' in result.get('meta', {}):
+                    self.progress_monitor.update(result['meta']['frame_count'])
+                return result
+
+        # Process video with progress tracking
+        counter = ProgressDubsComprehensivePeopleCounting(monitor, device='auto')
+        result = counter.process_video(input_path, output_path, job_id)
+
+        # Ensure we mark as complete
+        progress_logger.update_progress(total_frames, status="Video processing completed", force_log=True)
+        progress_logger.log_completion(total_frames)
 
     processing_time = time.time() - start_time
     result['meta']['processing_time_seconds'] = processing_time

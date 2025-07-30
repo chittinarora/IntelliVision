@@ -35,21 +35,47 @@ def convert_to_web_mp4(input_file: str, output_file: str) -> bool:
         logger.error(f"Invalid video type: {ext}")
         return False
 
+    # Ensure output directory exists
+    output_path = Path(output_file)
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        logger.info(f"📁 Ensured output directory exists: {output_path.parent}")
+    except Exception as e:
+        logger.error(f"Failed to create output directory {output_path.parent}: {e}")
+        return False
+
     command = [
         "ffmpeg", "-y", "-i", input_file,
         "-c:v", "libx264", "-pix_fmt", "yuv420p",
         "-movflags", "+faststart", output_file
     ]
     try:
-        subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        logger.info(f"Converted {input_file} -> {output_file}")
+        result = subprocess.run(command, check=True, capture_output=True, text=True)
+        logger.info(f"✅ ffmpeg conversion successful: {input_file} -> {output_file}")
         return True
     except subprocess.CalledProcessError as e:
-        logger.error(f"ffmpeg conversion failed: {e.stderr.decode()}")
+        logger.error(f"❌ ffmpeg conversion failed: {e.stderr}")
+        logger.error(f"Command: {' '.join(command)}")
+        logger.error(f"Working directory: {Path.cwd()}")
+        logger.error(f"Output directory exists: {output_path.parent.exists()}")
         return False
     except FileNotFoundError:
-        logger.error("ffmpeg not found in PATH")
-        return False
+        logger.error("ffmpeg not found in PATH - attempting fallback copy")
+        # Fix: Fallback to simple file copy when ffmpeg is not available
+        try:
+            import shutil
+            # Ensure output directory exists for fallback copy as well
+            output_path = Path(output_file)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            shutil.copy2(input_file, output_file)
+            logger.warning(f"ffmpeg not available - copied {input_file} -> {output_file} without conversion")
+            return True
+        except Exception as copy_error:
+            logger.error(f"Fallback copy failed: {copy_error}")
+            logger.error(f"Output directory: {Path(output_file).parent}")
+            logger.error(f"Output directory exists: {Path(output_file).parent.exists()}")
+            return False
 
 
 def convert_to_web_image(input_file: str, output_file: str, format: str = "WEBP", quality: int = 80) -> bool:
