@@ -1205,7 +1205,7 @@ class DubsComprehensivePeopleCounting:
                                 track_info = {'id': int(t[4]), 'bbox': t[:4]}
                                 if len(t) > 7 and t[-1] is not None:
                                     # Ensure Re-ID features are 1D array for cosine similarity compatibility
-                                    reid_features = np.squeeze(t[-1])
+                                    reid_features = np.array(t[-1]).flatten()
                                     track_info['reid_features'] = reid_features
                                 x1, y1, x2, y2 = t[:4]
                                 center_x, center_y = int((x1 + x2) / 2), int((y1 + y2) / 2)

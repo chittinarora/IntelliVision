@@ -32,6 +32,9 @@ from PIL import Image
 from .models import VideoJob
 from .rate_limiting import release_job_slot
 
+# Add model manager import
+from .analytics.model_manager import initialize_models, get_model_with_fallback
+
 # Analytics Function Imports - Using lazy imports to prevent eager model loading
 # Models will only be loaded when the specific task is executed, not on worker startup
 
@@ -152,6 +155,15 @@ def process_video_job(self, job_id: int) -> None:
         job_id: ID of the VideoJob to process
     """
     logger.info(f"🚀 STARTING CELERY JOB {job_id} 🚀")
+
+    # Initialize model management system if not already done
+    try:
+        initialize_models(auto_download=True)
+        logger.info("✅ Model management system initialized for job processing")
+    except Exception as e:
+        logger.warning(f"⚠️ Model management initialization failed: {e}")
+        # Continue with job processing, models will be resolved individually
+
     try:
         # Use retry logic when fetching the job
         job = get_job_with_retry(job_id)
@@ -261,8 +273,8 @@ def process_video_job(self, job_id: int) -> None:
                 from .analytics.room_readiness import analyze_room_image
                 return analyze_room_image
             elif job_type == "lobby-detection":
-                from .analytics.lobby_detection import run_crowd_analysis
-                return run_crowd_analysis
+                from .analytics.lobby_detection import tracking_video
+                return tracking_video
             elif job_type == "emergency-count":
                 from .analytics.emergency_count import tracking_video
                 return tracking_video
@@ -284,7 +296,7 @@ def process_video_job(self, job_id: int) -> None:
             "wildlife-detection": {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.mp4"]},
             "food-waste-estimation": {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.mp4"]},
             "room-readiness": {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.mp4"]},
-            "lobby-detection": {"args": [job.input_video.path, job.lobby_zones, f"/tmp/output_{job_id}_{timestamp}.mp4"]},
+            "lobby-detection": {"args": [job.input_video.path, job.lobby_zones, f"/tmp/output_{job_id}_{timestamp}.mp4", job.id]},
             "emergency-count": {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.mp4", job.emergency_lines,
                                          job.video_width, job.video_height]},
             "pothole-detection": {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.mp4"]},
@@ -345,9 +357,7 @@ def process_video_job(self, job_id: int) -> None:
         # Pass job_id to analytics functions for progress logging
         # The analytics functions are now regular functions, not Celery tasks
         # So we don't need to pass 'self' anymore
-        new_args = processor_args + [job_id]
-
-        result_data = processor_func_instance(*new_args)
+        result_data = processor_func_instance(*processor_args)
         processing_duration = time.time() - start_time
         logger.info(f"✅ Job {job_id}: Analytics completed in {processing_duration:.2f} seconds")
 
@@ -386,8 +396,11 @@ def process_video_job(self, job_id: int) -> None:
         else:
             logger.info(f"ℹ️ Job {job_id}: No output file generated")
 
-        # Save results
-        job.results = result_data
+        # Save results - extract data field for all analytics jobs for consistency
+        if isinstance(result_data, dict) and 'data' in result_data:
+            job.results = result_data['data']
+        else:
+            job.results = result_data
         job.status = 'completed'  # Changed from 'done' to 'completed'
         job.save()
         logger.info(f"🎉 Job {job_id}: Completed successfully")

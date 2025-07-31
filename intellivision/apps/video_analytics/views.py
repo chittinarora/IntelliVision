@@ -634,62 +634,47 @@ def lobby_detection_view(request):
         lobby_zones = json.loads(lobby_zones_str)
 
         # Validate lobby zones structure
-        if not isinstance(lobby_zones, list) or len(lobby_zones) == 0:
-            return Response({
-                'status': 'failed',
-                'job_type': 'lobby-detection',
-                'output_image': None,
-                'output_video': None,
-                'data': {},
-                'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
-                'error': {'message': "lobby_zones must be a non-empty array", 'code': 'INVALID_LOBBY_ZONES'}
-            }, status=status.HTTP_400_BAD_REQUEST)
+        if not isinstance(lobby_zones, dict) or not lobby_zones:
+            return create_error_response(
+                "lobby_zones must be a non-empty JSON object",
+                'INVALID_LOBBY_ZONES',
+                'lobby-detection',
+                status.HTTP_400_BAD_REQUEST
+            )
 
         # Validate each zone has required fields
-        for i, zone in enumerate(lobby_zones):
-            if not isinstance(zone, dict):
-                return Response({
-                    'status': 'failed',
-                    'job_type': 'lobby-detection',
-                    'output_image': None,
-                    'output_video': None,
-                    'data': {},
-                    'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
-                    'error': {'message': f"Zone {i+1} must be an object", 'code': 'INVALID_LOBBY_ZONES'}
-                }, status=status.HTTP_400_BAD_REQUEST)
+        for name, zone_data in lobby_zones.items():
+            if not isinstance(zone_data, dict):
+                return create_error_response(
+                    f"Zone '{name}' must be an object",
+                    'INVALID_LOBBY_ZONES',
+                    'lobby-detection',
+                    status.HTTP_400_BAD_REQUEST
+                )
 
-            required_fields = ['name', 'points']
-            if not all(field in zone for field in required_fields):
-                return Response({
-                    'status': 'failed',
-                    'job_type': 'lobby-detection',
-                    'output_image': None,
-                    'output_video': None,
-                    'data': {},
-                    'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
-                    'error': {'message': f"Zone {i+1} missing required fields: {required_fields}", 'code': 'INVALID_LOBBY_ZONES'}
-                }, status=status.HTTP_400_BAD_REQUEST)
+            required_fields = ['points', 'threshold']
+            if not all(field in zone_data for field in required_fields):
+                return create_error_response(
+                    f"Zone '{name}' missing required fields: {required_fields}",
+                    'INVALID_LOBBY_ZONES',
+                    'lobby-detection',
+                    status.HTTP_400_BAD_REQUEST
+                )
 
-            if not isinstance(zone['points'], list) or len(zone['points']) < 3:
-                return Response({
-                    'status': 'failed',
-                    'job_type': 'lobby-detection',
-                    'output_image': None,
-                    'output_video': None,
-                    'data': {},
-                    'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
-                    'error': {'message': f"Zone {i+1} points must be an array with at least 3 points", 'code': 'INVALID_LOBBY_ZONES'}
-                }, status=status.HTTP_400_BAD_REQUEST)
+            if not isinstance(zone_data['points'], list) or len(zone_data['points']) < 3:
+                return create_error_response(
+                    f"Zone '{name}' points must be an array with at least 3 points",
+                    'INVALID_LOBBY_ZONES',
+                    'lobby-detection',
+                    status.HTTP_400_BAD_REQUEST
+                )
     except json.JSONDecodeError:
-        return Response({
-            'status': 'failed',
-            'job_type': 'lobby-detection',
-            'output_image': None,
-            'output_video': None,
-            'data': {},
-            'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
-            'error': {'message': "Invalid JSON in 'lobby_zones'", 'code': 'INVALID_JSON'}
-        }, status=status.HTTP_400_BAD_REQUEST)
+        return create_error_response(
+            "Invalid JSON in 'lobby_zones'",
+            'INVALID_JSON',
+            'lobby-detection',
+            status.HTTP_400_BAD_REQUEST
+        )
 
     extra_data = {
         'lobby_zones': lobby_zones,

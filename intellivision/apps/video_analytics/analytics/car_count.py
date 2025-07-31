@@ -57,10 +57,6 @@ except ImportError:
 
 VALID_EXTENSIONS = {'.mp4', '.jpg', '.jpeg', '.png'}
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-MODELS_DIR = BASE_DIR / 'video_analytics' / 'models'
-PLATE_MODEL = MODELS_DIR / 'best_car.pt'
-CAR_MODEL = MODELS_DIR / 'yolo11m.pt'
 
 # Define OUTPUT_DIR with fallback
 try:
@@ -70,15 +66,40 @@ except AttributeError:
     OUTPUT_DIR = Path(settings.MEDIA_ROOT) / 'outputs'
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Check model existence
-MODEL_FILES = ["best_car.pt", "yolo11m.pt"]
-for model_file in MODEL_FILES:
-    if not (MODELS_DIR / model_file).exists():
-        logger.error(f"Model file missing: {model_file}")
-        raise FileNotFoundError(f"Model file {model_file} not found in {MODELS_DIR}")
+# Initialize model paths using model manager with fallback support
+try:
+    from .model_manager import get_model_with_fallback
+    
+    # Get model paths with automatic fallback
+    PLATE_MODEL = str(get_model_with_fallback("best_car"))
+    CAR_MODEL = str(get_model_with_fallback("yolo11m"))
+    
+    logger.info(f"✅ Resolved plate model: {PLATE_MODEL}")
+    logger.info(f"✅ Resolved car model: {CAR_MODEL}")
+    
+except Exception as e:
+    logger.error(f"❌ Failed to resolve models with fallback: {e}")
+    # Fallback to old hardcoded paths as last resort
+    BASE_DIR = Path(__file__).resolve().parent.parent.parent
+    MODELS_DIR = BASE_DIR / 'video_analytics' / 'models'
+    PLATE_MODEL = str(MODELS_DIR / 'best_car.pt')
+    CAR_MODEL = str(MODELS_DIR / 'yolo11m.pt')
+    
+    # Check model existence the old way
+    MODEL_FILES = ["best_car.pt", "yolo11m.pt"]
+    for model_file in MODEL_FILES:
+        if not (MODELS_DIR / model_file).exists():
+            logger.error(f"Model file missing: {model_file}")
+            raise FileNotFoundError(f"Model file {model_file} not found in {MODELS_DIR}")
 
 # Configure Cloudinary & MongoDB
-load_dotenv(BASE_DIR / '.env')
+try:
+    # Try to get base directory from previously defined variable
+    base_dir = BASE_DIR if 'BASE_DIR' in locals() else Path(__file__).resolve().parent.parent.parent
+except NameError:
+    base_dir = Path(__file__).resolve().parent.parent.parent
+
+load_dotenv(base_dir / '.env')
 cloudinary.config(
     cloud_name=os.getenv('CLOUDINARY_CLOUD_NAME'),
     api_key=os.getenv('CLOUDINARY_API_KEY'),

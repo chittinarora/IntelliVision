@@ -32,19 +32,20 @@ logger = logging.getLogger(__name__)
 
 # Try to import utility functions, handle gracefully if not available
 try:
-    from ..utils import load_yolo_model
+    from .model_manager import get_model_with_fallback
 except ImportError:
     logger = logging.getLogger(__name__)
     logger.warning("load_yolo_model not available. Using YOLO directly.")
-    def load_yolo_model(model_path):
+    def get_model_with_fallback(model_name):
         """Fallback function when utils module is not available."""
-        return YOLO(model_path)
+        logger.error(f"ERROR:model_manager not available for model: {model_name}")
+        raise ImportError(f"ERROR: model_manager not available for model: {model_name}")
 
 try:
     from ..convert import convert_to_web_mp4
 except ImportError:
     logger = logging.getLogger(__name__)
-    logger.warning("convert_to_web_mp4 not available. Video conversion will be skipped.")
+    logger.warning("ERROR: convert_to_web_mp4 not available. Video conversion will be skipped.")
     def convert_to_web_mp4(input_path, output_filename):
         """Fallback function when convert module is not available."""
         return False
@@ -53,9 +54,9 @@ try:
     from boxmot import BotSort, DeepOcSort
     BOTSORT_AVAILABLE = True
     DEEPOCSORT_AVAILABLE = True
-    logger.info("✅ boxmot library found - BotSort/DeepOcSort available")
+    logger.info("SUCCESS: boxmot library found - BotSort/DeepOcSort available")
 except ImportError as e:
-    logger.warning(f"❌ boxmot library import failed: {e}")
+    logger.warning(f"ERROR: boxmot library import failed: {e}")
     logger.warning("Install with: pip install boxmot")
     BOTSORT_AVAILABLE = False
     DEEPOCSORT_AVAILABLE = False
@@ -88,8 +89,35 @@ except ImportError:
 
 VALID_EXTENSIONS = {'.mp4'}
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
-MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
-REID_MODEL_PATH = MODELS_DIR / "osnet_x0_25_msmt17.pt"
+
+# ======================================
+# Model Management Integration
+# ======================================
+try:
+    from .model_manager import get_model_with_fallback
+
+    # Get model paths with automatic fallback
+    YOLO_MODEL_PATH = str(get_model_with_fallback("yolov8x"))
+    REID_MODEL_PATH = str(get_model_with_fallback("osnet_reid"))
+
+    logger.info(f"SUCCESS: Resolved YOLO model: {YOLO_MODEL_PATH}")
+    logger.info(f"SUCCESS: Resolved Re-ID model: {REID_MODEL_PATH}")
+
+except Exception as e:
+    logger.error(f"ERROR: Failed to resolve models with fallback: {e}")
+    # Fallback to old hardcoded paths as last resort
+    BASE_DIR = Path(__file__).resolve().parent.parent.parent
+    MODELS_DIR = BASE_DIR / 'video_analytics' / 'models'
+    YOLO_MODEL_PATH = str(MODELS_DIR / 'yolov8x.pt')
+    REID_MODEL_PATH = str(MODELS_DIR / 'osnet_x0_25_msmt17.pt')
+
+    # Check model existence the old way
+    MODEL_FILES = ["yolov8x.pt", "osnet_x0_25_msmt17.pt"]
+    for model_file in MODEL_FILES:
+        if not (MODELS_DIR / model_file).exists():
+            logger.error(f"ERROR: Model file missing: {model_file}")
+            raise FileNotFoundError(f"ERROR: Model file {model_file} not found in {MODELS_DIR}")
+
 FONT_FACE = cv2.FONT_HERSHEY_SIMPLEX
 CONFIG_FILE = "lobby_zone_configs.json"
 
@@ -100,13 +128,6 @@ except AttributeError:
     logger.warning("JOB_OUTPUT_DIR not defined in settings. Using fallback: MEDIA_ROOT/outputs")
     OUTPUT_DIR = Path(settings.MEDIA_ROOT) / 'outputs'
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-# Check model existence
-MODEL_FILES = ["yolov8x.pt", "osnet_x0_25_msmt17.pt"]
-for model_file in MODEL_FILES:
-    if not (MODELS_DIR / model_file).exists():
-        logger.error(f"Model file missing: {model_file}")
-        raise FileNotFoundError(f"Model file {model_file} not found in {MODELS_DIR}")
 
 # ======================================
 # Utility Functions
@@ -145,19 +166,6 @@ def get_next_filename(base_path):
     new_name = f"{name}_{timestamp}{ext}"
     new_path = os.path.join(base_dir, new_name)
     return new_path
-
-def download_reid_model():
-    """Download Re-ID model if not present."""
-    if not REID_MODEL_PATH.exists():
-        logger.info("Downloading Re-ID model for better tracking...")
-        url = "https://github.com/mikel-brostrom/yolo_tracking/releases/download/v9.0.0/osnet_x0_25_msmt17.pt"
-        try:
-            urllib.request.urlretrieve(url, str(REID_MODEL_PATH))
-            logger.info(f"✅ Re-ID model downloaded: {REID_MODEL_PATH}")
-        except Exception as e:
-            logger.warning(f"Failed to download Re-ID model: {e}")
-            return None
-    return REID_MODEL_PATH
 
 def point_in_polygon(point, polygon):
     """Check if a point is inside a polygon using ray casting."""
@@ -215,65 +223,54 @@ class EnhancedZone:
 # ======================================
 
 def setup_best_tracker(device, fps):
-    """Setup tracker optimized for stable ID scenarios."""
-    reid_model = download_reid_model()
-    logger.info(f"🔍 Tracker availability - BotSort: {BOTSORT_AVAILABLE}, DeepOCSORT: {DEEPOCSORT_AVAILABLE}")
-    if BOTSORT_AVAILABLE and reid_model:
+    """Setup the best available tracker with Re-ID model, falling back to ByteTrack."""
+    tracker = None
+    tracker_name = "ByteTrack"  # Default tracker
+
+    if BOTSORT_AVAILABLE:
         try:
-            logger.info("🔄 Attempting to initialize BotSort...")
-            logger.info(f"🔍 Re-ID model path: {reid_model}")
-            torch_device = torch.device(device)
-            try:
+            reid_model_path = Path(REID_MODEL_PATH)
+            if reid_model_path.exists():
+                logger.info(f"SUCCESS: Re-ID model found at {reid_model_path}. Using BotSort with Re-ID.")
                 tracker = BotSort(
-                    reid_weights=REID_MODEL_PATH,
-                    device=torch_device,
-                    half=False,
-                    per_class=False,
-                    track_high_thresh=0.6,
-                    track_low_thresh=0.2,
-                    new_track_thresh=0.8,
-                    track_buffer=fps * 2,
-                    match_thresh=0.7,
-                    proximity_thresh=0.5,
-                    appearance_thresh=0.1,
+                    model_weights=YOLO_MODEL_PATH,
+                    device=device,
+                    fp16=False,
+                    track_high_thresh=0.5,
+                    track_low_thresh=0.1,
+                    new_track_thresh=0.6,
+                    track_buffer=30,
+                    match_thresh=0.8,
                     frame_rate=fps,
-                    with_reid=True
+                    reid_weights=str(reid_model_path),
+                    proximity_thresh=0.5,
+                    appearance_thresh=0.25
                 )
-                logger.info("✅ Using BotSort tracker with optimized ID stability parameters.")
-                return tracker, "BotSort"
-            except Exception as e1:
-                logger.warning(f"BotSort optimized parameters failed: {e1}")
-                logger.info("🔄 Trying BotSort with basic parameters...")
+                tracker_name = "BotSort"
+            else:
+                logger.warning(f"Re-ID model not found at {reid_model_path}. Using BotSort without Re-ID.")
                 tracker = BotSort(
-                    reid_weights=REID_MODEL_PATH,
-                    device=torch_device,
-                    half=False
+                    model_weights=YOLO_MODEL_PATH,
+                    device=device,
+                    fp16=False,
+                    track_high_thresh=0.5,
+                    track_low_thresh=0.1,
+                    new_track_thresh=0.6,
+                    track_buffer=30,
+                    match_thresh=0.8,
+                    frame_rate=fps
                 )
-                logger.info("✅ Using BotSort tracker with basic parameters.")
-                return tracker, "BotSort"
+                tracker_name = "BotSort"
         except Exception as e:
-            logger.warning(f"BotSort setup completely failed: {e}. Falling back to ByteTrack.")
-    elif BOTSORT_AVAILABLE and not reid_model:
-        logger.warning("BotSort available but Re-ID model failed to download. Using ByteTrack.")
-    logger.info("Using ByteTrack as fallback tracker.")
-    try:
-        tracker = sv.ByteTrack(
-            frame_rate=fps,
-            track_activation_threshold=0.8,
-            lost_track_buffer=150,
-            minimum_matching_threshold=0.9,
-            minimum_consecutive_frames=3
-        )
-        logger.info("✅ Using advanced ByteTrack parameters")
-    except TypeError:
-        tracker = sv.ByteTrack(
-            frame_rate=fps,
-            track_thresh=0.8,
-            track_buffer=150,
-            match_thresh=0.9
-        )
-        logger.info("✅ Using basic ByteTrack parameters (older supervision)")
-    return tracker, "ByteTrack"
+            logger.warning(f"BotSort setup failed: {e}. Falling back to ByteTrack.")
+            tracker = None  # Force fallback to ByteTrack
+
+    if tracker is None:
+        logger.info("Using ByteTrack as the tracker.")
+        tracker = sv.ByteTrack(frame_rate=fps)
+        tracker_name = "ByteTrack"
+
+    return tracker, tracker_name
 
 # ======================================
 # Main Analysis Function
@@ -281,23 +278,20 @@ def setup_best_tracker(device, fps):
 
 def run_crowd_analysis(source_path: str, zone_configs: dict, output_path: str = None, job_id: str = None) -> Dict:
     """
-    Process video for crowd analysis in lobby zones.
+    Run crowd analysis on video with zone-based counting.
 
     Args:
         source_path: Path to input video
-        zone_configs: Dictionary of zone configurations
-        output_path: Path to save output video (for tasks.py integration)
-        job_id: VideoJob ID for progress tracking
+        zone_configs: Dictionary containing zone definitions
+        output_path: Path to save output video
+        job_id: Job ID for progress tracking
 
     Returns:
-        Standardized response dictionary with filesystem paths
+        Dictionary with analysis results
     """
     start_time = time.time()
 
-    # Add job_id logging for progress tracking
-    if job_id:
-        logger.info(f"🚀 Starting lobby detection job {job_id}")
-
+    # Validate input
     is_valid, error_msg = validate_input_file(source_path)
     if not is_valid:
         logger.error(f"Invalid input: {error_msg}")
@@ -306,78 +300,18 @@ def run_crowd_analysis(source_path: str, zone_configs: dict, output_path: str = 
             'job_type': 'lobby_detection',
             'output_image': None,
             'output_video': None,
-            'data': {'alerts': [], 'error': error_msg},
+            'data': {'zones': {}, 'error': error_msg},
             'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
             'error': {'message': error_msg, 'code': 'INVALID_INPUT'}
         }
 
     try:
-        # Validate file exists and is accessible
-        if not default_storage.exists(source_path):
-            error_msg = f"Video file not found: {source_path}"
-            logger.error(error_msg)
-            return {
-                'status': 'failed',
-                'job_type': 'lobby_detection',
-                'output_image': None,
-                'output_video': None,
-                'data': {'alerts': [], 'error': error_msg},
-                'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
-                'error': {'message': error_msg, 'code': 'FILE_NOT_FOUND'}
-            }
-
-        # Open video with proper error handling
-        try:
-            with default_storage.open(source_path, 'rb') as f:
-                with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
-                    tmp.write(f.read())
-                    tmp_path = tmp.name
-        except Exception as e:
-            error_msg = f"Failed to read video file: {str(e)}"
-            logger.error(error_msg)
-            return {
-                'status': 'failed',
-                'job_type': 'lobby_detection',
-                'output_image': None,
-                'output_video': None,
-                'data': {'alerts': [], 'error': error_msg},
-                'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
-                'error': {'message': error_msg, 'code': 'FILE_READ_ERROR'}
-            }
-
-        try:
-            video_info = sv.VideoInfo.from_video_path(tmp_path)
-        except Exception as e:
-            error_msg = f"Failed to analyze video properties: {str(e)}"
-            logger.error(error_msg)
-            return {
-                'status': 'failed',
-                'job_type': 'lobby_detection',
-                'output_image': None,
-                'output_video': None,
-                'data': {'alerts': [], 'error': error_msg},
-                'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
-                'error': {'message': error_msg, 'code': 'VIDEO_ANALYSIS_ERROR'}
-            }
-
-        cap = cv2.VideoCapture(tmp_path)
-        if not cap.isOpened():
-            error_msg = "Failed to open video - file may be corrupted or in unsupported format"
-            logger.error(error_msg)
-            return {
-                'status': 'failed',
-                'job_type': 'lobby_detection',
-                'output_image': None,
-                'output_video': None,
-                'data': {'alerts': [], 'error': error_msg},
-                'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
-                'error': {'message': error_msg, 'code': 'VIDEO_OPEN_ERROR'}
-            }
-
         # Setup model
-        model_name = str(MODELS_DIR / 'yolov8x.pt')
-        model = load_yolo_model(model_name)
-        device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+        model_name = YOLO_MODEL_PATH
+        model = YOLO(model_name)
+
+        # Device setup
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
         model.to(device)
         logger.info(f"Using model: {model_name} on device: {device}")
 
@@ -387,44 +321,47 @@ def run_crowd_analysis(source_path: str, zone_configs: dict, output_path: str = 
         file_job_id = extracted_job_id.group(1) if extracted_job_id else str(int(time.time()))
         output_filename = f"outputs/output_crowd_{file_job_id}.mp4"
         with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp_out:
+            video_info = sv.VideoInfo.from_video_path(source_path)
             writer = cv2.VideoWriter(tmp_out.name, cv2.VideoWriter_fourcc(*'mp4v'), video_info.fps, video_info.resolution_wh)
 
             # Setup tracker
             tracker, tracker_name = setup_best_tracker(device, video_info.fps)
             logger.info(f"🔍 ACTIVE TRACKER: {tracker_name}")
 
-                    # Setup zones with validation
-        try:
-            zones = []
-            for name, data in zone_configs.items():
-                if not isinstance(data, dict):
-                    raise ValueError(f"Zone '{name}' configuration must be a dictionary")
-                if 'points' not in data:
-                    raise ValueError(f"Zone '{name}' missing required 'points' field")
-                if 'threshold' not in data:
-                    raise ValueError(f"Zone '{name}' missing required 'threshold' field")
-                if not isinstance(data['points'], list) or len(data['points']) < 3:
-                    raise ValueError(f"Zone '{name}' must have at least 3 points")
-                if not isinstance(data['threshold'], (int, float)) or data['threshold'] <= 0:
-                    raise ValueError(f"Zone '{name}' threshold must be a positive number")
+            # Setup zones with validation
+            try:
+                zones = []
+                for name, data in zone_configs.items():
+                    if not isinstance(data, dict):
+                        raise ValueError(f"Zone '{name}' configuration must be a dictionary")
+                    if 'points' not in data:
+                        raise ValueError(f"Zone '{name}' missing required 'points' field")
+                    if 'threshold' not in data:
+                        raise ValueError(f"Zone '{name}' missing required 'threshold' field")
+                    if not isinstance(data['points'], list) or len(data['points']) < 3:
+                        raise ValueError(f"Zone '{name}' must have at least 3 points")
+                    if not isinstance(data['threshold'], (int, float)) or data['threshold'] <= 0:
+                        raise ValueError(f"Zone '{name}' threshold must be a positive number")
 
-                zones.append(EnhancedZone(data['points'], name, data['threshold']))
+                    zones.append(EnhancedZone(data['points'], name, data['threshold']))
 
-            if not zones:
-                raise ValueError("At least one zone must be configured")
+                if not zones:
+                    raise ValueError("At least one zone must be configured")
 
-        except Exception as e:
-            error_msg = f"Zone configuration error: {str(e)}"
-            logger.error(error_msg)
-            return {
-                'status': 'failed',
-                'job_type': 'lobby_detection',
-                'output_image': None,
-                'output_video': None,
-                'data': {'alerts': [], 'error': error_msg},
-                'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
-                'error': {'message': error_msg, 'code': 'ZONE_CONFIG_ERROR'}
-            }
+            except Exception as e:
+                error_msg = f"Zone configuration error: {str(e)}"
+                logger.error(error_msg)
+                return {
+                    'status': 'failed',
+                    'job_type': 'lobby_detection',
+                    'output_image': None,
+                    'output_video': None,
+                    'data': {'alerts': [], 'error': error_msg},
+                    'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
+                    'error': {'message': error_msg, 'code': 'ZONE_CONFIG_ERROR'}
+                }
+
+            cap = cv2.VideoCapture(source_path)
             box_annotator = sv.BoxAnnotator(thickness=1, color=sv.Color(r=218, g=165, b=32))
             alert_log = []
             last_alert_times = {}
@@ -465,7 +402,7 @@ def run_crowd_analysis(source_path: str, zone_configs: dict, output_path: str = 
                         else:
                             tracker.update(np.empty((0, 6)), frame)
                             tracked_detections = sv.Detections.empty()
-                    else:
+                    else:  # ByteTrack
                         tracked_detections = tracker.update_with_detections(detections)
 
                     # Debug logging

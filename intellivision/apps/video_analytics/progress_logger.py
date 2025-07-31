@@ -86,12 +86,11 @@ class ProgressLogger:
         remaining = self._estimate_remaining_time(avg_rate)
         progress_percent = (self.processed_items / self.total_items) * 100 if self.total_items else 0
         progress_bar = self._create_bar(progress_percent, width=12)
-        status_emoji = self._get_status_emoji()
         self.logger.info(
             f"Job #{self.job_id} | {self.job_type} | "
             f"{progress_bar} {progress_percent:3.0f}% | "
-            f"⏱️ {self._format_time(elapsed)} done, {self._format_time(remaining)} left | "
-            f"{avg_rate:.1f} FPS | {status_emoji}"
+            f"⏱️[ {self._format_time(elapsed)} : {self._format_time(remaining)} ] | "
+            f"{avg_rate:.1f} FPS"
         )
 
     def log_section(self, extra_status: str = None):
@@ -148,16 +147,6 @@ class ProgressLogger:
         minutes = int(seconds // 60)
         secs = int(seconds % 60)
         return f"{minutes:02d}:{secs:02d}"
-
-    def _get_status_emoji(self):
-        if "error" in self.status.lower():
-            return "🔴"
-        elif "warning" in self.status.lower():
-            return "🟡"
-        elif "completed" in self.status.lower():
-            return "✅"
-        else:
-            return "🟢"
 
     def _log_section(self, extra_status: str = None):
         """Helper: sectioned block for start/finish/error."""

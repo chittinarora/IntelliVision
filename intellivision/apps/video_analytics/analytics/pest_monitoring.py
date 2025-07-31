@@ -79,12 +79,39 @@ except ImportError:
 
 VALID_EXTENSIONS = {'.mp4', '.jpg', '.jpeg', '.png'}
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
-MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
+
+# ======================================
+# Model Management Integration
+# ======================================
+try:
+    from .model_manager import get_model_with_fallback
+
+    # Get model paths with automatic fallback
+    YOLO_MODEL_PATH = str(get_model_with_fallback("yolov11x"))  # Use yolov11x for wildlife detection
+    REID_MODEL_PATH = str(get_model_with_fallback("osnet_reid"))
+
+    logger.info(f"✅ Resolved YOLO model: {YOLO_MODEL_PATH}")
+    logger.info(f"✅ Resolved Re-ID model: {REID_MODEL_PATH}")
+
+except Exception as e:
+    logger.error(f"❌ Failed to resolve models with fallback: {e}")
+    # Fallback to old hardcoded paths as last resort
+    BASE_DIR = Path(__file__).resolve().parent.parent.parent
+    MODELS_DIR = BASE_DIR / 'video_analytics' / 'models'
+    YOLO_MODEL_PATH = str(MODELS_DIR / 'yolov11x.pt')
+    REID_MODEL_PATH = str(MODELS_DIR / 'osnet_x0_25_msmt17.pt')
+
+    # Check model existence the old way
+    MODEL_FILES = ["yolov11x.pt", "osnet_x0_25_msmt17.pt"]
+    for model_file in MODEL_FILES:
+        if not (MODELS_DIR / model_file).exists():
+            logger.error(f"Model file missing: {model_file}")
+            raise FileNotFoundError(f"Model file {model_file} not found in {MODELS_DIR}")
+
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb+srv://toram444444:06nJTevaUItCDpd9@cluster01.lemxesc.mongodb.net/?retryWrites=true&w=majority&appName=Cluster01")
 if not MONGO_URI:
     raise RuntimeError("MONGO_URI not set!")
 DETECTION_CONFIDENCE = 0.4
-EMBEDDER_FILE = MODELS_DIR / "osnet_ibn_x1_0_msmt17.pth"
 
 # Define OUTPUT_DIR with fallback
 try:
@@ -98,13 +125,6 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 mongo_client = MongoClient(MONGO_URI)
 db = mongo_client["snake_db"]
 snake_collection = db["snake_detections"]
-
-# Check model existence
-MODEL_FILES = ["best_animal.pt", "osnet_ibn_x1_0_msmt17.pth"]
-for model_file in MODEL_FILES:
-    if not (MODELS_DIR / model_file).exists():
-        logger.error(f"Model file missing: {model_file}")
-        raise FileNotFoundError(f"Model file {model_file} not found in {MODELS_DIR}")
 
 # ======================================
 # Helper Functions

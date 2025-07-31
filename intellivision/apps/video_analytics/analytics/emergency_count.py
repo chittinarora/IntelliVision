@@ -1,6 +1,5 @@
 """
 Emergency counting analytics using YOLO and BotSort for people detection and movement analysis.
-Counts people crossing defined lines with FastCounter and EnhancedCleanAnalyzer.
 """
 
 # ======================================
@@ -343,13 +342,13 @@ def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, custo
 
     Args:
         video_path: Path to input video
-        line_definitions: Dictionary of line configs (coords and direction)
+        line_definitions: Dictionary containing line definitions
         custom_params: Optional custom parameters
-        output_path: Path to save output video (for tasks.py integration)
-        job_id: VideoJob ID for progress tracking
+        output_path: Path to save output video
+        job_id: Job ID for progress tracking
 
     Returns:
-        Standardized response dictionary with filesystem paths
+        Dictionary with counting results
     """
     start_time = time.time()
 
@@ -685,12 +684,12 @@ def tracking_video(video_path: str, output_path: str, line_configs: dict, video_
     if isinstance(line_configs, list) and len(line_configs) == 2:
         line_definitions = {
             "entry_line": {
-                "coords": [[line_configs[0]["start_x"], line_configs[0]["start_y"]], 
+                "coords": [[line_configs[0]["start_x"], line_configs[0]["start_y"]],
                           [line_configs[0]["end_x"], line_configs[0]["end_y"]]],
                 "inDirection": line_configs[0].get("in_direction", "UP")
             },
             "exit_line": {
-                "coords": [[line_configs[1]["start_x"], line_configs[1]["start_y"]], 
+                "coords": [[line_configs[1]["start_x"], line_configs[1]["start_y"]],
                           [line_configs[1]["end_x"], line_configs[1]["end_y"]]],
                 "inDirection": line_configs[1].get("in_direction", "UP")
             }

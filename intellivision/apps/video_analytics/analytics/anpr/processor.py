@@ -55,11 +55,17 @@ class ANPRProcessor:
     MIN_ROI_SIZE = 10  # Minimum pixel size for ROI width/height
 
     def __init__(self, plate_model_path: str, car_model_path: str):
-        # Verify model paths exist
+        # The model paths may come from model manager with fallback, so they should already be valid
+        # But let's still verify them as a safety check
         if not Path(plate_model_path).exists():
+            logger.error(f"Plate model not found: {plate_model_path}")
             raise FileNotFoundError(f"Plate model not found: {plate_model_path}")
         if not Path(car_model_path).exists():
+            logger.error(f"Car model not found: {car_model_path}")
             raise FileNotFoundError(f"Car model not found: {car_model_path}")
+
+        logger.info(f"✅ Initializing ANPR processor with plate model: {plate_model_path}")
+        logger.info(f"✅ Initializing ANPR processor with car model: {car_model_path}")
 
         # Initialize detectors, OCR, and tracker
         self.plate_detector = LicensePlateDetector(plate_model_path, freeze_conf=self.LOCK_CONF_THRESHOLD)
@@ -538,11 +544,19 @@ class ParkingProcessor:
     MIN_ROI_SIZE = 10  # Minimum pixel size for ROI width/height
 
     def __init__(self, plate_model_path: str, car_model_path: str, total_slots: int = 50):
-        # Initialize detectors
+        # The model paths may come from model manager with fallback, so they should already be valid
+        # But let's still verify them as a safety check
         if not Path(plate_model_path).exists():
+            logger.error(f"Plate model not found: {plate_model_path}")
             raise FileNotFoundError(f"Plate model not found: {plate_model_path}")
         if not Path(car_model_path).exists():
+            logger.error(f"Car model not found: {car_model_path}")
             raise FileNotFoundError(f"Car model not found: {car_model_path}")
+
+        logger.info(f"✅ Initializing parking processor with plate model: {plate_model_path}")
+        logger.info(f"✅ Initializing parking processor with car model: {car_model_path}")
+
+        # Initialize detectors
         self.plate_detector = LicensePlateDetector(plate_model_path)
         self.car_detector = LicensePlateDetector(car_model_path)
         self.ocr = PlateOCR()

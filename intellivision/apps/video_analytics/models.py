@@ -28,22 +28,71 @@ Validates results structure to prevent inconsistent data (Issue #7).
 RESULT_SCHEMAS = {
     "people-count": {
         "type": "object",
-        "required": ["processed_frames", "total_frames", "in_count", "out_count", "current_count"],
+        "required": ["person_count"],
         "properties": {
-            "processed_frames": {"type": "number"},
-            "total_frames": {"type": "number"},
-            "in_count": {"type": "number"},
-            "out_count": {"type": "number"},
-            "current_count": {"type": "number"}
+            "person_count": {"type": "number"},
+            "raw_track_count": {"type": "number"},
+            "depth_method": {"type": "string"},
+            "fps": {"type": ["number", "null"]},
+            "detection_strategies": {
+                "type": "array",
+                "items": {"type": "string"}
+            },
+            "alerts": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "message": {"type": "string"},
+                        "timestamp": {"type": "string"}
+                    }
+                }
+            }
         }
     },
     "car-count": {
         "type": "object",
-        "required": ["processed_frames", "total_frames", "car_count"],
         "properties": {
-            "processed_frames": {"type": "number"},
-            "total_frames": {"type": "number"},
-            "car_count": {"type": "number"}
+            "summary": {
+                "type": "object",
+                "properties": {
+                    "entries": {"type": "number"},
+                    "exits": {"type": "number"},
+                    "max_occupancy": {"type": "number"},
+                    "final_occupancy": {"type": "number"},
+                    "recognized_plates": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    },
+                    "processing_fps": {"type": "number"},
+                    "total_frames": {"type": "number"},
+                    "processing_time": {"type": "number"},
+                    "vehicle_count": {"type": "number"}
+                }
+            },
+            "preview_url": {"type": "string"},
+            "download_url": {"type": "string"},
+            "detections": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "plate": {"type": "string"},
+                        "confidence": {"type": "number"}
+                    }
+                }
+            },
+            "annotated_image": {"type": "string"},
+            "alerts": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "message": {"type": "string"},
+                        "timestamp": {"type": "string"}
+                    }
+                }
+            }
         }
     },
     "emergency-count": {
@@ -68,50 +117,252 @@ RESULT_SCHEMAS = {
     },
     "food-waste-estimation": {
         "type": "object",
-        "required": ["waste_level", "confidence"],
         "properties": {
-            "waste_level": {"type": "number"},
-            "confidence": {"type": "number"}
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "estimated_portion_grams": {"type": "number"},
+                        "estimated_calories": {"type": "number"},
+                        "percent_uneaten": {"type": "number"},
+                        "confidence_score": {"type": "number"},
+                        "tags": {
+                            "type": "array",
+                            "items": {"type": "string"}
+                        }
+                    },
+                    "required": ["name", "estimated_portion_grams", "estimated_calories", "percent_uneaten", "confidence_score"]
+                }
+            },
+            "total_calories_served": {"type": "number"},
+            "total_calories_wasted": {"type": "number"},
+            "overall_waste_percentage": {"type": "number"},
+            "alerts": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "message": {"type": "string"},
+                        "timestamp": {"type": "string"}
+                    },
+                    "required": ["message", "timestamp"]
+                }
+            }
         }
     },
     "room-readiness": {
         "type": "object",
-        "required": ["overall_score", "total_issues"],
+        "required": ["readiness_score", "total_issues"],
         "properties": {
-            "overall_score": {"type": "number"},
-            "total_issues": {"type": "number"}
+            "readiness_score": {"type": "number"},
+            "status": {"type": "string"},
+            "zone": {"type": "string"},
+            "checklist": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "item": {"type": "string"},
+                        "parameter": {"type": "string"},
+                        "status": {"type": "string"},
+                        "box": {
+                            "oneOf": [
+                                {"type": "null"},
+                                {"type": "array", "items": {"type": "number"}}
+                            ]
+                        },
+                        "notes": {"type": "string"},
+                        "ai_suggested_fix": {"type": "string"}
+                    }
+                }
+            },
+            "fail_reasons": {
+                "type": "array",
+                "items": {"type": "string"}
+            },
+            "instructions": {
+                "type": "array",
+                "items": {"type": "string"}
+            },
+            "alerts": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "type": {"type": "string"},
+                        "message": {"type": "string"},
+                        "severity": {"type": "string"}
+                    }
+                }
+            },
+            "image_width": {"type": "number"},
+            "image_height": {"type": "number"},
+            "overall_status": {"type": "string"},
+            "rooms_analyzed": {"type": "number"},
+            "rooms_ready": {"type": "number"},
+            "total_issues": {"type": "number"},
+            "rooms": {"type": "object"},
+            "all_issues": {"type": "array"},
+            "individual_reports": {"type": "array"},
+            "deduplication_stats": {
+                "type": "object",
+                "properties": {
+                    "raw_issues": {"type": "number"},
+                    "unique_issues": {"type": "number"},
+                    "efficiency": {"type": "string"}
+                }
+            }
         }
     },
     "pothole-detection": {
         "type": "object",
-        "required": ["pothole_count", "total_frames"],
+        "required": ["total_potholes"],
         "properties": {
-            "pothole_count": {"type": "number"},
-            "total_frames": {"type": "number"}
+            "total_potholes": {"type": "number"},
+            "potholes": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "x": {"type": "number"},
+                        "y": {"type": "number"},
+                        "width": {"type": "number"},
+                        "height": {"type": "number"},
+                        "confidence": {"type": "number"},
+                        "class": {"type": "string"}
+                    }
+                }
+            },
+            "frames": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "frame_index": {"type": "number"},
+                        "potholes": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "x": {"type": "number"},
+                                    "y": {"type": "number"},
+                                    "width": {"type": "number"},
+                                    "height": {"type": "number"},
+                                    "confidence": {"type": "number"},
+                                    "class": {"type": "string"}
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "alerts": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "message": {"type": "string"},
+                        "timestamp": {"type": "string"}
+                    }
+                }
+            }
         }
     },
     "wildlife-detection": {
         "type": "object",
-        "required": ["animal_count", "total_frames"],
         "properties": {
-            "animal_count": {"type": "number"},
-            "total_frames": {"type": "number"}
+            "detected_snakes": {"type": "number"},
+            "detected_animals": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "confidence": {"type": "number"}
+                    }
+                }
+            },
+            "mongo_id": {"type": "string"},
+            "alerts": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "message": {"type": "string"},
+                        "timestamp": {"type": "string"}
+                    }
+                }
+            }
         }
     },
     "lobby-detection": {
         "type": "object",
-        "required": ["people_count", "crowd_density"],
         "properties": {
-            "people_count": {"type": "number"},
-            "crowd_density": {"type": "number"}
+            "zone_counts": {
+                "type": "object",
+                "additionalProperties": {"type": "number"}
+            },
+            "alerts": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "zone_name": {"type": "string"},
+                        "message": {"type": "string"},
+                        "count": {"type": "number"},
+                        "threshold": {"type": "number"},
+                        "video_timestamp": {"type": "string"},
+                        "system_timestamp": {"type": "string"},
+                        "frame_number": {"type": "number"}
+                    }
+                }
+            },
+            "alert_summary": {
+                "type": "object",
+                "properties": {
+                    "total_alerts": {"type": "number"},
+                    "alerts_by_zone": {
+                        "type": "object",
+                        "additionalProperties": {"type": "number"}
+                    }
+                }
+            }
         }
     },
     "parking-analysis": {
         "type": "object",
-        "required": ["total_spots", "occupied_spots"],
         "properties": {
-            "total_spots": {"type": "number"},
-            "occupied_spots": {"type": "number"}
+            "summary": {
+                "type": "object",
+                "properties": {
+                    "entries": {"type": "number"},
+                    "exits": {"type": "number"},
+                    "max_occupancy": {"type": "number"},
+                    "final_occupancy": {"type": "number"},
+                    "recognized_plates": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    },
+                    "processing_fps": {"type": "number"},
+                    "total_frames": {"type": "number"},
+                    "processing_time": {"type": "number"},
+                    "vehicle_count": {"type": "number"}
+                }
+            },
+            "preview_url": {"type": "string"},
+            "download_url": {"type": "string"},
+            "alerts": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "message": {"type": "string"},
+                        "timestamp": {"type": "string"}
+                    }
+                }
+            }
         }
     },
     "youtube_frame_extraction": {
