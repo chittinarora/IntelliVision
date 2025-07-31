@@ -60,11 +60,11 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # =================================================================================
-# OPTIMAL PARAMETERS FOR YOLOv12x (BASED ON SUCCESSFUL EXPERIMENT)
+# OPTIMAL PARAMETERS FOR YOLOv11x (BASED ON SUCCESSFUL EXPERIMENT)
 # =================================================================================
 class OptimalParams:
     """
-    Stores optimal parameters for YOLOv12x emergency counting, based on experimental results.
+    Stores optimal parameters for YOLOv11x emergency counting, based on experimental results.
     """
     def __init__(self):
         self.min_crossing_distance = 50
@@ -79,7 +79,7 @@ class OptimalParams:
         """
         Log the current optimal parameters for debugging and reproducibility.
         """
-        logger.info("  OPTIMAL YOLOv12x PARAMETERS (Proven to work):")
+        logger.info("  OPTIMAL YOLOv11x PARAMETERS (Proven to work):")
         logger.info(f"   Confidence: {self.confidence_threshold} (KEY SUCCESS FACTOR)")
         logger.info(f"   Proximity Threshold: {self.proximity_threshold}")
         logger.info(f"   Track Timeout: {self.track_timeout_frames} frames")
@@ -346,20 +346,31 @@ class FastCounter:
 # =================================================================================
 # MAIN PROCESSING FUNCTION WITH OPTIMAL PARAMETERS
 # =================================================================================
-def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, output_path: str = None, custom_params: OptimalParams = None):
+def run_optimal_yolov11x_counting(video_path: str, line_definitions: dict, output_path: str = None, custom_params: OptimalParams = None):
     """Run people counting with proven optimal parameters."""
 
     params = custom_params if custom_params else OptimalParams()
 
-    logger.info("🚀 RUNNING OPTIMAL YOLOv12x PEOPLE COUNTING")
+    logger.info("🚀 RUNNING OPTIMAL YOLOv11x PEOPLE COUNTING")
     params.log_params()
 
-    # Load YOLOv12x model using model manager for proper path resolution
+    # Load YOLOv11x model using model manager for proper path resolution
     from .model_manager import get_model_with_fallback
-    model = load_yolo_model(str(get_model_with_fallback("yolov12x")))
-    logger.info("🔧 Using YOLOv12x (Optimal Configuration)")
+    model = load_yolo_model(str(get_model_with_fallback("yolov11x")))
+    logger.info("🔧 Using YOLOv11x (Optimal Configuration)")
 
+    # Device for YOLO model
     device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
+
+    # Device for BotSort tracker (needs specific format)
+    tracker_device = "cpu"  # Default fallback
+    if torch.backends.mps.is_available():
+        tracker_device = "cpu"  # BotSort doesn't support MPS
+    elif torch.cuda.is_available():
+        tracker_device = "0"    # BotSort expects "0", "1", etc.
+    else:
+        tracker_device = "cpu"
+
     model.to(device)
     logger.info(f"Using device: {device}")
 
@@ -373,7 +384,7 @@ def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, outpu
     reid_path = REID_MODEL_PATH
     tracker = BotSort(
         reid_weights=reid_path,
-        device=device,
+        device=tracker_device,  # Use the properly formatted device
         half=False,
         track_buffer=params.track_buffer,
         match_thresh=params.match_thresh
@@ -411,7 +422,7 @@ def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, outpu
     cap = cv2.VideoCapture(video_path)
     frame_number = 0
     frame_count = 0
-    with tqdm(total=video_info.total_frames, desc="Optimal YOLOv12x Processing") as pbar:
+    with tqdm(total=video_info.total_frames, desc="Optimal YOLOv11x Processing") as pbar:
         while True:
             ret, frame = cap.read()
             if not ret:
@@ -487,7 +498,7 @@ def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, outpu
                 )
 
             # Show counts
-            total_in_out = f"OPTIMAL YOLOv12x - IN: {fast_in} | OUT: {fast_out} | Total: {fast_in + fast_out}"
+            total_in_out = f"OPTIMAL YOLOv11x - IN: {fast_in} | OUT: {fast_out} | Total: {fast_in + fast_out}"
             cv2.putText(
                 annotated_frame,
                 total_in_out,
@@ -518,8 +529,8 @@ def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, outpu
 
     # Results logging with safe handling for possible None values and detailed comments
 
-    # Log the results of the optimal YOLOv12x analysis
-    logger.info("\n📊 OPTIMAL YOLOV12x RESULTS:")
+    # Log the results of the optimal YOLOv11x analysis
+    logger.info("\n📊 OPTIMAL YOLOV11x RESULTS:")
 
     # Safely compute totals, treating None as 0 to avoid TypeError
     safe_fast_in = fast_in if fast_in is not None else 0
@@ -580,7 +591,7 @@ def fresh_line_workflow(video_path: str):
 # =================================================================================
 def main():
     """Main function with fresh line drawing every time."""
-    parser = argparse.ArgumentParser(description="Smart YOLOv12x People Counter - Fresh Lines Every Time")
+    parser = argparse.ArgumentParser(description="Smart YOLOv11x People Counter - Fresh Lines Every Time")
     parser.add_argument("--video", required=True, help="Path to the video file")
 
     # Optional parameter overrides (for advanced users)
@@ -619,7 +630,7 @@ def main():
     # Run the counting automatically
     try:
         logger.info("🚀 Starting people counting...")
-        result = run_optimal_yolov12x_counting(args.video, line_definitions, params)
+        result = run_optimal_yolov11x_counting(args.video, line_definitions, params)
 
         logger.info(f"\n🎯 FINAL RESULTS:")
         logger.info(f"   IN: {result['data']['in_count']}")
@@ -653,7 +664,7 @@ def tracking_video(input_path: str, output_path: str, emergency_lines: dict = No
     progress_logger = create_progress_logger(
         job_id=str(job_id) if job_id else "0",
         total_items=100,  # Estimate for video frames
-        job_type="emergency_count"
+        job_type="emergency-count"
     )
 
     # Follow Django storage pattern: copy input file to temporary location
@@ -665,7 +676,7 @@ def tracking_video(input_path: str, output_path: str, emergency_lines: dict = No
     try:
         progress_logger.update_progress(0, status="Starting emergency counting...", force_log=True)
 
-        # Convert emergency_lines format to line_definitions format expected by run_optimal_yolov12x_counting
+        # Convert emergency_lines format to line_definitions format expected by run_optimal_yolov11x_counting
         line_definitions = {}
 
         if isinstance(emergency_lines, list):
@@ -693,7 +704,7 @@ def tracking_video(input_path: str, output_path: str, emergency_lines: dict = No
         progress_logger.update_progress(50, status="Processing video frames...", force_log=True)
 
         # Pass all arguments to the main function
-        result = run_optimal_yolov12x_counting(
+        result = run_optimal_yolov11x_counting(
             video_path=tmp_input_path,  # Use temporary file path
             line_definitions=line_definitions,
             output_path=output_path,  # Pass output path for consistency

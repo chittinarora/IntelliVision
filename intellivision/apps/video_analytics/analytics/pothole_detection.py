@@ -299,7 +299,7 @@ def run_pothole_detection(input_path: str, output_path: str, job_id: str = None)
         progress_logger = create_progress_logger(
             job_id=str(job_id),
             total_items=MAX_FRAMES,
-            job_type="pothole_detection"
+            job_type="pothole-detection"
         )
 
         with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp_out:

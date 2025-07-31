@@ -121,10 +121,45 @@ except AttributeError:
     OUTPUT_DIR = Path(settings.MEDIA_ROOT) / 'outputs'
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# MongoDB setup
-mongo_client = MongoClient(MONGO_URI)
-db = mongo_client["snake_db"]
-snake_collection = db["snake_detections"]
+# MongoDB setup with availability check
+if MONGODB_AVAILABLE:
+    try:
+        mongo_client = MongoClient(MONGO_URI)
+        db = mongo_client["snake_db"]
+        snake_collection = db["snake_detections"]
+        # Test connection
+        mongo_client.admin.command('ping')
+        logger.info("✅ MongoDB connection established")
+    except Exception as e:
+        logger.error(f"❌ MongoDB connection failed: {e}")
+        MONGODB_AVAILABLE = False
+        mongo_client = None
+        db = None
+        snake_collection = None
+else:
+    mongo_client = None
+    db = None
+    snake_collection = None
+
+# ======================================
+# Model Caching
+# ======================================
+
+# Global model cache to prevent repeated loading
+_model_cache = {}
+
+def get_cached_model(model_type: str):
+    """Get cached model instance or create new one."""
+    if model_type not in _model_cache:
+        try:
+            from .model_manager import get_model_with_fallback
+            model_path = str(get_model_with_fallback(model_type))
+            _model_cache[model_type] = YOLO(model_path)
+            logger.info(f"✅ Loaded and cached {model_type} model: {model_path}")
+        except Exception as e:
+            logger.error(f"❌ Failed to load {model_type} model: {e}")
+            raise
+    return _model_cache[model_type]
 
 # ======================================
 # Helper Functions
@@ -187,9 +222,8 @@ def detect_snakes_in_image(image_path: str, output_path: str = None, job_id: str
             img = Image.open(f).convert("RGB")
             img_array = np.array(img)
 
-        # Run detection using model manager
-        from .model_manager import get_model_with_fallback
-        model = YOLO(str(get_model_with_fallback("best_animal")))
+        # Run detection using cached model
+        model = get_cached_model("best_animal")
         results = model(img_array, conf=DETECTION_CONFIDENCE)
         plotted = results[0].plot()
         num_snakes = len(results[0].boxes)
@@ -214,16 +248,22 @@ def detect_snakes_in_image(image_path: str, output_path: str = None, job_id: str
 
         logger.info(f"✅ Snake detection completed, output saved to {final_output_path}")
 
-        # Log to MongoDB
-        mongo_doc = {
-            "type": "image",
-            "file_name": image_path,
-            "detected_snakes": num_snakes,
-            "detected_animals": detected_animals,
-            "timestamp": datetime.now(),
-            "output_url": output_path
-        }
-        result = snake_collection.insert_one(mongo_doc)
+        # Log to MongoDB if available
+        mongo_result = None
+        if MONGODB_AVAILABLE and snake_collection is not None:
+            try:
+                mongo_doc = {
+                    "type": "image",
+                    "file_name": image_path,
+                    "detected_snakes": num_snakes,
+                    "detected_animals": detected_animals,
+                    "timestamp": datetime.now(),
+                    "output_url": output_path
+                }
+                mongo_result = snake_collection.insert_one(mongo_doc)
+                logger.info(f"✅ Logged to MongoDB: {mongo_result.inserted_id}")
+            except Exception as e:
+                logger.warning(f"⚠️ MongoDB logging failed: {e}")
 
         processing_time = time.time() - start_time
         return {
@@ -234,7 +274,7 @@ def detect_snakes_in_image(image_path: str, output_path: str = None, job_id: str
             'data': {
                 'detected_snakes': num_snakes,
                 'detected_animals': detected_animals,
-                'mongo_id': str(result.inserted_id),
+                'mongo_id': str(mongo_result.inserted_id) if mongo_result else None,
                 'alerts': alerts
             },
             'meta': {
@@ -257,12 +297,21 @@ def detect_snakes_in_image(image_path: str, output_path: str = None, job_id: str
             'error': {'message': str(e), 'code': 'PROCESSING_ERROR'}
         }
     finally:
-        # Fix: Check if tmp exists before trying to access it
-        if 'tmp' in locals() and hasattr(tmp, 'name') and os.path.exists(tmp.name):
-            try:
-                os.remove(tmp.name)
-            except Exception as e:
-                logger.warning(f"Failed to clean up temporary file: {e}")
+        # Safe cleanup for temporary files
+        temp_files_to_clean = []
+        
+        # Check for temporary file from image processing
+        if 'tmp' in locals() and hasattr(tmp, 'name'):
+            temp_files_to_clean.append(tmp.name)
+            
+        # Clean up all temporary files safely
+        for temp_file in temp_files_to_clean:
+            if os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                    logger.debug(f"Cleaned up temporary file: {temp_file}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temporary file {temp_file}: {e}")
 
 def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str = None) -> Dict:
     """
@@ -318,14 +367,16 @@ def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = cap.get(cv2.CAP_PROP_FPS) or 30
-        timestamp = get_timestamp()
-        job_id = re.search(r'(\d+)', video_path)
-        job_id = job_id.group(1) if job_id else str(int(time.time()))
-        output_filename = f"outputs/detection_vid_{job_id}.mp4"
+        
+        # Use provided job_id, don't overwrite it
+        output_job_id = job_id or str(int(time.time()))
         with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp_out:
             out = cv2.VideoWriter(tmp_out.name, cv2.VideoWriter_fourcc(*'mp4v'), fps, (width, height))
 
-            # Tracker setup
+            # Tracker setup with availability check
+            if not BOTSORT_AVAILABLE:
+                raise RuntimeError("BotSort not available. Install with: pip install boxmot")
+            
             device = "0" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
             tracker = BotSort(
                 track_high_thresh=0.15,
@@ -335,7 +386,7 @@ def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str
                 half=False,
                 reid_weights=Path(REID_MODEL_PATH)
             )
-            model = YOLO(str(get_model_with_fallback("best_animal")))
+            model = get_cached_model("best_animal")
 
             total_detected = 0
             detected_animals = []
@@ -376,14 +427,16 @@ def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str
                 out.write(frame)
                 total_detected += len(tracks)
 
-                # Periodic logging
+                # Periodic logging with safe division
                 current_time = time.time()
-                if current_time - last_log_time >= 5 or frame_number == int(cap.get(cv2.CAP_PROP_FRAME_COUNT)):
-                    progress = (frame_number / cap.get(cv2.CAP_PROP_FRAME_COUNT)) * 100
+                total_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+                if current_time - last_log_time >= 5 or frame_number == int(total_frames):
+                    # Safe progress calculation
+                    progress = (frame_number / total_frames) * 100 if total_frames > 0 else 0
                     elapsed_time = current_time - start_time
-                    time_remaining = (elapsed_time / frame_number) * (cap.get(cv2.CAP_PROP_FRAME_COUNT) - frame_number) if frame_number > 0 else 0
+                    time_remaining = (elapsed_time / frame_number) * (total_frames - frame_number) if frame_number > 0 and total_frames > 0 else 0
                     avg_fps = frame_number / elapsed_time if elapsed_time > 0 else 0
-                    logger.info(f"**Job {job_id}**: Progress **{progress:.1f}%** ({frame_number}/{int(cap.get(cv2.CAP_PROP_FRAME_COUNT))}), Status: Processing...")
+                    logger.info(f"**Job {output_job_id}**: Progress **{progress:.1f}%** ({frame_number}/{int(total_frames)}), Status: Processing...")
                     logger.info(f"[{'#' * int(progress // 10)}{'-' * (10 - int(progress // 10))}] Done: {int(elapsed_time // 60):02d}:{int(elapsed_time % 60):02d} | Left: {int(time_remaining // 60):02d}:{int(time_remaining % 60):02d} | Avg FPS: {avg_fps:.1f}")
                     last_log_time = current_time
 
@@ -402,16 +455,22 @@ def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str
                 final_output_path = tmp_out.name  # Fallback to original
                 logger.warning(f"⚠️ FFmpeg conversion failed, using original file")
 
-            # Log to MongoDB
-            mongo_doc = {
-                "type": "video",
-                "file_name": video_path,
-                "detected_snakes": total_detected,
-                "detected_animals": detected_animals,
-                "timestamp": datetime.now(),
-                "output_url": output_path
-            }
-            result = snake_collection.insert_one(mongo_doc)
+            # Log to MongoDB if available
+            mongo_result = None
+            if MONGODB_AVAILABLE and snake_collection is not None:
+                try:
+                    mongo_doc = {
+                        "type": "video",
+                        "file_name": video_path,
+                        "detected_snakes": total_detected,
+                        "detected_animals": detected_animals,
+                        "timestamp": datetime.now(),
+                        "output_url": output_path
+                    }
+                    mongo_result = snake_collection.insert_one(mongo_doc)
+                    logger.info(f"✅ Logged to MongoDB: {mongo_result.inserted_id}")
+                except Exception as e:
+                    logger.warning(f"⚠️ MongoDB logging failed: {e}")
 
             processing_time = time.time() - start_time
             return {
@@ -422,7 +481,7 @@ def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str
                 'data': {
                     'detected_snakes': total_detected,
                     'detected_animals': detected_animals,
-                    'mongo_id': str(result.inserted_id),
+                    'mongo_id': str(mongo_result.inserted_id) if mongo_result else None,
                     'alerts': alerts
                 },
                 'meta': {
@@ -445,18 +504,46 @@ def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str
             'error': {'message': str(e), 'code': 'PROCESSING_ERROR'}
         }
     finally:
-        if 'cap' in locals() and cap:
-            cap.release()
-        if 'out' in locals() and out:
-            out.release()
-        if 'tmp_path' in locals() and os.path.exists(tmp_path):
-            os.remove(tmp_path)
+        # Safe cleanup for video processing
+        # Release video resources
+        if 'cap' in locals() and cap is not None:
+            try:
+                cap.release()
+                logger.debug("Released video capture")
+            except Exception as e:
+                logger.warning(f"Failed to release video capture: {e}")
+                
+        if 'out' in locals() and out is not None:
+            try:
+                out.release()
+                logger.debug("Released video writer")
+            except Exception as e:
+                logger.warning(f"Failed to release video writer: {e}")
+        
+        # Clean up temporary files safely
+        temp_files_to_clean = []
+        
+        if 'tmp_path' in locals():
+            temp_files_to_clean.append(tmp_path)
+            
+        # Only clean up tmp_out if it's not the final_output_path
+        if ('tmp_out' in locals() and 'final_output_path' in locals() and 
+            hasattr(tmp_out, 'name') and tmp_out.name != final_output_path):
+            temp_files_to_clean.append(tmp_out.name)
+        elif 'tmp_out' in locals() and 'final_output_path' not in locals() and hasattr(tmp_out, 'name'):
+            temp_files_to_clean.append(tmp_out.name)
+            
+        # Clean up all temporary files
+        for temp_file in temp_files_to_clean:
+            if os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                    logger.debug(f"Cleaned up temporary file: {temp_file}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temporary file {temp_file}: {e}")
+                    
         # Note: final_output_path is not cleaned up here as tasks.py needs it
         # tasks.py will handle cleanup after saving to Django storage
-        # Only clean up tmp_out if it's not the final_output_path
-        if ('tmp_out' in locals() and 'final_output_path' in locals() and
-            tmp_out.name != final_output_path and os.path.exists(tmp_out.name)):
-            os.remove(tmp_out.name)
 
 # ======================================
 # Celery Integration
@@ -540,7 +627,7 @@ def tracking_video(input_path: str, output_path: str = None, job_id: str = None)
         progress_logger = create_progress_logger(
             job_id=str(job_id) if job_id else "0",
             total_items=1,  # Single image
-            job_type="wildlife_detection"
+            job_type="wildlife-detection"
         )
 
         progress_logger.update_progress(0, status="Processing image for wildlife detection...", force_log=True)
@@ -552,7 +639,7 @@ def tracking_video(input_path: str, output_path: str = None, job_id: str = None)
         progress_logger = create_progress_logger(
             job_id=str(job_id) if job_id else "0",
             total_items=100,  # Estimate for video frames
-            job_type="wildlife_detection"
+            job_type="wildlife-detection"
         )
 
         progress_logger.update_progress(0, status="Starting video processing for wildlife detection...", force_log=True)

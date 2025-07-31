@@ -316,10 +316,13 @@ def run_crowd_analysis(source_path: str, zone_configs: dict, output_path: str = 
         logger.info(f"Using model: {model_name} on device: {device}")
 
         # Setup output
-        # Extract job ID from source path if not provided as parameter
-        extracted_job_id = re.search(r'(\d+)', source_path)
-        file_job_id = extracted_job_id.group(1) if extracted_job_id else str(int(time.time()))
-        output_filename = f"outputs/output_crowd_{file_job_id}.mp4"
+        # Use provided job_id parameter, fallback to extracting from source path
+        if job_id:
+            output_job_id = str(job_id)
+        else:
+            extracted_job_id = re.search(r'(\d+)', source_path)
+            output_job_id = extracted_job_id.group(1) if extracted_job_id else str(int(time.time()))
+        output_filename = f"outputs/output_crowd_{output_job_id}.mp4"
         with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp_out:
             video_info = sv.VideoInfo.from_video_path(source_path)
             writer = cv2.VideoWriter(tmp_out.name, cv2.VideoWriter_fourcc(*'mp4v'), video_info.fps, video_info.resolution_wh)
@@ -576,7 +579,7 @@ def tracking_video(source_path: str, zone_configs: dict, output_path: str = None
     progress_logger = create_progress_logger(
         job_id=str(job_id) if job_id else "0",
         total_items=100,  # Estimate for video frames
-        job_type="lobby_detection"
+        job_type="lobby-detection"
     )
 
     progress_logger.update_progress(0, status="Starting lobby crowd analysis...", force_log=True)

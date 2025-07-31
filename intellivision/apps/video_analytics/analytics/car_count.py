@@ -162,9 +162,13 @@ def recognize_number_plates(video_path: str) -> Dict:
         }
 
     try:
-        job_id = re.search(r'(\d+)', video_path)
-        job_id = job_id.group(1) if job_id else str(int(time.time()))
-        output_filename = f"outputs/annotated_{job_id}.mp4"
+        # Use provided job_id parameter, fallback to extracting from video path
+        if job_id:
+            output_job_id = str(job_id)
+        else:
+            extracted_job_id = re.search(r'(\d+)', video_path)
+            output_job_id = extracted_job_id.group(1) if extracted_job_id else str(int(time.time()))
+        output_filename = f"outputs/annotated_{output_job_id}.mp4"
 
         with anpr_lock:
             logger.info(f"Starting plate recognition: {video_path}")
@@ -267,9 +271,13 @@ def analyze_parking_video(video_path: str, output_path: str = None, job_id: str 
         }
 
     try:
-        job_id = re.search(r'(\d+)', video_path)
-        job_id = job_id.group(1) if job_id else str(int(time.time()))
-        output_filename = f"outputs/parking_analysis_{job_id}.mp4"
+        # Use provided job_id parameter, fallback to extracting from video path
+        if job_id:
+            output_job_id = str(job_id)
+        else:
+            extracted_job_id = re.search(r'(\d+)', video_path)
+            output_job_id = extracted_job_id.group(1) if extracted_job_id else str(int(time.time()))
+        output_filename = f"outputs/parking_analysis_{output_job_id}.mp4"
 
         with parking_lock:
             logger.info(f"Starting parking analysis: {video_path}")
@@ -385,9 +393,13 @@ def process_image_file(image_path: str, output_path: str = None, job_id: str = N
         }
 
     try:
-        job_id = re.search(r'(\d+)', image_path)
-        job_id = job_id.group(1) if job_id else str(int(time.time()))
-        output_filename = f"outputs/annotated_{job_id}.jpg"
+        # Use provided job_id parameter, fallback to extracting from image path
+        if job_id:
+            output_job_id = str(job_id)
+        else:
+            extracted_job_id = re.search(r'(\d+)', image_path)
+            output_job_id = extracted_job_id.group(1) if extracted_job_id else str(int(time.time()))
+        output_filename = f"outputs/annotated_{output_job_id}.jpg"
 
         with anpr_lock:
             logger.info(f"Processing image: {image_path}")
@@ -1100,7 +1112,7 @@ def tracking_video(input_path: str, output_path: str = None, job_id: str = None)
         progress_logger = create_progress_logger(
             job_id=str(job_id) if job_id else "0",
             total_items=1,  # Single image
-            job_type="car_count"
+            job_type="car-count"
         )
 
         progress_logger.update_progress(0, status="Processing image...", force_log=True)
@@ -1112,7 +1124,7 @@ def tracking_video(input_path: str, output_path: str = None, job_id: str = None)
         progress_logger = create_progress_logger(
             job_id=str(job_id) if job_id else "0",
             total_items=100,  # Estimate for video frames
-            job_type="car_count"
+            job_type="car-count"
         )
 
         progress_logger.update_progress(0, status="Starting video processing...", force_log=True)

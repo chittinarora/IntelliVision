@@ -29,16 +29,48 @@ class PlateOCR:
                  whitelist: str = None,
                  tesseract_conf_thresh: float = 0.7,
                  lang_list: list = ['en'],
-                 buffer_size: int = 5):
+                 buffer_size: int = 5,
+                 gpu_enabled: bool = None):
         # configure tesseract binary
         if tesseract_cmd:
             pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
         self.whitelist = whitelist or "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
         self.tesseract_conf_thresh = tesseract_conf_thresh
-        self.reader = easyocr.Reader(lang_list, gpu=False, verbose=False)
+        
+        # Auto-detect GPU if not specified
+        if gpu_enabled is None:
+            gpu_enabled = self._should_use_gpu()
+        
+        logger.info(f"Initializing EasyOCR with GPU={'enabled' if gpu_enabled else 'disabled'}")
+        try:
+            self.reader = easyocr.Reader(lang_list, gpu=gpu_enabled, verbose=False)
+        except Exception as e:
+            if gpu_enabled:
+                logger.warning(f"Failed to initialize EasyOCR with GPU: {e}, falling back to CPU")
+                self.reader = easyocr.Reader(lang_list, gpu=False, verbose=False)
+            else:
+                raise
         # buffer for smoothing
         self.buffer = deque(maxlen=buffer_size)
         self.buffer_size = buffer_size
+    
+    def _should_use_gpu(self):
+        """
+        Check if GPU should be used for EasyOCR.
+        
+        Returns:
+            bool: True if GPU is available and recommended
+        """
+        try:
+            import torch
+            return torch.cuda.is_available() and torch.cuda.device_count() > 0
+        except ImportError:
+            # torch not available, EasyOCR might still support GPU via other backends
+            logger.info("PyTorch not available, EasyOCR GPU detection limited")
+            return False
+        except Exception as e:
+            logger.warning(f"GPU detection failed: {e}")
+            return False
 
     def _gamma_correction(self, image: np.ndarray, gamma: float) -> np.ndarray:
         inv = 1.0 / gamma

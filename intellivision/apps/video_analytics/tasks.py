@@ -96,7 +96,7 @@ def save_output_and_get_url(job: VideoJob, output_file_path: str) -> str:
         # Check file size and permissions
         file_size = os.path.getsize(output_file_path)
         logger.info(f"Job {job.id}: Saving output file - Size: {file_size / (1024*1024):.2f}MB, Path: {output_file_path}")
-        
+
         actual_filename = os.path.basename(output_file_path)
         saved_name = f"outputs/{actual_filename}"
         ext = os.path.splitext(actual_filename)[1].lower()
@@ -114,7 +114,7 @@ def save_output_and_get_url(job: VideoJob, output_file_path: str) -> str:
         if not default_storage.exists(saved_path):
             logger.error(f"Job {job.id}: File save verification failed - {saved_path} does not exist in storage")
             return None
-            
+
         saved_size = default_storage.size(saved_path)
         logger.info(f"Job {job.id}: File save verified - Saved size: {saved_size / (1024*1024):.2f}MB at {saved_path}")
 
@@ -126,11 +126,11 @@ def save_output_and_get_url(job: VideoJob, output_file_path: str) -> str:
 
         job.save(update_fields=['output_video', 'output_image'])
         logger.info(f"Job {job.id}: Model field updated and saved")
-        
+
         final_url = ensure_api_media_url(output_url)
         logger.info(f"Job {job.id}: Final URL: {final_url}")
         return final_url
-        
+
     except Exception as e:
         logger.error(f"Job {job.id}: File save failed with error: {str(e)}", exc_info=True)
         return None
@@ -257,15 +257,6 @@ def process_video_job(self, job_id: int) -> None:
         release_job_slot()
         raise ValueError(error_msg)
 
-    # GPU memory check
-    try:
-        import torch
-        if torch.cuda.is_available():
-            gpu_memory = torch.cuda.memory_allocated() / 1024 ** 3
-            logger.info(f"🎮 Job {job_id}: GPU memory before: {gpu_memory:.2f}GB")
-    except Exception as e:
-        logger.info(f"💻 Job {job_id}: Running on CPU or GPU check failed: {e}")
-
     try:
         logger.info(f"🔄 Job {job_id}: Updating status to 'processing'")
         job.status = 'processing'
@@ -383,7 +374,22 @@ def process_video_job(self, job_id: int) -> None:
         # Pass job_id to analytics functions for progress logging
         # The analytics functions are now regular functions, not Celery tasks
         # So we don't need to pass 'self' anymore
-        result_data = processor_func_instance(*processor_args)
+        try:
+            result_data = processor_func_instance(*processor_args)
+        except (GPUError, ModelLoadingError) as e:
+            logger.error(f"❌ Job {job_id}: Analytics processing failed due to model/GPU error: {e}", exc_info=True)
+
+            job.status = 'failed'
+            job.results = {
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "error_time": datetime.now().isoformat(),
+                "traceback": traceback.format_exc()
+            }
+            job.save()
+            release_job_slot()
+            return
+
         processing_duration = time.time() - start_time
         logger.info(f"✅ Job {job_id}: Analytics completed in {processing_duration:.2f} seconds")
 
@@ -443,14 +449,6 @@ def process_video_job(self, job_id: int) -> None:
 
     finally:
         # Always release job slot and clean up resources
-        try:
-            import torch
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                logger.info(f"🎮 Job {job_id}: GPU memory cleaned")
-        except Exception as e:
-            logger.warning(f"GPU memory cleanup failed: {e}")
-
         try:
             release_job_slot()
             logger.info(f"💾 Job {job_id}: Job slot released")

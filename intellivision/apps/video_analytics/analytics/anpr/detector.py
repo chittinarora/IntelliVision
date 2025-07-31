@@ -9,6 +9,16 @@ import logging
 import time
 import torch
 
+# Import CUDA error handling
+try:
+    from ...exception_handlers import GPUError, ModelLoadingError
+except ImportError:
+    # Fallback for standalone usage
+    class GPUError(Exception):
+        pass
+    class ModelLoadingError(Exception):
+        pass
+
 # Configure logging
 logger = logging.getLogger("anpr.detector")
 logger.setLevel(logging.INFO)
@@ -45,29 +55,111 @@ class LicensePlateDetector:
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Model not found at: {model_path}")
 
-        # Auto-select device
-        if torch.cuda.is_available():
-            device = "0"
-        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-            device = "mps"
-        else:
-            device = "cpu"
+        # Auto-select device with proper error handling
+        device = self._get_optimal_device()
+        logger.info(f"Selected device: {device}")
 
         try:
             self.model = YOLO(model_path)
-            self.model.to(device)
+            self._move_model_to_device(device)
             logger.info(f"Model loaded on {device.upper()}")
+        except (torch.cuda.OutOfMemoryError, RuntimeError) as e:
+            if "CUDA out of memory" in str(e) or "CUDA error" in str(e):
+                logger.error(f"CUDA error during model initialization: {e}")
+                # Try CPU fallback
+                try:
+                    logger.warning("Falling back to CPU due to CUDA error")
+                    self.model = YOLO(model_path)
+                    self._move_model_to_device("cpu")
+                    device = "cpu"
+                    logger.info("Model successfully loaded on CPU fallback")
+                except Exception as fallback_error:
+                    self._cleanup_gpu_memory()
+                    raise ModelLoadingError(f"Failed to initialize model on both GPU and CPU: {fallback_error}")
+            else:
+                self._cleanup_gpu_memory()
+                raise ModelLoadingError(f"Model initialization failed: {e}")
         except Exception as e:
-            logger.error(f"Model initialization failed: {str(e)}")
-            raise RuntimeError(f"Could not initialize model: {str(e)}")
+            self._cleanup_gpu_memory()
+            raise ModelLoadingError(f"Could not initialize model: {e}")
 
         self.freeze_conf = freeze_conf
         self._last_box = None  # store (x1,y1,x2,y2,score)
         self._last_frame = None
         self._last_detections = []
 
+        # Store device for later use
+        self.device = device
+        
         # Warm up the model
         self._warmup_model()
+    
+    def _get_optimal_device(self):
+        """
+        Get optimal device with proper error handling.
+        
+        Returns:
+            str: Device string ("0" for CUDA, "mps", or "cpu")
+        """
+        try:
+            if torch.cuda.is_available() and torch.cuda.device_count() > 0:
+                # Additional CUDA health check
+                try:
+                    torch.cuda.get_device_properties(0)
+                    return "0"
+                except Exception as cuda_error:
+                    logger.warning(f"CUDA device check failed: {cuda_error}, falling back")
+        except Exception as e:
+            logger.warning(f"CUDA availability check failed: {e}")
+        
+        try:
+            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                return "mps"
+        except Exception as e:
+            logger.warning(f"MPS availability check failed: {e}")
+        
+        return "cpu"
+    
+    def _move_model_to_device(self, device):
+        """
+        Move model to device with proper error handling.
+        
+        Args:
+            device: Target device string
+        """
+        try:
+            self.model.to(device)
+        except (torch.cuda.OutOfMemoryError, RuntimeError) as e:
+            if "CUDA out of memory" in str(e) or "CUDA error" in str(e):
+                self._cleanup_gpu_memory()
+                raise GPUError(f"CUDA error when moving model to device {device}: {e}")
+            else:
+                raise ModelLoadingError(f"Failed to move model to device {device}: {e}")
+    
+    def _cleanup_gpu_memory(self):
+        """Clean up GPU memory to recover from errors."""
+        try:
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                logger.info("GPU memory cleaned up")
+        except Exception as e:
+            logger.warning(f"GPU memory cleanup failed: {e}")
+    
+    def _is_gpu_available(self):
+        """
+        Safely check if GPU is available and being used.
+        
+        Returns:
+            bool: True if GPU is available and model is on GPU
+        """
+        try:
+            return (hasattr(self, 'device') and 
+                    self.device not in ["cpu"] and 
+                    torch.cuda.is_available())
+        except Exception as e:
+            logger.warning(f"GPU availability check failed: {e}")
+            return False
 
     def _warmup_model(self):
         """Perform initial inference to initialize model weights"""
@@ -131,12 +223,26 @@ class LicensePlateDetector:
         try:
             start = time.perf_counter()
 
-            # Only use half-precision on GPU
-            half = torch.cuda.is_available()
+            # Only use half-precision on GPU (with safe CUDA check)
+            half = self._is_gpu_available()
             results = self.model(frame, conf=conf, iou=iou, verbose=False, half=half)[0]
 
             infer_time = (time.perf_counter() - start) * 1000
             logger.debug(f"Inference time: {infer_time:.1f}ms")
+        except (torch.cuda.OutOfMemoryError, RuntimeError) as e:
+            if "CUDA out of memory" in str(e) or "CUDA error" in str(e):
+                logger.error(f"CUDA error during inference: {e}")
+                self._cleanup_gpu_memory()
+                # Try inference on CPU
+                try:
+                    logger.warning("Retrying inference on CPU")
+                    results = self.model(frame, conf=conf, iou=iou, verbose=False, half=False)[0]
+                except Exception as cpu_error:
+                    logger.error(f"CPU fallback inference also failed: {cpu_error}")
+                    return []
+            else:
+                logger.error(f"YOLO inference failed: {str(e)}")
+                return []
         except Exception as e:
             logger.error(f"YOLO inference failed: {str(e)}")
             return []

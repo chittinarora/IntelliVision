@@ -10,6 +10,7 @@ import urllib.request
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import torch
+from ..exception_handlers import GPUError, ModelLoadingError
 
 # ======================================
 # Logger Setup
@@ -193,22 +194,43 @@ def download_ultralytics_model(model_name: str, models_dir: Path) -> bool:
                 if download_id == "yolov12x":
                     try:
                         model = loader_class("yolov12x")
-                    except Exception:
-                        logger.warning("⚠️ yolov12x not available, falling back to yolov8x")
+                    except Exception as e:
+                        logger.warning(f"⚠️ yolov12x not available: {e}, falling back to yolov8x")
                         model = loader_class("yolov8x")
                         download_id = "yolov8x"
                 else:
                     model = loader_class(download_id)
+            except (torch.cuda.OutOfMemoryError, RuntimeError) as e:
+                if "CUDA out of memory" in str(e) or "CUDA error" in str(e):
+                    raise GPUError(f"CUDA out of memory or other CUDA error during model loading: {e}", details={"model": model_name, "error_type": "CUDA_OOM"})
+                else:
+                    raise ModelLoadingError(f"Failed to load model {model_name}: {e}", details={"model": model_name})
             except Exception as e:
                 logger.warning(f"⚠️ {download_id} not available: {e}")
                 fallback_name = config["fallback"]
                 fallback_config = MODEL_CONFIGS.get(fallback_name, {})
                 fallback_download_id = fallback_config.get("download_id", fallback_name)
                 logger.info(f"🔄 Trying fallback: {fallback_download_id}")
-                model = loader_class(fallback_download_id)
-                download_id = fallback_download_id
+                try:
+                    model = loader_class(fallback_download_id)
+                    download_id = fallback_download_id
+                except (torch.cuda.OutOfMemoryError, RuntimeError) as e:
+                    if "CUDA out of memory" in str(e) or "CUDA error" in str(e):
+                        raise GPUError(f"CUDA out of memory or other CUDA error during fallback model loading: {e}", details={"model": fallback_name, "error_type": "CUDA_OOM"})
+                    else:
+                        raise ModelLoadingError(f"Failed to load fallback model {fallback_name}: {e}", details={"model": fallback_name})
+                except Exception as e:
+                    raise ModelLoadingError(f"Failed to load fallback model {fallback_name}: {e}", details={"model": fallback_name})
         else:
-            model = loader_class(download_id)
+            try:
+                model = loader_class(download_id)
+            except (torch.cuda.OutOfMemoryError, RuntimeError) as e:
+                if "CUDA out of memory" in str(e) or "CUDA error" in str(e):
+                    raise GPUError(f"CUDA out of memory or other CUDA error during model loading: {e}", details={"model": model_name, "error_type": "CUDA_OOM"})
+                else:
+                    raise ModelLoadingError(f"Failed to load model {model_name}: {e}", details={"model": model_name})
+            except Exception as e:
+                raise ModelLoadingError(f"Failed to load model {model_name}: {e}", details={"model": model_name})
 
         # For Ultralytics models, they're automatically cached when loaded
         # We need to find the cached model and copy it to our models directory
@@ -322,6 +344,11 @@ def ensure_torch_hub_model(model_name: str) -> bool:
         logger.info(f"✅ {config['description']} cached successfully")
         return True
 
+    except (torch.cuda.OutOfMemoryError, RuntimeError) as e:
+        if "CUDA out of memory" in str(e) or "CUDA error" in str(e):
+            raise GPUError(f"CUDA out of memory or other CUDA error during torch.hub model caching: {e}", details={"model": model_name, "error_type": "CUDA_OOM"})
+        else:
+            raise ModelLoadingError(f"Failed to cache torch.hub model {model_name}: {e}", details={"model": model_name})
     except Exception as e:
         logger.error(f"❌ Could not cache {model_name}: {e}")
         return False
@@ -376,6 +403,11 @@ def ensure_huggingface_model(model_name: str) -> bool:
         logger.info(f"✅ {config['description']} cached successfully")
         return True
 
+    except (torch.cuda.OutOfMemoryError, RuntimeError) as e:
+        if "CUDA out of memory" in str(e) or "CUDA error" in str(e):
+            raise GPUError(f"CUDA out of memory or other CUDA error during Hugging Face model caching: {e}", details={"model": model_name, "error_type": "CUDA_OOM"})
+        else:
+            raise ModelLoadingError(f"Failed to cache Hugging Face model {model_name}: {e}", details={"model": model_name})
     except Exception as e:
         logger.error(f"❌ Could not cache {model_name}: {e}")
         return False
@@ -427,16 +459,24 @@ def download_all_models(models_dir: Optional[Path] = None,
             continue
 
         # Route to appropriate download function
-        if "loader" in config and "ultralytics" in config["loader"]:
-            results[model_name] = download_ultralytics_model(model_name, models_dir)
-        elif model_name == "osnet_reid":
-            results[model_name] = download_reid_model(models_dir)
-        elif "hub_repo" in config:
-            results[model_name] = ensure_torch_hub_model(model_name)
-        elif "hf_model" in config:
-            results[model_name] = ensure_huggingface_model(model_name)
-        else:
-            logger.error(f"❌ No download handler for {model_name}")
+        try:
+            if "loader" in config and "ultralytics" in config["loader"]:
+                results[model_name] = download_ultralytics_model(model_name, models_dir)
+            elif model_name == "osnet_reid":
+                results[model_name] = download_reid_model(models_dir)
+            elif "hub_repo" in config:
+                results[model_name] = ensure_torch_hub_model(model_name)
+            elif "hf_model" in config:
+                results[model_name] = ensure_huggingface_model(model_name)
+            else:
+                logger.error(f"❌ No download handler for {model_name}")
+                results[model_name] = False
+        except (GPUError, ModelLoadingError) as e:
+            logger.error(f"❌ Failed to download {model_name} due to: {e}")
+            results[model_name] = False
+            raise # Re-raise the specific error
+        except Exception as e:
+            logger.error(f"❌ An unexpected error occurred while downloading {model_name}: {e}")
             results[model_name] = False
 
     # Summary
@@ -537,7 +577,11 @@ def get_model_with_fallback(model_name: str, auto_download: bool = True) -> Path
     if auto_download and not config.get("skip_download", False):
         logger.info(f"🔄 Attempting to download missing model: {model_name}")
         models_dir = ensure_models_directory()
-        download_results = download_all_models(models_dir, [model_name])
+        try:
+            download_results = download_all_models(models_dir, [model_name])
+        except (GPUError, ModelLoadingError) as e:
+            logger.error(f"❌ Failed to download {model_name} due to: {e}")
+            raise # Re-raise the specific error
 
         if download_results.get(model_name, False):
             # Re-check if download was successful (refresh path)
@@ -564,7 +608,11 @@ def get_model_with_fallback(model_name: str, auto_download: bool = True) -> Path
             if auto_download and not fallback_config.get("skip_download", False):
                 logger.info(f"🔄 Attempting to download fallback model: {fallback_name}")
                 models_dir = ensure_models_directory()
-                fallback_results = download_all_models(models_dir, [fallback_name])
+                try:
+                    fallback_results = download_all_models(models_dir, [fallback_name])
+                except (GPUError, ModelLoadingError) as e:
+                    logger.error(f"❌ Failed to download fallback {fallback_name} due to: {e}")
+                    raise # Re-raise the specific error
 
                 if fallback_results.get(fallback_name, False):
                     # Re-check if fallback download was successful
@@ -622,7 +670,7 @@ def resolve_model_config(model_name: str, auto_download: bool = True) -> Dict[st
             "original_name": model_name
         }
 
-    except (FileNotFoundError, ValueError) as e:
+    except (FileNotFoundError, ValueError, GPUError, ModelLoadingError) as e:
         logger.error(f"❌ Could not resolve model config for {model_name}: {e}")
         raise
 
@@ -688,9 +736,3 @@ def initialize_models(auto_download: bool = True) -> Dict[str, bool]:
 
     logger.info("✅ Model management system initialized")
     return availability
-
-if __name__ == "__main__":
-    # Test the model manager
-    print("🧪 Testing model manager...")
-    results = initialize_models(auto_download=True)
-    print(f"📊 Model availability: {results}")

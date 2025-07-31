@@ -291,7 +291,7 @@ def tracking_image(input_path: str, job_id: str) -> Dict:
     progress_logger = create_progress_logger(
         job_id=str(job_id),
         total_items=1,  # Single image
-        job_type="food_waste_estimation"
+        job_type="food-waste-estimation"
     )
 
     # Update progress to show processing started
@@ -332,7 +332,7 @@ def analyze_multiple_food_images(image_paths: List[str], job_id: str = None) -> 
         progress_logger = create_progress_logger(
             job_id=str(job_id),
             total_items=total_images,
-            job_type="food_waste_estimation"
+            job_type="food-waste-estimation"
         )
     else:
         progress_logger = None

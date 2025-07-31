@@ -5,17 +5,26 @@ import time
 import os
 import torch
 
-# Set global device for torch (prefer CUDA, then MPS, then CPU)
-if torch.cuda.is_available():
-    TRACKER_DEVICE = "0"
-elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-    TRACKER_DEVICE = "mps"
-else:
-    TRACKER_DEVICE = "cpu"
-
 # Configure logging
 logger = logging.getLogger("anpr.tracker")
-logger.info(f"Global tracker device set to: {TRACKER_DEVICE}")
+
+def get_optimal_device():
+    """
+    Get optimal device for tracking, avoiding import-time CUDA initialization.
+    
+    Returns:
+        str: Device string ("0" for CUDA, "mps", or "cpu")
+    """
+    try:
+        if torch.cuda.is_available():
+            return "0"
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            return "mps"
+        else:
+            return "cpu"
+    except Exception as e:
+        logger.warning(f"Device detection failed: {e}, defaulting to CPU")
+        return "cpu"
 logger.setLevel(logging.INFO)
 handler = logging.StreamHandler()
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -49,12 +58,8 @@ class VehicleTracker:
         """
         # Auto-select device if requested
         if device == "auto":
-            if torch.cuda.is_available():
-                device = "0"
-            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                device = "mps"
-            else:
-                device = "cpu"
+            device = get_optimal_device()
+            logger.info(f"Auto-selected device: {device}")
 
         try:
             self.tracker = DeepSort(

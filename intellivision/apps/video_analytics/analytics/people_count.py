@@ -85,7 +85,7 @@ REID_MODEL_PATH = MODELS_DIR / "osnet_x0_25_msmt17.pt"
 # Import model manager for proper path resolution
 from .model_manager import get_model_with_fallback
 # Use model manager instead of relative path
-YOLO_MODEL_PATH = str(get_model_with_fallback("yolov12x"))
+YOLO_MODEL_PATH = str(get_model_with_fallback("yolov11x"))
 RTDETR_MODEL_PATH = 'rtdetr-l.pt'
 MIDAS_WEIGHTS_PATH = 'midas/weights/dpt_large_384.pt'
 MIDAS_REPO = 'intel-isl/MiDaS'
