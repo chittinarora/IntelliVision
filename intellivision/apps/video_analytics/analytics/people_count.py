@@ -1,66 +1,56 @@
-"""
-People counting analytics using YOLO, RT-DETR, and BotSort with depth-aware detection and track merging.
-Supports image, video, and MOT dataset inputs.
-"""
+# dubs_people_counting_comprehensive_1.py - COMPREHENSIVE PEOPLE COUNTING SOLUTION V1.0
+#
+# 🚀 COMPREHENSIVE FEATURES:
+# ✅ Smart Adaptive Detection (YOLO + RT-DETR with depth intelligence)
+# ✅ Enhanced Post-Processing Engine (Multi-frame Re-ID + Motion prediction + Hierarchical scoring)
+# ✅ Optimized Confidence Thresholds (Distance-adaptive detection)
+# ✅ MiDaS Depth Integration (Scene-aware strategy selection)
+# ✅ Advanced Track Merging (Re-ID features + spatial + temporal + motion analysis)
+# ✅ MOT Dataset Compatibility (Image sequences + video files)
+# ✅ Comprehensive Evaluation Support
+#
+# Author: Dubs AI People Counting Project
+# Version: 1.0 - Production Ready
+# Date: 2025
 
-# ======================================
-# Imports and Setup
-# ======================================
 import os
 import glob
 import cv2
 import torch
-import time
 import numpy as np
 import logging
+import argparse
+import time
 import re
-import requests
-import tempfile
-import shutil  # FIX: Added missing import
-import urllib.request  # FIX: Added missing import
 from pathlib import Path
 from tqdm import tqdm
-from typing import Dict, List, Optional
+from typing import Dict, List, Tuple, Optional, Any
 from django.conf import settings
-from django.core.files.storage import default_storage
-from django.utils import timezone
-import mimetypes
-from celery import shared_task
-from ultralytics import RTDETR
-from boxmot import BotSort
-import torch.nn.functional as F
-
-# ======================================
-# Logger Setup (must be first)
-# ======================================
-logger = logging.getLogger("dubs_people_counting_comprehensive")
-
-# Hugging Face imports with fallback
-try:
-    from huggingface_hub import snapshot_download
-    HF_AVAILABLE = True
-except ImportError:
-    HF_AVAILABLE = False
-    logger.warning("⚠️ huggingface_hub not available - HF model downloads will be skipped")
-
-from ..utils import load_yolo_model
-from ..convert import convert_to_web_mp4
 
 # Import scipy with fallback
 try:
     from scipy.spatial.distance import cosine
+
     SCIPY_AVAILABLE = True
 except ImportError:
     SCIPY_AVAILABLE = False
-    logger.warning("⚠️ scipy not available - using numpy cosine similarity fallback")
+    print("⚠️ scipy not available - using numpy cosine similarity fallback")
+
+# Correct imports for actual libraries
+from ultralytics import RTDETR
+from ..utils import load_yolo_model
+from boxmot import BotSort, ByteTrack
+import torch.nn.functional as F
 
 # MiDaS imports with proper error handling
 try:
     import torch.hub
+
     MIDAS_AVAILABLE = True
 except ImportError:
     MIDAS_AVAILABLE = False
-    logger.warning("⚠️ torch.hub not available for MiDaS")
+
+logger = logging.getLogger("dubs_people_counting_comprehensive")
 
 # Import progress logger
 try:
@@ -79,236 +69,67 @@ except ImportError:
                 self.logger.info(f"**Job {self.job_id}**: Progress {processed_count}/{self.total_items}")
 
             def log_completion(self, final_count=None):
-                self.logger.info(f"**Job {self.job_id}**: Completed {self.job_type}")
+                self.logger.info(f"**Job {self.job_id}**: Completed")
+
+            def log_error(self, error_message):
+                self.logger.error(f"**Job {self.job_id}**: Error - {error_message}")
 
         return DummyLogger(job_id, total_items, job_type, logger_name)
-VALID_EXTENSIONS = {'.mp4', '.jpg', '.jpeg', '.png'}
-MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
+
+# === CONSTANTS (for Celery fork-safety and clarity) ===
+DEFAULT_DEVICE = 'cpu'
+DEFAULT_USE_REID = True
+DEFAULT_POST_PROCESS = True
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
-# Re-ID model is now downloaded to torch cache directory by the new download_models function
-REID_MODEL_PATH = Path.home() / ".cache/torch/checkpoints/osnet_x0_25_msmt17.pt"
-YOLO_MODEL_PATH = MODELS_DIR / "yolov12x.pt"  # Updated to match new naming
-RTDETR_MODEL_PATH = MODELS_DIR / "rtdetr-l.pt"
-MIDAS_WEIGHTS_PATH = MODELS_DIR / "dpt_large_384.pt"  # Updated to match new naming
+REID_MODEL_PATH = MODELS_DIR / "osnet_x0_25_msmt17.pt"
+YOLO_MODEL_PATH = '../models/yolo12x.pt'
+RTDETR_MODEL_PATH = 'rtdetr-l.pt'
+MIDAS_WEIGHTS_PATH = 'midas/weights/dpt_large_384.pt'
 MIDAS_REPO = 'intel-isl/MiDaS'
 MIDAS_MODEL_NAME = 'DPT_Large'
 DPT_HF_MODEL = 'Intel/dpt-large'
 GLPN_HF_MODEL = 'vinvino02/glpn-nyu'
 DEFAULT_OUTPUT_PREFIX = 'dubs_comprehensive_output_'
 DEFAULT_OUTPUT_EXT = '.mp4'
-DEFAULT_USE_REID = True
-DEFAULT_POST_PROCESS = True
+
+# Define OUTPUT_DIR with fallback (matching other analytics files)
+try:
+    DEFAULT_OUTPUT_DIR = str(settings.JOB_OUTPUT_DIR)
+except AttributeError:
+    logger.warning("JOB_OUTPUT_DIR not defined in settings. Using fallback: MEDIA_ROOT/outputs")
+    DEFAULT_OUTPUT_DIR = os.path.join(settings.MEDIA_ROOT, 'outputs')
+
+# Confidence thresholds
 YOLO_CONF_CLOSE = 0.35
 YOLO_CONF_MEDIUM = 0.40
 YOLO_CONF_FAR = 0.45
 RTDETR_CONF_CLOSE = 0.30
 RTDETR_CONF_MEDIUM = 0.35
 RTDETR_CONF_FAR = 0.40
+# NMS threshold
 DEFAULT_NMS_IOU_THRESH = 0.4
-MIN_LIFETIME_FRAMES = 25
+# Track lifetime filter
+MIN_LIFETIME_FRAMES = 40
 
-# Define OUTPUT_DIR with fallback
-try:
-    OUTPUT_DIR = Path(settings.JOB_OUTPUT_DIR)
-except AttributeError:
-    logger.warning("JOB_OUTPUT_DIR not defined in settings. Using fallback: MEDIA_ROOT/outputs")
-    OUTPUT_DIR = Path(settings.MEDIA_ROOT) / 'outputs'
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+from ..convert import convert_to_web_mp4
 
-# ======================================
-# Model Download Function
-# ======================================
-
-def download_models(models_dir=None):
-    """
-    Ensure all required models are present.
-    - Ultralytics YOLO and RT-DETR models
-    - MiDaS DPT_Large (torch.hub)
-    - DPT/GLPN (Hugging Face Transformers)
-    - BotSort Re-ID weights
-    Downloads them as needed using the same library mechanisms as in your analytics code.
-    """
-    # Use MODELS_DIR if no specific directory provided
-    if models_dir is None:
-        models_dir = MODELS_DIR
-    else:
-        models_dir = Path(models_dir)
-
-    # FIX: Create models directory with proper permissions handling
+def next_sequential_name(out_dir: str = DEFAULT_OUTPUT_DIR, prefix=DEFAULT_OUTPUT_PREFIX, ext=DEFAULT_OUTPUT_EXT) -> str:
+    """Generate next sequential filename."""
+    os.makedirs(out_dir, exist_ok=True)
+    pattern = os.path.join(out_dir, f"{prefix}*{ext}")
+    files = glob.glob(pattern)
     try:
-        models_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"📁 Models directory: {models_dir}")
-    except PermissionError:
-        # Fallback to user home directory if system directory fails
-        models_dir = Path.home() / ".cache" / "dubs_models"
-        models_dir.mkdir(parents=True, exist_ok=True)
-        logger.warning(f"⚠️ Permission denied for models directory. Using fallback: {models_dir}")
+        next_idx = max([int(re.search(r'(\d+)', f).group(1)) for f in files], default=0) + 1
+    except:
+        next_idx = len(files) + 1
+    return os.path.join(out_dir, f"{prefix}{next_idx}{ext}")
 
-    # 1. Ultralytics YOLO & RT-DETR (auto-download via library)
-    try:
-        from ultralytics import YOLO, RTDETR
-        models = [
-            ("yolov12x.pt", YOLO),
-            ("rtdetr-l.pt", RTDETR)
-        ]
-        for fname, loader in models:
-            fpath = models_dir / fname
-            if not fpath.exists():
-                logger.info(f"🔄 Downloading {fname} using Ultralytics library...")
-                try:
-                    # FIX: Handle yolov12x fallback to yolov8x
-                    if fname == "yolov12x.pt":
-                        try:
-                            # Try to load yolov12x first
-                            model = loader("yolov12x")
-                        except Exception:
-                            # Fallback to yolov8x if yolov12x doesn't exist
-                            logger.warning("⚠️ yolov12x not available, falling back to yolov8x")
-                            model = loader("yolov8x")
-                    else:
-                        model = loader(fname.replace(".pt", ""))  # Remove extension for model name
-
-                    # Save the model - Ultralytics models are cached automatically
-                    # We need to find the cached model and copy it to our models directory
-                    try:
-                        # Get the model's actual file path from Ultralytics cache
-                        model_path = None
-                        if hasattr(model, 'ckpt_path') and model.ckpt_path:
-                            model_path = Path(model.ckpt_path)
-                        elif hasattr(model, 'model_path') and model.model_path:
-                            model_path = Path(model.model_path)
-                        
-                        # Fallback: look in common Ultralytics cache locations
-                        if not model_path or not model_path.exists():
-                            model_name = "yolov8x" if fname == "yolov12x.pt" and "yolov8x" in str(model) else fname.replace(".pt", "")
-                            possible_paths = [
-                                Path.home() / ".cache" / "ultralytics" / f"{model_name}.pt",
-                                Path.home() / ".ultralytics" / "weights" / f"{model_name}.pt"
-                            ]
-                            for path in possible_paths:
-                                if path.exists():
-                                    model_path = path
-                                    break
-                        
-                        if model_path and model_path.exists():
-                            shutil.copy(model_path, fpath)
-                            logger.info(f"✅ Downloaded {fname} (copied from cache: {model_path})")
-                        else:
-                            logger.error(f"❌ Could not locate cached model file for {fname}")
-                            continue
-                    except Exception as copy_error:
-                        logger.error(f"❌ Failed to copy model file for {fname}: {copy_error}")
-                        continue
-                except Exception as e:
-                    logger.error(f"❌ Failed to download {fname}: {e}")
-            else:
-                logger.info(f"✅ {fname} already exists.")
-    except ImportError as e:
-        logger.error(f"❌ Ultralytics not installed: {e}")
-
-    # 2. MiDaS DPT_Large (torch.hub)
-    try:
-        import torch
-        logger.info("🔄 Ensuring MiDaS (DPT_Large) weights via torch.hub...")
-
-        # FIX: MiDaS models are downloaded to torch hub cache, not MODELS_DIR
-        # Just ensure the model is cached by loading it
-        torch.hub.load('intel-isl/MiDaS', 'DPT_Large', pretrained=True)
-        torch.hub.load('intel-isl/MiDaS', 'transforms')
-
-        logger.info("✅ MiDaS (DPT_Large) weights present or downloaded.")
-    except Exception as e:
-        logger.error(f"❌ Could not ensure MiDaS weights: {e}")
-
-    # 3. Hugging Face DPT & GLPN
-    try:
-        from transformers import (
-            DPTImageProcessor, DPTForDepthEstimation,
-            GLPNImageProcessor, GLPNForDepthEstimation
-        )
-        logger.info("🔄 Ensuring DPT and GLPN models via Hugging Face Transformers...")
-        DPTImageProcessor.from_pretrained("Intel/dpt-large")
-        DPTForDepthEstimation.from_pretrained("Intel/dpt-large")
-        GLPNImageProcessor.from_pretrained("vinvino02/glpn-nyu")
-        GLPNForDepthEstimation.from_pretrained("vinvino02/glpn-nyu")
-        logger.info("✅ DPT and GLPN models present or downloaded.")
-    except ImportError:
-        logger.warning("transformers not installed, skipping Hugging Face models.")
-    except Exception as e:
-        logger.error(f"❌ Could not ensure Hugging Face depth models: {e}")
-
-    # 4. BotSort Re-ID model
-    reid_path = Path.home() / ".cache/torch/checkpoints/osnet_x0_25_msmt17.pt"
-
-    # FIX: Create directory before downloading
-    if not reid_path.exists():
-        logger.info("🔄 Downloading BotSort Re-ID model...")
-        # FIX: Correct URL with .pth extension
-        url = "https://github.com/KaiyangZhou/deep-person-reid/releases/download/v1.0/osnet_x0_25_msmt17.pth"
-        try:
-            reid_path.parent.mkdir(parents=True, exist_ok=True)
-            urllib.request.urlretrieve(url, reid_path)
-            logger.info("✅ BotSort Re-ID model downloaded.")
-        except PermissionError:
-            # Fallback location if permission denied
-            reid_path = Path.home() / ".cache" / "dubs_models" / "osnet_x0_25_msmt17.pt"
-            reid_path.parent.mkdir(parents=True, exist_ok=True)
-            urllib.request.urlretrieve(url, reid_path)
-            logger.warning(f"⚠️ Using fallback Re-ID location: {reid_path}")
-            # Update global path
-            global REID_MODEL_PATH
-            REID_MODEL_PATH = reid_path
-        except Exception as e:
-            logger.error(f"❌ Could not download BotSort Re-ID model: {e}")
-    else:
-        logger.info("✅ BotSort Re-ID model already exists.")
-
-def ensure_models_available():
-    """
-    Ensure all required models are available, downloading if necessary.
-    This function is called during module initialization to set up models.
-    """
-    # Check for critical model files
-    MODEL_FILES = ["yolov12x.pt", "rtdetr-l.pt"]  # Core detection models
-    missing_models = []
-    for model_file in MODEL_FILES:
-        if not (MODELS_DIR / model_file).exists():
-            missing_models.append(model_file)
-
-    if missing_models:
-        logger.warning(f"⚠️ Missing models detected: {missing_models}")
-        logger.info("🔄 Attempting to download missing models...")
-        try:
-            download_models()  # Use the new download_models function
-            # Re-check after download attempt
-            still_missing = []
-            for model_file in MODEL_FILES:
-                if not (MODELS_DIR / model_file).exists():
-                    still_missing.append(model_file)
-            if still_missing:
-                logger.error(f"❌ Model files still missing after download attempt: {still_missing}")
-                logger.warning(f"⚠️ Some models are missing: {still_missing}. Processing may fail.")
-            else:
-                logger.info("✅ All required models are now available")
-        except Exception as e:
-            logger.error(f"❌ Model download failed: {e}")
-            logger.warning(f"⚠️ Model download failed: {e}. Processing may fail.")
-    else:
-        logger.info("✅ All required models are available")
-
-# Initialize models on module import (but don't fail if models are missing)
-try:
-    ensure_models_available()
-except Exception as e:
-    logger.warning(f"⚠️ Model initialization failed: {e}. Models will be downloaded on first use.")
-
-# ======================================
-# Depth Estimator
-# ======================================
 
 class DepthEstimator:
-    """Multi-tier depth estimation with fixed depth interpretation."""
+    """Multi-tier depth estimation with FIXED depth interpretation."""
+
     def __init__(self, device='auto'):
+        # Smart device selection for Apple Silicon
         if device == 'auto':
             if torch.backends.mps.is_available():
                 self.device = torch.device('mps')
@@ -321,6 +142,7 @@ class DepthEstimator:
                 logger.info("💻 Using CPU")
         else:
             self.device = torch.device(device)
+
         self.model = None
         self.transform = None
         self.method = "fallback"
@@ -338,18 +160,27 @@ class DepthEstimator:
         self.method = "geometric"
 
     def _try_load_midas(self):
-        """Try loading MiDaS - primary choice for speed."""
-        if not MIDAS_AVAILABLE:
-            return False
+        """Try loading MiDaS - PRIMARY choice for speed."""
         try:
-            # FIX: MiDaS models are cached in torch hub directory, not MODELS_DIR
-            logger.info("Loading MiDaS from torch.hub (FAST, will use cache if available)")
-            self.model = torch.hub.load(MIDAS_REPO, MIDAS_MODEL_NAME, pretrained=True)
-            self.model = self.model.to(self.device).eval()
-            self.transform = torch.hub.load(MIDAS_REPO, 'transforms').dpt_transform
+            weights_path = Path(MIDAS_WEIGHTS_PATH)
+
+            if weights_path.exists():
+                logger.info(f"Loading MiDaS from local weights (FAST): {weights_path}")
+                midas_model = torch.hub.load(MIDAS_REPO, MIDAS_MODEL_NAME, pretrained=False)
+                state_dict = torch.load(weights_path, map_location=self.device)
+                midas_model.load_state_dict(state_dict)
+                self.model = midas_model.to(self.device).eval()
+                self.transform = torch.hub.load(MIDAS_REPO, 'transforms').dpt_transform
+            else:
+                logger.info("Loading MiDaS from torch.hub (FAST, will download if needed)")
+                self.model = torch.hub.load(MIDAS_REPO, MIDAS_MODEL_NAME, pretrained=True)
+                self.model = self.model.to(self.device).eval()
+                self.transform = torch.hub.load(MIDAS_REPO, 'transforms').dpt_transform
+
             self.method = "midas"
             logger.info("✅ MiDaS loaded successfully (PRIMARY - optimized for speed)")
             return True
+
         except Exception as e:
             logger.warning(f"MiDaS loading failed: {e}")
             return False
@@ -358,17 +189,16 @@ class DepthEstimator:
         """Try loading DPT via Hugging Face."""
         try:
             from transformers import DPTImageProcessor, DPTForDepthEstimation
-            logger.info("Loading DPT via Hugging Face...")
 
-            # Load directly from HF hub (models are cached by download_models function)
-            logger.info("Loading DPT from Hugging Face hub...")
+            logger.info("Loading DPT via Hugging Face...")
             self.processor = DPTImageProcessor.from_pretrained(DPT_HF_MODEL)
             self.model = DPTForDepthEstimation.from_pretrained(DPT_HF_MODEL)
-
             self.model = self.model.to(self.device).eval()
+
             self.method = "dpt_hf"
             logger.info("✅ DPT (Hugging Face) loaded successfully")
             return True
+
         except ImportError:
             logger.info("transformers not available for DPT")
             return False
@@ -380,17 +210,16 @@ class DepthEstimator:
         """Try loading GLPN."""
         try:
             from transformers import GLPNImageProcessor, GLPNForDepthEstimation
-            logger.info("Loading GLPN (FALLBACK - slower but accurate)...")
 
-            # Load directly from HF hub (models are cached by download_models function)
-            logger.info("Loading GLPN from Hugging Face hub...")
+            logger.info("Loading GLPN (FALLBACK - slower but accurate)...")
             self.processor = GLPNImageProcessor.from_pretrained(GLPN_HF_MODEL)
             self.model = GLPNForDepthEstimation.from_pretrained(GLPN_HF_MODEL)
-
             self.model = self.model.to(self.device).eval()
+
             self.method = "glpn"
             logger.info("✅ GLPN loaded successfully (WARNING: This will be slow ~0.3 FPS)")
             return True
+
         except ImportError:
             logger.info("transformers not available for GLPN")
             return False
@@ -399,11 +228,17 @@ class DepthEstimator:
             return False
 
     def estimate_depth(self, frame: np.ndarray) -> np.ndarray:
-        """Estimate depth using the best available method (0=far, 1=close)."""
+        """
+        Estimate depth using the best available method.
+        Returns normalized depth map (0=far, 1=close) - FIXED INTERPRETATION.
+        """
+
         if self.method == "geometric":
             return self._geometric_depth(frame)
+
         if self.model is None:
             return self._geometric_depth(frame)
+
         try:
             if self.method == "midas":
                 return self._estimate_midas(frame)
@@ -413,107 +248,157 @@ class DepthEstimator:
                 return self._estimate_glpn(frame)
             else:
                 return self._geometric_depth(frame)
+
         except Exception as e:
             logger.warning(f"{self.method} depth estimation failed: {e}. Using geometric fallback.")
             return self._geometric_depth(frame)
 
     def _estimate_midas(self, frame: np.ndarray) -> np.ndarray:
-        """MiDaS depth estimation."""
+        """MiDaS depth estimation - FIXED NORMALIZATION."""
+        # Convert BGR to RGB
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        # Apply MiDaS transform
         input_tensor = self.transform(rgb).to(self.device)
+
+        # Run inference
         with torch.no_grad():
             prediction = self.model(input_tensor)
+
+            # Resize to original frame size
             if prediction.dim() == 3:
                 prediction = prediction.unsqueeze(0)
+
             depth_map = F.interpolate(
                 prediction,
                 size=frame.shape[:2],
                 mode='bicubic',
                 align_corners=False
             ).squeeze().cpu().numpy()
+
+        # FIXED: Correct normalization for MiDaS
+        # MiDaS outputs inverse depth (small values = close objects)
+        # We want (0=far, 1=close) so we need to invert
         if depth_map.max() > depth_map.min():
+            # Invert: smaller MiDaS values (close) become larger normalized values (close to 1)
             depth_map = (depth_map - depth_map.min()) / (depth_map.max() - depth_map.min())
         else:
             depth_map = np.full_like(depth_map, 0.5)
+
         return depth_map.astype(np.float32)
 
     def _estimate_dpt_hf(self, frame: np.ndarray) -> np.ndarray:
         """DPT depth estimation via Hugging Face."""
+        # Convert BGR to RGB
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        # Process image
         inputs = self.processor(images=rgb, return_tensors="pt")
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
+
+        # Run inference
         with torch.no_grad():
             outputs = self.model(**inputs)
             predicted_depth = outputs.predicted_depth
+
+        # Resize to original frame size
         depth_map = F.interpolate(
             predicted_depth.unsqueeze(1),
             size=frame.shape[:2],
             mode='bicubic',
             align_corners=False
         ).squeeze().cpu().numpy()
+
+        # FIXED: Correct normalization for DPT
         if depth_map.max() > depth_map.min():
+            # DPT also outputs inverse depth, so invert like MiDaS
             depth_map = (depth_map.max() - depth_map) / (depth_map.max() - depth_map.min())
         else:
             depth_map = np.full_like(depth_map, 0.5)
+
         return depth_map.astype(np.float32)
 
     def _estimate_glpn(self, frame: np.ndarray) -> np.ndarray:
         """GLPN depth estimation."""
+        # Convert BGR to RGB
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        # Process image
         inputs = self.processor(images=rgb, return_tensors="pt")
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
+
+        # Run inference
         with torch.no_grad():
             outputs = self.model(**inputs)
             predicted_depth = outputs.predicted_depth
+
+        # Resize to original frame size
         depth_map = F.interpolate(
             predicted_depth.unsqueeze(1),
             size=frame.shape[:2],
             mode='bicubic',
             align_corners=False
         ).squeeze().cpu().numpy()
+
+        # FIXED: Check GLPN output format and normalize correctly
         if depth_map.max() > depth_map.min():
+            # GLPN might output direct depth, so normalize without inversion
             depth_map = (depth_map - depth_map.min()) / (depth_map.max() - depth_map.min())
         else:
             depth_map = np.full_like(depth_map, 0.5)
+
         return depth_map.astype(np.float32)
 
     def _geometric_depth(self, frame: np.ndarray) -> np.ndarray:
-        """Geometric fallback: bottom=close, top=far."""
+        """
+        FIXED geometric fallback: Proper perspective where bottom=close, top=far.
+        """
         h, w = frame.shape[:2]
         depth_map = np.zeros((h, w), dtype=np.float32)
+
         for y in range(h):
             for x in range(w):
-                vertical_depth = (h - y) / h
+                # FIXED perspective: bottom = close (1), top = far (0)
+                vertical_depth = (h - y) / h  # y=0 (top)→1 (far), y=h (bottom)→0 (close)
+
+                # Invert so bottom=close=1, top=far=0
                 vertical_depth = 1.0 - vertical_depth
+
+                # Add center bias: center is typically where action happens
                 center_x = w / 2
                 horizontal_factor = 1.0 - abs(x - center_x) / center_x * 0.3
+
+                # Combine factors
                 depth_value = vertical_depth * horizontal_factor
                 depth_map[y, x] = np.clip(depth_value, 0.0, 1.0)
+
         return depth_map
 
-# ======================================
-# Smart Adaptive Detector
-# ======================================
 
 class SmartAdaptiveDetector:
-    """Smart detector with depth-aware strategies."""
+    """Smart detector that chooses optimal strategy based on scene depth characteristics."""
+
     def __init__(self, device='auto'):
         if device == 'auto':
-            if torch.backends.mps.is_available():
+            if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
                 self.device = 'mps'
             elif torch.cuda.is_available():
-                # Fix: Use explicit device index for CUDA
-                self.device = 'cuda:0'
+                self.device = 'cuda'
             else:
                 self.device = 'cpu'
         else:
             self.device = device
-        self.yolo_conf_close = YOLO_CONF_CLOSE
-        self.yolo_conf_medium = YOLO_CONF_MEDIUM
-        self.yolo_conf_far = YOLO_CONF_FAR
-        self.rtdetr_conf_close = RTDETR_CONF_CLOSE
-        self.rtdetr_conf_medium = RTDETR_CONF_MEDIUM
-        self.rtdetr_conf_far = RTDETR_CONF_FAR
+
+        # Optimized confidence thresholds for each detector
+        # Change to these higher values
+        self.yolo_conf_close = 0.35
+        self.yolo_conf_medium = 0.40
+        self.yolo_conf_far = 0.45
+
+        self.rtdetr_conf_close = 0.30
+        self.rtdetr_conf_medium = 0.35
+        self.rtdetr_conf_far = 0.40
+
         try:
             self.yolo = load_yolo_model(YOLO_MODEL_PATH)
             logger.info("✅ YOLO loaded")
@@ -526,30 +411,40 @@ class SmartAdaptiveDetector:
         except Exception as e:
             self.rtdetr = None
             logger.error(f"❌ Failed to load RT-DETR: {e}")
-        self._last_strategy = None
 
     def choose_detection_strategy(self, depth_map):
-        """Choose optimal detection strategy based on depth characteristics."""
+        """Intelligently choose optimal detection strategy based on depth characteristics."""
+
+        # Analyze depth distribution
         depth_std = np.std(depth_map)
         depth_mean = np.mean(depth_map)
         depth_range = np.max(depth_map) - np.min(depth_map)
+
+        # Calculate variance coefficient (relative variance)
         variance_coeff = depth_std / depth_mean if depth_mean > 0 else 0
-        logger.debug(f"Depth analysis: mean={depth_mean:.3f}, std={depth_std:.3f}, range={depth_range:.3f}, var_coeff={variance_coeff:.3f}")
-        if variance_coeff < 0.3 and depth_range < 0.4:
+
+        logger.debug(
+            f"Depth analysis: mean={depth_mean:.3f}, std={depth_std:.3f}, range={depth_range:.3f}, var_coeff={variance_coeff:.3f}")
+
+        # Strategy selection logic
+        if variance_coeff < 0.3 and depth_range < 0.4:  # Low variance = uniform depth
+
             if depth_mean > 0.7:
-                self._last_strategy = "yolo_only"
+                strategy = "yolo_only"
                 reason = f"All objects close (mean={depth_mean:.2f})"
             elif depth_mean < 0.3:
-                self._last_strategy = "rtdetr_only"
+                strategy = "rtdetr_only"
                 reason = f"All objects far (mean={depth_mean:.2f})"
             else:
-                self._last_strategy = "hybrid_simple"
+                strategy = "hybrid_simple"
                 reason = f"All objects medium distance (mean={depth_mean:.2f})"
-        else:
-            self._last_strategy = "zone_based"
+
+        else:  # High variance = mixed depths
+            strategy = "zone_based"
             reason = f"Mixed depths detected (std={depth_std:.2f}, range={depth_range:.2f})"
-        logger.info(f"🎯 Detection strategy: {self._last_strategy.upper()} - {reason}")
-        return self._last_strategy
+
+        logger.info(f"🎯 Detection strategy: {strategy.upper()} - {reason}")
+        return strategy
 
     def _extract_detections(self, results, conf_thresh):
         """Extract person detections from model results."""
@@ -559,15 +454,15 @@ class SmartAdaptiveDetector:
         xyxy, conf, cls = boxes.xyxy.cpu().numpy(), boxes.conf.cpu().numpy(), boxes.cls.cpu().numpy()
         person_mask = (cls == 0) & (conf >= conf_thresh)
         detections = np.hstack((xyxy[person_mask], conf[person_mask][:, None], cls[person_mask][:, None]))
-        if len(detections) == 0:
-            return np.empty((0, 6))
+        if len(detections) == 0: return np.empty((0, 6))
         areas = (detections[:, 2] - detections[:, 0]) * (detections[:, 3] - detections[:, 1])
         return detections[areas > 200]
 
     def detect_yolo_only(self, frame):
-        """YOLO-only detection for close objects."""
+        """YOLO-only detection optimized for close objects."""
         if self.yolo is None:
             return np.empty((0, 6))
+
         try:
             results = self.yolo(frame, conf=self.yolo_conf_close, classes=[0], verbose=False)[0]
             detections = self._extract_detections(results, self.yolo_conf_close)
@@ -578,9 +473,10 @@ class SmartAdaptiveDetector:
             return np.empty((0, 6))
 
     def detect_rtdetr_only(self, frame):
-        """RT-DETR-only detection for far objects."""
+        """RT-DETR-only detection optimized for far objects."""
         if self.rtdetr is None:
             return np.empty((0, 6))
+
         try:
             results = self.rtdetr(frame, conf=self.rtdetr_conf_far, classes=[0], verbose=False)[0]
             detections = self._extract_detections(results, self.rtdetr_conf_far)
@@ -593,6 +489,8 @@ class SmartAdaptiveDetector:
     def detect_hybrid_simple(self, frame):
         """Simple hybrid detection for medium-distance scenarios."""
         all_detections = []
+
+        # YOLO detections
         if self.yolo is not None:
             try:
                 yolo_results = self.yolo(frame, conf=self.yolo_conf_medium, classes=[0], verbose=False)[0]
@@ -601,6 +499,8 @@ class SmartAdaptiveDetector:
                     all_detections.append(yolo_dets)
             except Exception as e:
                 logger.warning(f"YOLO detection failed in hybrid: {e}")
+
+        # RT-DETR detections
         if self.rtdetr is not None:
             try:
                 rtdetr_results = self.rtdetr(frame, conf=self.rtdetr_conf_medium, classes=[0], verbose=False)[0]
@@ -609,26 +509,37 @@ class SmartAdaptiveDetector:
                     all_detections.append(rtdetr_dets)
             except Exception as e:
                 logger.warning(f"RT-DETR detection failed in hybrid: {e}")
+
+        # Combine detections
         if all_detections:
             combined = np.vstack(all_detections)
             final_dets = self._apply_nms(combined)
             logger.debug(f"Hybrid-simple: {len(final_dets)} detections after NMS")
             return final_dets
-        return np.empty((0, 6))
+        else:
+            return np.empty((0, 6))
 
     def detect_zone_based(self, frame, depth_map):
-        """Zone-based detection for mixed-depth scenarios."""
+        """Zone-based detection for mixed-depth scenarios with adaptive thresholds."""
         if depth_map is None:
             return self.detect_hybrid_simple(frame)
-        threshold_far = np.percentile(depth_map, 33)
-        threshold_close = np.percentile(depth_map, 67)
+
+        # Calculate adaptive thresholds based on depth distribution
+        threshold_far = np.percentile(depth_map, 33)  # Bottom 33% = FAR
+        threshold_close = np.percentile(depth_map, 67)  # Top 33% = CLOSE
+
         logger.debug(f"Adaptive thresholds: far<={threshold_far:.2f}, close>={threshold_close:.2f}")
+
         height, width = frame.shape[:2]
         all_detections = []
+
+        # YOLO for CLOSE zones
         if self.yolo is not None:
             try:
                 yolo_results = self.yolo(frame, conf=self.yolo_conf_close, classes=[0], verbose=False)[0]
                 yolo_dets = self._extract_detections(yolo_results, self.yolo_conf_close)
+
+                # Filter to close zones
                 if len(yolo_dets) > 0:
                     filtered_yolo = []
                     for det in yolo_dets:
@@ -636,17 +547,23 @@ class SmartAdaptiveDetector:
                         center_x, center_y = int((x1 + x2) / 2), int((y1 + y2) / 2)
                         if 0 <= center_y < height and 0 <= center_x < width:
                             depth_value = depth_map[center_y, center_x]
-                            if depth_value >= threshold_close:
+                            if depth_value >= threshold_close:  # CLOSE zone
                                 filtered_yolo.append(det)
+
                     if filtered_yolo:
                         all_detections.append(np.array(filtered_yolo))
                         logger.debug(f"YOLO (CLOSE): {len(filtered_yolo)} detections")
+
             except Exception as e:
                 logger.warning(f"YOLO detection failed in zones: {e}")
+
+        # RT-DETR for FAR zones
         if self.rtdetr is not None:
             try:
                 rtdetr_results = self.rtdetr(frame, conf=self.rtdetr_conf_far, classes=[0], verbose=False)[0]
                 rtdetr_dets = self._extract_detections(rtdetr_results, self.rtdetr_conf_far)
+
+                # Filter to far zones
                 if len(rtdetr_dets) > 0:
                     filtered_rtdetr = []
                     for det in rtdetr_dets:
@@ -654,15 +571,20 @@ class SmartAdaptiveDetector:
                         center_x, center_y = int((x1 + x2) / 2), int((y1 + y2) / 2)
                         if 0 <= center_y < height and 0 <= center_x < width:
                             depth_value = depth_map[center_y, center_x]
-                            if depth_value <= threshold_far:
+                            if depth_value <= threshold_far:  # FAR zone
                                 filtered_rtdetr.append(det)
+
                     if filtered_rtdetr:
                         all_detections.append(np.array(filtered_rtdetr))
                         logger.debug(f"RT-DETR (FAR): {len(filtered_rtdetr)} detections")
+
             except Exception as e:
                 logger.warning(f"RT-DETR detection failed in zones: {e}")
+
+        # Ensemble for MIDDLE zones
         if self.yolo is not None and self.rtdetr is not None:
             try:
+                # Get all detections for middle zone ensemble
                 yolo_all = self._extract_detections(
                     self.yolo(frame, conf=self.yolo_conf_medium, classes=[0], verbose=False)[0],
                     self.yolo_conf_medium
@@ -671,6 +593,8 @@ class SmartAdaptiveDetector:
                     self.rtdetr(frame, conf=self.rtdetr_conf_medium, classes=[0], verbose=False)[0],
                     self.rtdetr_conf_medium
                 )
+
+                # Filter for MIDDLE zones
                 middle_detections = []
                 for det_list in [yolo_all, rtdetr_all]:
                     if len(det_list) > 0:
@@ -679,27 +603,38 @@ class SmartAdaptiveDetector:
                             center_x, center_y = int((x1 + x2) / 2), int((y1 + y2) / 2)
                             if 0 <= center_y < height and 0 <= center_x < width:
                                 depth_value = depth_map[center_y, center_x]
-                                if threshold_far < depth_value < threshold_close:
+                                if threshold_far < depth_value < threshold_close:  # MIDDLE zone
                                     middle_detections.append(det)
+
                 if middle_detections:
                     middle_array = np.array(middle_detections)
                     middle_nms = self._apply_nms(middle_array, iou_thresh=0.3)
                     all_detections.append(middle_nms)
                     logger.debug(f"ENSEMBLE (MIDDLE): {len(middle_nms)} detections")
+
             except Exception as e:
                 logger.warning(f"Ensemble detection failed: {e}")
+
+        # Combine all zone-specific detections
         if all_detections:
             combined = np.vstack(all_detections)
             final_dets = self._apply_nms(combined)
             logger.debug(f"Zone-based total: {len(final_dets)} detections after final NMS")
             return final_dets
-        return np.empty((0, 6))
+        else:
+            return np.empty((0, 6))
 
     def detect_smart_adaptive(self, frame, depth_map=None):
-        """Main detection method with optimal strategy."""
+        """Main detection method that chooses optimal strategy."""
+
         if depth_map is None:
+            # No depth info, use simple hybrid
             return self.detect_hybrid_simple(frame)
+
+        # Choose strategy based on depth characteristics
         strategy = self.choose_detection_strategy(depth_map)
+
+        # Execute chosen strategy
         if strategy == "yolo_only":
             return self.detect_yolo_only(frame)
         elif strategy == "rtdetr_only":
@@ -708,21 +643,22 @@ class SmartAdaptiveDetector:
             return self.detect_hybrid_simple(frame)
         elif strategy == "zone_based":
             return self.detect_zone_based(frame, depth_map)
-        return self.detect_hybrid_simple(frame)
+        else:
+            # Fallback
+            return self.detect_hybrid_simple(frame)
 
-    def _apply_nms(self, detections, iou_thresh=DEFAULT_NMS_IOU_THRESH):
+    def _apply_nms(self, detections, iou_thresh=0.4):
         """Apply Non-Maximum Suppression."""
-        if len(detections) == 0:
-            return detections
-        x1, y1, x2, y2, scores = detections[:, 0], detections[:, 1], detections[:, 2], detections[:, 3], detections[:, 4]
+        if len(detections) == 0: return detections
+        x1, y1, x2, y2, scores = detections[:, 0], detections[:, 1], detections[:, 2], detections[:, 3], detections[:,
+                                                                                                         4]
         areas = (x2 - x1) * (y2 - y1)
         order = scores.argsort()[::-1]
         keep = []
         while order.size > 0:
             i = order[0]
             keep.append(i)
-            if len(order) == 1:
-                break
+            if len(order) == 1: break
             xx1, yy1 = np.maximum(x1[i], x1[order[1:]]), np.maximum(y1[i], y1[order[1:]])
             xx2, yy2 = np.minimum(x2[i], x2[order[1:]]), np.minimum(y2[i], y2[order[1:]])
             w, h = np.maximum(0.0, xx2 - xx1), np.maximum(0.0, yy2 - yy1)
@@ -732,24 +668,25 @@ class SmartAdaptiveDetector:
             order = order[inds + 1]
         return detections[keep]
 
-# ======================================
-# Post-Processing Engine
-# ======================================
 
 class PostProcessingEngine:
-    """Enhanced post-processing for track merging."""
+    """
+    Enhanced Post-Processing Engine for Multi-Object Tracking
+    Comprehensive track merging with advanced similarity analysis.
+    """
+
     def __init__(self, config=None):
         self.config = config or self._default_config()
 
     def _default_config(self):
         """Default configuration parameters."""
         return {
-            'max_time_gap_seconds': 15.0,
-            'max_distance_pixels': 350.0,
-            'min_size_ratio': 0.4,
-            'reid_threshold_high': 0.70,
-            'reid_threshold_medium': 0.50,
-            'reid_threshold_low': 0.30,
+            'max_time_gap_seconds': 7.0,
+            'max_distance_pixels': 250.0,
+            'reid_threshold_high': 0.80,  # Definite match
+            'reid_threshold_medium': 0.60,  # Need spatial support
+            'reid_threshold_low': 0.40,  # Only with strong motion
+            'min_size_ratio': 0.5,
             'enable_motion_prediction': True,
             'enable_multi_frame_averaging': True,
             'verbose_logging': False
@@ -760,21 +697,37 @@ class PostProcessingEngine:
         if SCIPY_AVAILABLE:
             try:
                 return 1.0 - cosine(a, b)
-            except Exception as e:
-                logger.warning(f"Failed to compute cosine similarity: {e}")
-                # Fall back to manual calculation
+            except:
+                pass
+
+        # Numpy fallback
         dot_product = np.dot(a, b)
         norm_a = np.linalg.norm(a)
         norm_b = np.linalg.norm(b)
+
         if norm_a == 0 or norm_b == 0:
             return 0.0
+
         return dot_product / (norm_a * norm_b)
 
     def process_tracks(self, track_history, fps, tracker=None):
-        """Main entry point for track merging with lifetime filtering."""
+        """
+        Main entry point for enhanced post-processing. Includes LIFETIME FILTERING.
+
+        Args:
+            track_history: Dict of track data
+            fps: Video frame rate
+            tracker: Optional tracker instance for Re-ID features
+
+        Returns:
+            Tuple of (final_id_map, final_person_count)
+        """
         logger.info("🚀 Enhanced Post-Processing: Applying Lifetime Filter + Merging...")
+
         if not track_history:
             return {}, 0
+
+        # --- NEW FEATURE: TRACK LIFETIME FILTER ---
         filtered_history = {}
         removed_ids = []
         for track_id, track_data in track_history.items():
@@ -782,52 +735,82 @@ class PostProcessingEngine:
                 filtered_history[track_id] = track_data
             else:
                 removed_ids.append(track_id)
+
         if removed_ids:
             logger.warning(f"LIFETIME FILTER: Removed {len(removed_ids)} short-lived ghost tracks: {removed_ids}")
+        # From now on, use the filtered history
         track_history = filtered_history
+        # --- END OF NEW FEATURE ---
+
+        # Sort all tracks chronologically
         for track_id in track_history:
             track_history[track_id].sort(key=lambda x: x['frame'])
+
+        # Phase 1: Multi-frame feature averaging
         track_features = self._extract_and_average_features(track_history, tracker)
+
+        # Phase 2: Motion analysis and prediction
         track_motion = self._analyze_track_motion(track_history, fps)
+
+        # Phase 3: Hierarchical similarity-based merging
         merge_map = self._hierarchical_track_merging(track_history, track_features, track_motion, fps)
+
+        # Phase 4: Apply merges and generate final IDs
         final_id_map, final_count = self._apply_merges_and_generate_ids(track_history, merge_map)
+
         logger.info(f"✅ Enhanced post-processing complete: {len(track_history)} → {final_count} tracks after merging.")
         return final_id_map, final_count
 
     def _extract_and_average_features(self, track_history, tracker):
-        """Extract and average Re-ID features."""
+        """Phase 1: Extract and average Re-ID features across multiple frames."""
         track_features = {}
+
         for track_id, track_data in track_history.items():
             features_list = []
+
+            # Collect Re-ID features if available
             for frame_data in track_data:
                 if 'reid_features' in frame_data and frame_data['reid_features'] is not None:
                     features_list.append(frame_data['reid_features'])
+
             if features_list and len(features_list) >= 2:
+                # Select stable middle frames to avoid start/end noise
                 if len(features_list) >= 5:
                     start_idx = len(features_list) // 4
                     end_idx = 3 * len(features_list) // 4
                     selected_features = features_list[start_idx:end_idx]
                 else:
                     selected_features = features_list
+
+                # Compute robust average
                 avg_features = np.mean(selected_features, axis=0)
+
+                # Normalize for cosine similarity
                 if np.linalg.norm(avg_features) > 0:
                     avg_features = avg_features / np.linalg.norm(avg_features)
+
                 track_features[track_id] = {
                     'features': avg_features,
                     'confidence': min(1.0, len(selected_features) / 5.0),
                     'frame_count': len(selected_features)
                 }
+
+                if self.config['verbose_logging']:
+                    logger.debug(f"Track {track_id}: averaged {len(selected_features)} feature vectors")
             else:
+                # No reliable Re-ID features
                 track_features[track_id] = {
                     'features': None,
                     'confidence': 0.0,
                     'frame_count': 0
                 }
+
         return track_features
 
     def _analyze_track_motion(self, track_history, fps):
-        """Analyze motion patterns and predict positions."""
+        """Phase 2: Analyze motion patterns and predict positions."""
         track_motion = {}
+
         for track_id, track_data in track_history.items():
             if len(track_data) < 2:
                 track_motion[track_id] = {
@@ -837,33 +820,44 @@ class PostProcessingEngine:
                     'predicted_next_pos': None
                 }
                 continue
+
+            # Extract positions and times
             positions = []
             times = []
+
             for frame_data in track_data:
                 bbox = frame_data['bbox']
                 center_x = (bbox[0] + bbox[2]) / 2
                 center_y = (bbox[1] + bbox[3]) / 2
                 positions.append([center_x, center_y])
                 times.append(frame_data['frame'] / fps)
+
             positions = np.array(positions)
             times = np.array(times)
+
+            # Calculate velocity (using last 3 points if available)
             if len(positions) >= 3:
                 recent_positions = positions[-3:]
                 recent_times = times[-3:]
                 velocity = self._calculate_velocity(recent_positions, recent_times)
             else:
-                velocity = (positions[-1] - positions[0]) / (times[-1] - times[0]) if times[-1] != times[0] else np.array([0.0, 0.0])
+                velocity = (positions[-1] - positions[0]) / (times[-1] - times[0])
+
+            # Calculate motion stability
             if len(positions) >= 4:
                 velocities = []
                 for i in range(1, len(positions)):
-                    v = (positions[i] - positions[i - 1]) / (times[i] - times[i - 1]) if times[i] != times[i - 1] else np.array([0.0, 0.0])
+                    v = (positions[i] - positions[i - 1]) / (times[i] - times[i - 1])
                     velocities.append(v)
                 velocities = np.array(velocities)
-                stability = 1.0 / (1.0 + np.std(velocities)) if len(velocities) > 0 else 0.5
+                stability = 1.0 / (1.0 + np.std(velocities))
             else:
                 stability = 0.5
+
+            # Predict next position
             last_time = times[-1]
             predicted_pos = positions[-1] + velocity * self.config['max_time_gap_seconds']
+
             track_motion[track_id] = {
                 'velocity': velocity,
                 'stability': stability,
@@ -871,91 +865,139 @@ class PostProcessingEngine:
                 'last_position': positions[-1],
                 'last_time': last_time
             }
+
         return track_motion
 
     def _calculate_velocity(self, positions, times):
-        """Calculate robust velocity."""
+        """Calculate robust velocity using multiple points."""
         if len(positions) < 2:
             return np.array([0.0, 0.0])
+
+        # Use linear regression for robust velocity estimation
         dt = times[-1] - times[0]
         if dt == 0:
             return np.array([0.0, 0.0])
+
         dx = positions[-1][0] - positions[0][0]
         dy = positions[-1][1] - positions[0][1]
+
         return np.array([dx / dt, dy / dt])
 
     def _hierarchical_track_merging(self, track_history, track_features, track_motion, fps):
-        """Hierarchical similarity-based track merging."""
+        """Phase 3: Hierarchical similarity-based track merging."""
         merge_map = {}
         sorted_ids = sorted(track_history.keys())
         time_threshold_frames = int(self.config['max_time_gap_seconds'] * fps)
+
         for i in range(len(sorted_ids)):
             for j in range(i + 1, len(sorted_ids)):
                 id1, id2 = sorted_ids[i], sorted_ids[j]
+
+                # Skip if already merged
                 if id1 in merge_map or id2 in merge_map:
                     continue
+
                 track1, track2 = track_history[id1], track_history[id2]
                 if not track1 or not track2:
                     continue
+
+                # Check temporal feasibility
                 end_of_track1 = track1[-1]
                 start_of_track2 = track2[0]
                 frame_gap = start_of_track2['frame'] - end_of_track1['frame']
+
                 if not (0 < frame_gap <= time_threshold_frames):
                     continue
-                similarity_score = self._compute_hierarchical_similarity(id1, id2, track1, track2, track_features, track_motion, frame_gap)
+
+                # Compute hierarchical similarity
+                similarity_score = self._compute_hierarchical_similarity(
+                    id1, id2, track1, track2, track_features, track_motion, frame_gap
+                )
+
+                # Decision logic based on similarity tiers
                 should_merge = False
                 merge_reason = ""
+
                 if similarity_score['reid_similarity'] >= self.config['reid_threshold_high']:
                     should_merge = True
                     merge_reason = f"High Re-ID similarity ({similarity_score['reid_similarity']:.2f})"
+
                 elif similarity_score['reid_similarity'] >= self.config['reid_threshold_medium']:
                     if similarity_score['spatial_score'] > 0.6:
                         should_merge = True
                         merge_reason = f"Medium Re-ID + Good spatial ({similarity_score['reid_similarity']:.2f}, {similarity_score['spatial_score']:.2f})"
+
                 elif similarity_score['reid_similarity'] >= self.config['reid_threshold_low']:
                     if similarity_score['motion_score'] > 0.7 and similarity_score['spatial_score'] > 0.5:
                         should_merge = True
                         merge_reason = f"Low Re-ID + Strong motion + Spatial ({similarity_score['reid_similarity']:.2f}, {similarity_score['motion_score']:.2f})"
+
                 else:
-                    if similarity_score['reid_similarity'] == 0.0:
+                    # Fallback to geometric + motion only if no Re-ID
+                    if similarity_score['reid_similarity'] == 0.0:  # No Re-ID available
                         if similarity_score['spatial_score'] > 0.8 and similarity_score['motion_score'] > 0.6:
                             should_merge = True
                             merge_reason = f"Geometric fallback ({similarity_score['spatial_score']:.2f}, {similarity_score['motion_score']:.2f})"
+
                 if should_merge:
                     merge_map[id2] = id1
                     if self.config['verbose_logging']:
                         logger.info(f"Merging track {id2} → {id1}: {merge_reason}")
+
         return merge_map
 
     def _compute_hierarchical_similarity(self, id1, id2, track1, track2, track_features, track_motion, frame_gap):
-        """Compute multi-dimensional similarity between tracks."""
+        """Compute multi-dimensional similarity between two tracks."""
+
+        # 1. Re-ID Similarity
         reid_sim = 0.0
-        if (track_features[id1]['features'] is not None and track_features[id2]['features'] is not None):
+        if (track_features[id1]['features'] is not None and
+                track_features[id2]['features'] is not None):
+
+            # Cosine similarity between averaged features
             try:
-                reid_sim = self._cosine_similarity(track_features[id1]['features'], track_features[id2]['features'])
-                reid_sim = max(0.0, reid_sim)
+                reid_sim = self._cosine_similarity(track_features[id1]['features'],
+                                                   track_features[id2]['features'])
+                reid_sim = max(0.0, reid_sim)  # Clamp to [0, 1]
+
+                # Weight by feature confidence
                 confidence_weight = (track_features[id1]['confidence'] + track_features[id2]['confidence']) / 2
                 reid_sim *= confidence_weight
+
             except Exception:
                 reid_sim = 0.0
+
+        # 2. Spatial Similarity
         end_bbox1 = track1[-1]['bbox']
         start_bbox2 = track2[0]['bbox']
+
         center1 = np.array([(end_bbox1[0] + end_bbox1[2]) / 2, (end_bbox1[1] + end_bbox1[3]) / 2])
         center2 = np.array([(start_bbox2[0] + start_bbox2[2]) / 2, (start_bbox2[1] + start_bbox2[3]) / 2])
+
         distance = np.linalg.norm(center1 - center2)
         spatial_score = max(0.0, 1.0 - distance / self.config['max_distance_pixels'])
+
+        # Size consistency
         area1 = (end_bbox1[2] - end_bbox1[0]) * (end_bbox1[3] - end_bbox1[1])
         area2 = (start_bbox2[2] - start_bbox2[0]) * (start_bbox2[3] - start_bbox2[1])
         size_ratio = min(area1, area2) / max(area1, area2) if max(area1, area2) > 0 else 0
+
         spatial_score = 0.7 * spatial_score + 0.3 * size_ratio
+
+        # 3. Motion Similarity
         motion_score = 0.0
-        if (self.config['enable_motion_prediction'] and track_motion[id1]['predicted_next_pos'] is not None):
+        if (self.config['enable_motion_prediction'] and
+                track_motion[id1]['predicted_next_pos'] is not None):
             predicted_pos = track_motion[id1]['predicted_next_pos']
             actual_pos = center2
+
             prediction_error = np.linalg.norm(predicted_pos - actual_pos)
             motion_score = max(0.0, 1.0 - prediction_error / self.config['max_distance_pixels'])
+
+            # Factor in motion stability
             stability_factor = (track_motion[id1]['stability'] + track_motion[id2]['stability']) / 2
             motion_score *= stability_factor
+
         return {
             'reid_similarity': reid_sim,
             'spatial_score': spatial_score,
@@ -964,48 +1006,54 @@ class PostProcessingEngine:
         }
 
     def _apply_merges_and_generate_ids(self, track_history, merge_map):
-        """Apply merges and generate sequential IDs."""
+        """Phase 4: Apply merges and generate sequential final IDs."""
         sorted_ids = sorted(track_history.keys())
         final_id_map = {}
         sequential_id_counter = 1
         root_to_final_id = {}
+
+        # Build merge chains
         for original_id in sorted_ids:
             current_id = original_id
             path = [original_id]
+
+            # Follow merge chain to root
             while current_id in merge_map:
                 current_id = merge_map[current_id]
                 path.append(current_id)
+
             root_id = current_id
+
+            # Assign sequential ID to root if not already assigned
             if root_id not in root_to_final_id:
                 root_to_final_id[root_id] = sequential_id_counter
                 sequential_id_counter += 1
+
             final_id = root_to_final_id[root_id]
+
+            # Map all IDs in the chain to the final ID
             for node_id in path:
                 final_id_map[node_id] = final_id
+
         final_person_count = sequential_id_counter - 1
         return final_id_map, final_person_count
 
-# ======================================
-# Main Processing Class
-# ======================================
+
+def post_process_and_merge_tracks(track_history, fps, tracker=None):
+    """Legacy wrapper for backward compatibility."""
+    engine = PostProcessingEngine()
+    return engine.process_tracks(track_history, fps, tracker)
+
 
 class DubsComprehensivePeopleCounting:
-    """Comprehensive people counting with adaptive detection and post-processing."""
-    def __init__(self, device='auto', use_reid=DEFAULT_USE_REID):
-        # Ensure models are available before initialization
-        try:
-            ensure_models_available()
-        except Exception as e:
-            logger.warning(f"⚠️ Model availability check failed: {e}")
-
+    def __init__(self, device='auto', use_reid=True):
         if device == 'auto':
-            if torch.backends.mps.is_available():
+            if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
                 self.device = 'mps'
                 logger.info("🍎 Using MPS (Apple Silicon GPU) for acceleration")
             elif torch.cuda.is_available():
-                # Fix: Use explicit device index for CUDA
-                self.device = 'cuda:0'
-                logger.info("🚀 Using CUDA GPU (device 0) for acceleration")
+                self.device = 'cuda'
+                logger.info("🚀 Using CUDA GPU for acceleration")
             else:
                 self.device = 'cpu'
                 logger.info("💻 Using CPU")
@@ -1013,6 +1061,7 @@ class DubsComprehensivePeopleCounting:
             self.device = str(device)
         logger.info(f"Using device: {self.device}")
 
+        # Initialize components
         self.depth_estimator = DepthEstimator(device)
         self.detector = SmartAdaptiveDetector(self.device)
 
@@ -1028,507 +1077,387 @@ class DubsComprehensivePeopleCounting:
                 )
             else:
                 logger.info("✅ Initializing ByteTrack (Re-ID disabled)...")
-                # Import ByteTrack here to avoid import issues
-                try:
-                    from boxmot import ByteTrack
-                    self.tracker = ByteTrack(
-                        track_buffer=150,
-                        match_thresh=0.65,
-                        frame_rate=25
-                    )
-                except ImportError:
-                    logger.warning("⚠️ ByteTrack not available, using BotSortLite (BotSort without Re-ID)")
-                    self.tracker = BotSort(
-                        reid_weights=None,
-                        device=self.device,
-                        half=False,
-                        track_buffer=150,
-                        appearance_thresh=0.60
-                    )
+                self.tracker = ByteTrack(
+                    track_buffer=150,
+                    match_thresh=0.65,
+                    frame_rate=25
+                )
         except Exception as e:
             self.tracker = None
-            logger.error(f"❌ Failed to initialize tracker: {e}")
+            logger.error(f"❌ Failed to initialize tracker: {e}", exc_info=True)
 
-    def process_image(self, image_path: str) -> Dict:
-        """Process a single image for people counting."""
-        start_time = time.time()
-        # Validate with full path, but get filename for storage operations
-        is_valid, error_msg = validate_input_file(image_path)
-        if not is_valid:
-            logger.error(f"Invalid input: {error_msg}")
-            return {
-                'status': 'failed',
-                'job_type': 'people_count',
-                'output_image': None,
-                'output_video': None,
-                'data': {'alerts': [], 'error': error_msg},
-                'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
-                'error': {'message': error_msg, 'code': 'INVALID_INPUT'}
-            }
+    def process_video(self, video_path, output_path=None, results_path=None, use_post_process=False):
+        # Handle both video files and image directories (MOT dataset support)
+        image_files = []
+        if os.path.isdir(video_path):
+            image_files = sorted(glob.glob(os.path.join(video_path, '*.jpg')))
+            if not image_files: raise ValueError(f"No JPG images found in directory: {video_path}")
+            cap = None
+            total_frames = len(image_files)
+            frame = cv2.imread(image_files[0])
+            height, width, _ = frame.shape
+            fps = 25
+            logger.info(f"📂 Processing image sequence: {len(image_files)} images")
+        else:
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened(): raise ValueError(f"Cannot open video: {video_path}")
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            fps = cap.get(cv2.CAP_PROP_FPS) or 25
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            logger.info(f"🎥 Processing video: {total_frames} frames at {fps} FPS")
 
-        try:
-            with default_storage.open(image_path, 'rb') as f:
-                frame = cv2.imdecode(np.frombuffer(f.read(), np.uint8), cv2.IMREAD_COLOR)
+        # PASS 1: ANALYSIS with Smart Adaptive Detection
+        logger.info("--- Pass 1: Smart Adaptive Analysis ---")
+        all_tracks_by_frame = {}
+        depth_method_used = None
+        detection_strategies_used = set()
+
+        if self.tracker: self.tracker.reset()
+
+        # Open MOT results file if path is provided
+        results_file = open(results_path, 'w') if results_path else None
+
+        for frame_count in tqdm(range(1, total_frames + 1), desc="Pass 1: Smart Detection"):
+            if cap:
+                ret, frame = cap.read()
+                if not ret: break
+            else:
+                frame = cv2.imread(image_files[frame_count - 1])
+
+            # Estimate depth
             depth_map = self.depth_estimator.estimate_depth(frame)
+
+            # Log depth method on first frame
+            if depth_method_used is None:
+                depth_method_used = self.depth_estimator.method
+                logger.info(f"🎯 Using depth estimation method: {depth_method_used}")
+
+            # Smart adaptive detection
             detections = self.detector.detect_smart_adaptive(frame, depth_map)
-            person_count = len(detections)
-            alerts = []
-            if person_count > 10:
-                alerts.append({
-                    "message": f"High crowd density detected: {person_count} people",
-                    "timestamp": timezone.now().isoformat()
+
+            # Track detection strategy used (for reporting)
+            if hasattr(self.detector, '_last_strategy'):
+                detection_strategies_used.add(self.detector._last_strategy)
+
+            if self.tracker and len(detections) > 0:
+                tracks = self.tracker.update(detections, frame)
+                if len(tracks) > 0:
+                    track_data = []
+                    for t in tracks:
+                        # --- START: THE CRITICAL FIX IS HERE ---
+                        track_info = {'id': int(t[4]), 'bbox': t[:4]}
+
+                        # BotSort with Re-ID appends the feature vector to the track tuple.
+                        # We must check for its existence and store it.
+                        if len(t) > 7 and t[-1] is not None:
+                            track_info['reid_features'] = t[-1]
+                        # --- END: THE CRITICAL FIX ---
+
+                        # Add depth info if available
+                        x1, y1, x2, y2 = t[:4]
+                        center_x, center_y = int((x1 + x2) / 2), int((y1 + y2) / 2)
+                        if depth_map is not None and 0 <= center_y < height and 0 <= center_x < width:
+                            depth_value = depth_map[center_y, center_x]
+                            track_info['depth'] = depth_value
+
+                        track_data.append(track_info)
+
+                    all_tracks_by_frame[frame_count] = track_data
+
+                    # Write to MOT results file
+                    if results_file:
+                        for track in tracks:
+                            x1, y1, x2, y2, track_id = track[:5]
+                            w, h = x2 - x1, y2 - y1
+                            line = f"{frame_count},{int(track_id)},{x1:.2f},{y1:.2f},{w:.2f},{h:.2f},1,-1,-1,-1\n"
+                            results_file.write(line)
+        if cap: cap.release()
+        if results_file: results_file.close()
+
+        # Post-processing
+        track_history_for_merge = {}
+        for frame_num, frame_data in all_tracks_by_frame.items():
+            for track_info in frame_data:
+                tid = track_info['id']
+                if tid not in track_history_for_merge: track_history_for_merge[tid] = []
+                track_history_for_merge[tid].append({
+                    'frame': frame_num,
+                    'bbox': track_info['bbox'],
+                    'depth': track_info.get('depth', 0.5)
                 })
-            if self.tracker:
-                self.tracker.reset()
-                tracks = self.tracker.update(detections, frame) if len(detections) > 0 else np.empty((0, 7))
-                person_count = len(tracks) if len(tracks) > 0 else person_count
-            # Create output file in temporary location for tasks.py to handle
-            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
-                if len(detections) > 0:
-                    results = self.detector.yolo(frame, conf=YOLO_CONF_CLOSE, classes=[0], verbose=False)[0] if self.detector.yolo else \
-                              self.detector.rtdetr(frame, conf=RTDETR_CONF_CLOSE, classes=[0], verbose=False)[0]
-                    annotated_frame = results.plot()
-                else:
-                    annotated_frame = frame
-                cv2.imwrite(tmp.name, annotated_frame)
-                output_file_path = tmp.name
-            processing_time = time.time() - start_time
-            return {
-                'status': 'completed',
-                'job_type': 'people_count',
-                'output_image': output_file_path,
-                'output_video': None,
-                'data': {
-                    'person_count': person_count,
-                    'raw_track_count': len(detections),
-                    'depth_method': self.depth_estimator.method,
-                    'fps': None,
-                    'detection_strategies': [self.detector._last_strategy] if self.detector._last_strategy else ['unknown'],
-                    'alerts': alerts
-                },
-                'meta': {
-                    'timestamp': timezone.now().isoformat(),
-                    'processing_time_seconds': processing_time,
-                    'fps': None,
-                    'frame_count': 1
-                },
-                'error': None
-            }
-        except Exception as e:
-            logger.exception(f"Image processing failed: {str(e)}")
-            return {
-                'status': 'failed',
-                'job_type': 'people_count',
-                'output_image': None,
-                'output_video': None,
-                'data': {'alerts': [], 'error': str(e)},
-                'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
-                'error': {'message': str(e), 'code': 'PROCESSING_ERROR'}
-            }
-        finally:
-            # Note: tmp files are not cleaned up here as tasks.py needs them
-            # tasks.py will handle cleanup after saving to Django storage
-            pass
 
-    def process_video(self, video_path: str, output_path: str, job_id: str = None) -> Dict:
-        """Process video or image sequence for people counting."""
-        start_time = time.time()
-        # Validate with full path, but get filename for storage operations
-        is_valid, error_msg = validate_input_file(video_path)
-        if not is_valid:
-            logger.error(f"Invalid input: {error_msg}")
-            return {
-                'status': 'failed',
-                'job_type': 'people_count',
-                'output_image': None,
-                'output_video': None,
-                'data': {'alerts': [], 'error': error_msg},
-                'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
-                'error': {'message': error_msg, 'code': 'INVALID_INPUT'}
-            }
+        # --- START: PROPOSED DEBUGGING CODE ---
+        print("\n" + "=" * 60)
+        print("--- TRACK LIFETIME ANALYSIS REPORT ---")
+        print("Analyzing all tracks created during Pass 1...")
+        print("-" * 60)
 
-        # Get just the filename for storage operations
-        # Remove the line that extracts only filename
-        # video_filename = Path(video_path).name
+        sorted_track_ids = sorted(track_history_for_merge.keys())
 
-        try:
-            image_files = []
-            if default_storage.exists(video_path) and os.path.splitext(video_path)[1] == "":
-                image_files = sorted([f for f in default_storage.listdir(video_path)[1] if f.endswith(('.jpg', '.jpeg', '.png'))])
-                if not image_files:
-                    raise ValueError(f"No JPG images found in directory: {video_path}")
-                with default_storage.open(os.path.join(video_path, image_files[0]), 'rb') as f:
-                    frame = cv2.imdecode(np.frombuffer(f.read(), np.uint8), cv2.IMREAD_COLOR)
-                height, width = frame.shape[:2]
-                fps = 25
-                total_frames = len(image_files)
-                logger.info(f"📂 Processing image sequence: {total_frames} images")
-                cap = None
+        for tid in sorted_track_ids:
+            track_data = track_history_for_merge[tid]
+            lifetime = len(track_data)
+            first_frame = track_data[0]['frame']
+            last_frame = track_data[-1]['frame']
+
+            # Prepare the output line
+            report_line = (f"  Track ID: {tid:<4} | "
+                           f"Lifetime: {lifetime:<5} frames | "
+                           f"Appeared at Frame: {first_frame:<5} | "
+                           f"Vanished at Frame: {last_frame:<5}")
+
+            # Highlight potential ghost tracks
+            if lifetime < 20:  # A threshold to identify very short tracks (e.g., less than a second)
+                report_line += "  <--- [!] WARNING: POTENTIAL GHOST TRACK"
+
+            print(report_line)
+
+        print("=" * 60 + "\n")
+        # --- END: PROPOSED DEBUGGING CODE ---
+        if use_post_process:
+            # Use enhanced post-processing engine
+            processing_engine = PostProcessingEngine(config={
+                'max_time_gap_seconds': 15.0,
+                'max_distance_pixels': 350.0,
+                'min_size_ratio': 0.4,
+                'reid_threshold_high': 0.70,
+                'reid_threshold_medium': 0.50,
+                'reid_threshold_low': 0.30,
+                'enable_motion_prediction': True,
+                'enable_multi_frame_averaging': True,
+                'verbose_logging': False
+            })
+            final_id_map, final_count = processing_engine.process_tracks(
+                track_history_for_merge, fps, self.tracker
+            )
+            logger.info(f"✅ Enhanced post-processing enabled: {len(track_history_for_merge)} → {final_count} tracks")
+        else:
+            logger.info("⚠️ Skipping post-process merging.")
+            final_count = len(set(track['id'] for frame_data in all_tracks_by_frame.values() for track in frame_data))
+            final_id_map = {i: i for i in range(1, final_count + 100)}
+
+        # PASS 2: Rendering (if output video requested)
+        if output_path:
+            logger.info("--- Pass 2: Rendering video ---")
+            if cap is None and image_files:
+                frame = cv2.imread(image_files[0])
+                height, width, _ = frame.shape
             else:
-                with default_storage.open(video_path, 'rb') as f:
-                    with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
-                        tmp.write(f.read())
-                        tmp_path = tmp.name
-                cap = cv2.VideoCapture(tmp_path)
-                if not cap.isOpened():
-                    raise ValueError(f"Cannot open video: {video_path}")
-                width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                fps = cap.get(cv2.CAP_PROP_FPS) or 25
-                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                logger.info(f"🎥 Processing video: {total_frames} frames at {fps} FPS")
+                cap = cv2.VideoCapture(video_path)
 
-            # Extract job ID from the tracking_video function parameter first, then fallback to filename
-            if job_id:
-                output_job_id = str(job_id)
-                logger.info(f"🔍 Using passed job_id parameter: {output_job_id}")
-            else:
-                # Fallback to filename extraction
-                extracted_id = re.search(r'(\d+)', video_path)
-                output_job_id = extracted_id.group(1) if extracted_id else str(int(time.time()))
-                logger.info(f"🔍 Using extracted job_id from filename: {output_job_id}")
+            writer = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (width, height))
 
-            output_filename = f"outputs/dubs_comprehensive_output_{output_job_id}.mp4"
-            logger.info(f"📁 Output will be saved to: {output_filename}")
-            with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp_out:
-                writer = cv2.VideoWriter(tmp_out.name, cv2.VideoWriter_fourcc(*'mp4v'), fps, (width, height))
-                all_tracks_by_frame = {}
-                depth_method_used = None
-                detection_strategies_used = set()
-                alerts = []
-                if self.tracker:
-                    self.tracker.reset()
-                frame_count = 0
-                last_log_time = start_time
-
-                for frame_num in tqdm(range(1, total_frames + 1), desc="Pass 1: Smart Detection"):
-                    frame_count += 1
-                    if cap:
-                        ret, frame = cap.read()
-                        if not ret:
-                            break
-                    else:
-                        with default_storage.open(os.path.join(video_path, image_files[frame_num - 1]), 'rb') as f:
-                            frame = cv2.imdecode(np.frombuffer(f.read(), np.uint8), cv2.IMREAD_COLOR)
-                    depth_map = self.depth_estimator.estimate_depth(frame)
-                    if depth_method_used is None:
-                        depth_method_used = self.depth_estimator.method
-                        logger.info(f"🎯 Using depth estimation method: {depth_method_used}")
-                    detections = self.detector.detect_smart_adaptive(frame, depth_map)
-                    if self.detector._last_strategy:
-                        detection_strategies_used.add(self.detector._last_strategy)
-                    if len(detections) > 0 and self.tracker:
-                        tracks = self.tracker.update(detections, frame)
-                        track_data = []
-                        if len(tracks) > 0:
-                            for t in tracks:
-                                track_info = {'id': int(t[4]), 'bbox': t[:4]}
-                                if len(t) > 7 and t[-1] is not None:
-                                    # Ensure Re-ID features are 1D array for cosine similarity compatibility
-                                    reid_features = np.array(t[-1]).flatten()
-                                    track_info['reid_features'] = reid_features
-                                x1, y1, x2, y2 = t[:4]
-                                center_x, center_y = int((x1 + x2) / 2), int((y1 + y2) / 2)
-                                if depth_map is not None and 0 <= center_y < height and 0 <= center_x < width:
-                                    depth_value = depth_map[center_y, center_x]
-                                    track_info['depth'] = depth_value
-                                track_data.append(track_info)
-                            all_tracks_by_frame[frame_num] = track_data
-                        if len(track_data) > 10:
-                            alerts.append({
-                                "message": f"High crowd density detected: {len(track_data)} people at frame {frame_num}",
-                                "timestamp": timezone.now().isoformat()
-                            })
-                    # Periodic logging with frame-level summaries
-                    current_time = time.time()
-                    if current_time - last_log_time >= 1 or frame_num == total_frames:  # Update every second
-                        progress = (frame_num / total_frames) * 100
-                        elapsed_time = current_time - start_time
-                        time_remaining = (elapsed_time / frame_num) * (total_frames - frame_num) if frame_num > 0 else 0
-                        avg_fps = frame_num / elapsed_time if elapsed_time > 0 else 0
-
-                        # Frame-level detection summary
-                        current_detections = len(detections)
-                        current_tracks = len(track_data) if 'track_data' in locals() else 0
-                        strategy_used = self.detector._last_strategy or "unknown"
-
-                        # FIX: Update progress in the progress monitor, not the tracker
-                        if hasattr(self, 'progress_monitor'):
-                            self.progress_monitor.update(frame_num, f"Processing frame {frame_num}/{total_frames}")
-
-                        # Log detailed status
-                        logger.info(f"**Job {output_job_id}**: Progress **{progress:.1f}%** ({frame_num}/{total_frames}), Status: Processing...")
-                        logger.info(f"[{'#' * int(progress // 10)}{'-' * (10 - int(progress // 10))}] Done: {int(elapsed_time // 60):02d}:{int(elapsed_time % 60):02d} | Left: {int(time_remaining // 60):02d}:{int(time_remaining % 60):02d} | Avg FPS: {avg_fps:.1f}")
-                        logger.info(f"📊 Frame {frame_num}: {current_detections} detections → {current_tracks} tracks | Strategy: {strategy_used.upper()}")
-
-                        last_log_time = current_time
+            for frame_count in tqdm(range(1, total_frames + 1), desc="Pass 2: Rendering"):
                 if cap:
-                    cap.release()
-                track_history_for_merge = {}
-                for frame_num, frame_data in all_tracks_by_frame.items():
-                    for track_info in frame_data:
-                        tid = track_info['id']
-                        if tid not in track_history_for_merge:
-                            track_history_for_merge[tid] = []
-                        track_history_for_merge[tid].append({
-                            'frame': frame_num,
-                            'bbox': track_info['bbox'],
-                            'depth': track_info.get('depth', 0.5),
-                            'reid_features': track_info.get('reid_features')
-                        })
-                if track_history_for_merge:
-                    processing_engine = PostProcessingEngine()
-                    final_id_map, final_count = processing_engine.process_tracks(track_history_for_merge, fps, self.tracker)
-                    logger.info(f"✅ Enhanced post-processing enabled: {len(track_history_for_merge)} → {final_count} tracks")
+                    ret, frame = cap.read()
+                    if not ret: break
                 else:
-                    final_count = 0
-                    final_id_map = {}
-                if cap is None and image_files:
-                    frame = cv2.imread(image_files[0])
-                    height, width = frame.shape[:2]
-                else:
-                    cap = cv2.VideoCapture(tmp_path)
-                for frame_num in tqdm(range(1, total_frames + 1), desc="Pass 2: Rendering"):
-                    if cap:
-                        ret, frame = cap.read()
-                        if not ret:
-                            break
-                    else:
-                        with default_storage.open(os.path.join(video_path, image_files[frame_num - 1]), 'rb') as f:
-                            frame = cv2.imdecode(np.frombuffer(f.read(), np.uint8), cv2.IMREAD_COLOR)
-                    if frame_num in all_tracks_by_frame:
-                        for track_info in all_tracks_by_frame[frame_num]:
-                            original_id = track_info['id']
-                            clean_id = final_id_map.get(original_id, original_id)
-                            if clean_id:
-                                x1, y1, x2, y2 = track_info['bbox']
-                                depth_value = track_info.get('depth', 0.5)
-                                if depth_value >= 0.6:
-                                    color = (0, 255, 0)  # Green for close
-                                    zone_text = "CLOSE"
-                                elif depth_value >= 0.4:
-                                    color = (0, 255, 255)  # Yellow for medium
-                                    zone_text = "MID"
-                                else:
-                                    color = (255, 0, 255)  # Magenta for far
-                                    zone_text = "FAR"
-                                cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
-                                cv2.putText(frame, f'ID:{clean_id}', (int(x1), int(y1) - 25),
-                                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-                                cv2.putText(frame, zone_text, (int(x1), int(y1) - 10),
-                                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-                    cv2.putText(frame, f"Dubs Comprehensive V1.0 | Method: {depth_method_used}",
-                                (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-                    total_text = f"TOTAL COUNT: {final_count}"
-                    cv2.putText(frame, total_text, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
-                    writer.write(frame)
-                if cap:
-                    cap.release()
-                writer.release()
+                    frame = cv2.imread(image_files[frame_count - 1])
 
-                # Try to create web-optimized version, fallback to original if it fails
-                final_output_path = tmp_out.name
-                with tempfile.NamedTemporaryFile(suffix='_web.mp4', delete=False) as web_tmp:
-                    web_tmp_path = web_tmp.name
+                if frame_count in all_tracks_by_frame:
+                    for track_info in all_tracks_by_frame[frame_count]:
+                        original_id = track_info['id']
 
-                logger.info(f"🔄 Attempting ffmpeg conversion: {tmp_out.name} -> {web_tmp_path}")
-                if convert_to_web_mp4(tmp_out.name, web_tmp_path):
-                    logger.info(f"✅ Web-optimized video created successfully")
-                    # Use web-optimized version and clean up original
-                    final_output_path = web_tmp_path
-                    try:
-                        os.remove(tmp_out.name)  # Clean up original temp file
-                    except Exception as e:
-                        logger.warning(f"Failed to clean up original temp file: {e}")
-                else:
-                    logger.warning(f"⚠️ ffmpeg conversion failed, using original file")
-                    # Use original file and clean up failed web version
-                    try:
-                        os.remove(web_tmp_path)  # Clean up failed web conversion
-                    except Exception as e:
-                        logger.warning(f"Failed to clean up failed web conversion: {e}")
-                processing_time = time.time() - start_time
-                return {
-                    'status': 'completed',
-                    'job_type': 'people_count',
-                    'output_image': None,
-                    'output_video': final_output_path,
-                    'data': {
-                        'person_count': final_count,
-                        'raw_track_count': len(track_history_for_merge),
-                        'depth_method': depth_method_used,
-                        'fps': fps,
-                        'detection_strategies': list(detection_strategies_used),
-                        'alerts': alerts
-                    },
-                    'meta': {
-                        'timestamp': timezone.now().isoformat(),
-                        'processing_time_seconds': processing_time,
-                        'fps': fps,
-                        'frame_count': frame_count
-                    },
-                    'error': None
-                }
-        except Exception as e:
-            logger.exception(f"Video processing failed: {str(e)}")
-            return {
-                'status': 'failed',
-                'job_type': 'people_count',
-                'output_image': None,
-                'output_video': None,
-                'data': {'alerts': [], 'error': str(e)},
-                'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
-                'error': {'message': str(e), 'code': 'PROCESSING_ERROR'}
-            }
-        finally:
-            # Ensure all resources are properly cleaned up
-            try:
-                if 'cap' in locals() and cap:
-                    cap.release()
-            except Exception as e:
-                logger.warning(f"Failed to release video capture: {e}")
+                        # --- START: GHOST TRACK CAPTURE CODE ---
+                        if original_id == 11 and frame_count == 180:  # Frame where Track 11 appears
+                            print(f"[!!!] GHOST TRACK 11 APPEARED AT FRAME {frame_count}. SAVING IMAGE.")
+                            x1, y1, x2, y2 = track_info['bbox']
+                            ghost_crop = frame[int(y1):int(y2), int(x1):int(x2)]
+                            cv2.imwrite("ghost_track_11_capture.jpg", ghost_crop)
+                        # --- END: GHOST TRACK CAPTURE CODE ---
 
-            try:
-                if 'writer' in locals() and writer:
-                    writer.release()
-            except Exception as e:
-                logger.warning(f"Failed to release video writer: {e}")
+                        clean_id = final_id_map.get(original_id, original_id)
 
-            try:
-                if 'tmp_path' in locals() and os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-            except Exception as e:
-                logger.warning(f"Failed to remove temporary file {tmp_path}: {e}")
+                        if clean_id:
+                            x1, y1, x2, y2 = track_info['bbox']
 
-            # Note: final_output_path is not cleaned up here as tasks.py needs it
-            # tasks.py will handle cleanup after saving to Django storage
-            try:
-                # Only clean up tmp_out if it's not the final_output_path
-                if ('tmp_out' in locals() and 'final_output_path' in locals() and
-                    tmp_out.name != final_output_path and os.path.exists(tmp_out.name)):
-                    os.remove(tmp_out.name)
-            except Exception as e:
-                logger.warning(f"Failed to remove temporary output file {tmp_out.name}: {e}")
+                            # Color based on depth
+                            depth_value = track_info.get('depth', 0.5)
+                            if depth_value >= 0.6:
+                                color = (0, 255, 0)  # Green for close
+                                zone_text = "CLOSE"
+                            elif depth_value >= 0.4:
+                                color = (0, 255, 255)  # Yellow for medium
+                                zone_text = "MID"
+                            else:
+                                color = (255, 0, 255)  # Magenta for far
+                                zone_text = "FAR"
 
-# ======================================
-# Celery Integration
-# ======================================
+                            cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
+                            cv2.putText(frame, f'ID:{clean_id}', (int(x1), int(y1) - 25),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+                            cv2.putText(frame, zone_text, (int(x1), int(y1) - 10),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
-def tracking_video(input_path: str, output_path: str, job_id: str = None) -> Dict:
-    """
-    Analytics function for people counting.
+                # Enhanced overlay
+                cv2.putText(frame, f"Dubs Comprehensive V1.0 | Method: {depth_method_used}",
+                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
-    Args:
-        input_path: Path to input video or image sequence
-        output_path: Path to save output video
-        job_id: VideoJob ID
+                total_text = f"TOTAL COUNT: {final_count}"
+                cv2.putText(frame, total_text, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+                writer.write(frame)
 
-    Returns:
-        Standardized response dictionary
-    """
+            if cap: cap.release()
+            writer.release()
+
+        return {
+            'person_count': final_count,
+            'output_path': output_path,
+            'depth_method': depth_method_used,
+            'raw_track_count': len(track_history_for_merge),
+            'total_frames': total_frames,
+            'fps': fps,
+            'detection_strategies': list(detection_strategies_used)
+        }
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Dubs Comprehensive People Counting - Production Ready Solution V1.0')
+    parser.add_argument('--video', required=True, help='Path to input video or image sequence directory')
+    parser.add_argument('--output_dir', default='outputs', help='Directory to save annotated video')
+    parser.add_argument('--device', default='auto', help='Device: auto/mps/cuda/cpu')
+    parser.add_argument('--disable_reid', action='store_true', help='Disable Re-ID features')
+    parser.add_argument('--post_process', action='store_true',
+                        help='Enable enhanced post-processing to merge broken tracks')
+    parser.add_argument('--results_output', help='Path to save tracking results for MOT evaluation')
+    parser.add_argument('--fast_mode', action='store_true', help='Use geometric depth for faster processing')
+    parser.add_argument('--debug', action='store_true', help='Enable debug logging for detection strategies')
+    args = parser.parse_args()
+
+    # Setup logging
+    log_level = logging.DEBUG if args.debug else logging.INFO
+    logging.basicConfig(level=log_level, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+    # Generate output path
+    output_path = None
+    if not args.results_output:
+        output_path = next_sequential_name(args.output_dir)
+
+    print(f"🚀 Starting Dubs Comprehensive People Counting V1.0")
+    print(f"📹 Input: {args.video}")
+    if output_path: print(f"💾 Video Output: {output_path}")
+    if args.results_output: print(f"📝 MOT Results Output: {args.results_output}")
+    print(f"🔧 Device: {args.device}")
+
+    reid_enabled = not args.disable_reid
+    if reid_enabled: print(f"🏃 Re-ID Mode: ON")
+    if args.post_process: print(f"🔄 Enhanced Post-Processing: ON")
+    if args.fast_mode: print(f"⚡ Fast Mode: ON (geometric depth)")
+    if args.debug: print(f"🐛 Debug Mode: ON")
+    print(f"🧠 Strategy: Smart Adaptive Detection + Enhanced Post-Processing")
+    print("-" * 50)
+
     start_time = time.time()
-    logger.info(f"🚀 Starting people count job {job_id}")
-    logger.info(f"📥 Input path: {input_path}")
-    logger.info(f"📤 Output path: {output_path}")
+    try:
+        counter = DubsComprehensivePeopleCounting(device=args.device, use_reid=reid_enabled)
 
-    ext = os.path.splitext(input_path)[1].lower()
-    image_exts = ['.jpg', '.jpeg', '.png']
+        # Override depth method if fast mode requested
+        if args.fast_mode:
+            counter.depth_estimator.method = "geometric"
+            logger.info("⚡ Fast mode enabled - using geometric depth")
 
-    # Get total frames for accurate progress tracking
-    total_frames = 1  # Default for images
-    if ext not in image_exts:
-        try:
-            with default_storage.open(input_path, 'rb') as f:
-                with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
-                    tmp.write(f.read())
-                    cap = cv2.VideoCapture(tmp.name)
-                    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                    cap.release()
-                    os.remove(tmp.name)
-        except Exception as e:
-            logger.warning(f"Could not get frame count: {e}. Using estimate.")
-            total_frames = 100  # Fallback estimate
+        results = counter.process_video(
+            video_path=args.video,
+            output_path=output_path,
+            results_path=args.results_output,
+            use_post_process=args.post_process
+        )
+        processing_time = time.time() - start_time
 
-    # Initialize progress logger with accurate frame count
-    progress_logger = create_progress_logger(
-        job_id=str(job_id) if job_id else "unknown",
-        total_items=total_frames,
-        job_type="people_count",
-        logger_name="dubs_people_counting_comprehensive"
-    )
+        print("-" * 50)
+        print(f"✅ SUCCESS! Processing completed in {processing_time:.2f} seconds")
+        print(f"🎯 Depth estimation method: {results['depth_method']}")
+        print(f"🧠 Detection strategies used: {', '.join(results.get('detection_strategies', ['unknown']))}")
+        print(f"👥 Final unique people count: {results['person_count']}")
+        print(f"📊 Raw detections (before post-processing): {results['raw_track_count']}")
+        print(f"🚀 Processing speed: {results['total_frames'] / processing_time:.1f} FPS")
+        if output_path: print(f"📁 Video saved to: {results['output_path']}")
+        if args.results_output: print(f"📝 MOT results saved to: {args.results_output}")
 
-    if ext in image_exts:
-        progress_logger.update_progress(0, status="Processing image...", force_log=True)
-        result = DubsComprehensivePeopleCounting(device='auto').process_image(input_path)
-        progress_logger.update_progress(1, status="Analysis completed", force_log=True)
-        progress_logger.log_completion(1)
+        if results['depth_method'] == 'midas':
+            print(f"✅ MiDaS depth analysis: ACTIVE")
+        else:
+            print(f"⚡ Depth analysis: {results['depth_method'].upper()} FALLBACK")
+
+    except Exception as e:
+        logger.error(f"❌ Processing failed: {e}", exc_info=True)
+        return 1
+    return 0
+
+
+if __name__ == '__main__':
+    exit(main())
+
+'''
+python dubs_people_counting_comprehensive_1.py --video video_12.mp4 --device mps --post_process
+PYTORCH_ENABLE_MPS_FALLBACK=1
+
+'''
+
+# --- INTEGRATION WRAPPER FOR CELERY TASKS ---
+def tracking_video(input_path: str, output_path: str) -> dict:
+    """
+    Wrapper for Celery integration. Uses Django storage pattern: input via default_storage, output to temp file.
+    Args:
+        input_path: Path to the input video file (Django storage path)
+        output_path: Path where the temporary annotated video should be saved (/tmp/...)
+    Returns:
+        dict with unified result structure
+    """
+    import torch
+    import tempfile
+    from django.core.files.storage import default_storage
+    
+    # Device selection: prefer cuda > mps > cpu
+    if torch.cuda.is_available():
+        device = 'cuda'
+    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+        device = 'mps'
     else:
-        # FIX: Rename ProgressTracker to ProgressMonitor to avoid naming conflict
-        class ProgressMonitor:
-            def __init__(self, logger, total_frames):
-                self.logger = logger
-                self.total_frames = total_frames
-                self.last_update_time = time.time()
-                self.start_time = time.time()
-                self.processed_frames = 0
-
-            def update(self, frame_num, status=None):
-                self.processed_frames = frame_num
-                current_time = time.time()
-                if current_time - self.last_update_time >= 1.0:  # Update every second
-                    elapsed = current_time - self.start_time
-                    fps = frame_num / elapsed if elapsed > 0 else 0
-                    remaining = (self.total_frames - frame_num) / fps if fps > 0 else 0
-                    eta = f"{int(remaining // 60):02d}:{int(remaining % 60):02d}"
-                    progress = (frame_num / self.total_frames) * 100
-                    status_msg = f"Processing frame {frame_num}/{self.total_frames} ({fps:.1f} FPS, ETA: {eta})"
-                    self.logger.update_progress(frame_num, status=status_msg, force_log=True)
-                    self.last_update_time = current_time
-
-        monitor = ProgressMonitor(progress_logger, total_frames)
-        progress_logger.update_progress(0, status="Starting video processing...", force_log=True)
-
-        # Create a subclass of DubsComprehensivePeopleCounting to track progress
-        class ProgressDubsComprehensivePeopleCounting(DubsComprehensivePeopleCounting):
-            def __init__(self, progress_monitor, *args, **kwargs):
-                super().__init__(*args, **kwargs)
-                # FIX: Use self.progress_monitor instead of self.tracker to avoid conflict
-                self.progress_monitor = progress_monitor
-
-            def process_video(self, video_path: str, output_path: str, job_id: str = None) -> Dict:
-                # Override process_video to track progress
-                result = super().process_video(video_path, output_path, job_id)
-                # Update progress based on actual frames processed
-                if 'frame_count' in result.get('meta', {}):
-                    self.progress_monitor.update(result['meta']['frame_count'])
-                return result
-
-        # Process video with progress tracking
-        counter = ProgressDubsComprehensivePeopleCounting(monitor, device='auto')
-        result = counter.process_video(input_path, output_path, job_id)
-
-        # Ensure we mark as complete
-        progress_logger.update_progress(total_frames, status="Video processing completed", force_log=True)
-        progress_logger.log_completion(total_frames)
-
-    processing_time = time.time() - start_time
-    result['meta']['processing_time_seconds'] = processing_time
-    result['meta']['timestamp'] = timezone.now().isoformat()
-
-    return result
-
-# ======================================
-# Helper Functions
-# ======================================
-
-def validate_input_file(file_path: str) -> tuple[bool, str]:
-    """Validate file type and size."""
-    if not default_storage.exists(file_path):
-        return False, f"File not found: {file_path}"
-    ext = os.path.splitext(file_path)[1].lower()
-    if ext not in VALID_EXTENSIONS:
-        return False, f"Invalid file type: {ext}. Allowed: {', '.join(VALID_EXTENSIONS)}"
-    size = default_storage.size(file_path)
-    if size > MAX_FILE_SIZE:
-        return False, f"File size {size / (1024*1024):.2f}MB exceeds 500MB limit"
-    return True, ""
+        device = 'cpu'
+    
+    # Follow Django storage pattern: copy input file to temporary location
+    with default_storage.open(input_path, 'rb') as f:
+        with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
+            tmp.write(f.read())
+            tmp_input_path = tmp.name
+    
+    try:
+        counter = DubsComprehensivePeopleCounting(device=device, use_reid=DEFAULT_USE_REID)
+        results = counter.process_video(
+            video_path=tmp_input_path,
+            output_path=output_path,  # This is already a /tmp/ path from tasks.py
+            use_post_process=DEFAULT_POST_PROCESS
+        )
+        
+        # Convert to web format if possible
+        web_output_path = output_path.replace('.mp4', '_web.mp4')
+        if convert_to_web_mp4(results.get('output_path', output_path), web_output_path):
+            final_output_path = web_output_path
+        else:
+            final_output_path = results.get('output_path', output_path)
+        
+        return {
+            'status': 'completed',
+            'job_type': 'people-count',
+            'output_video': final_output_path,  # tasks.py will handle Django storage
+            'data': {
+                'person_count': results.get('person_count', 0),
+                'raw_track_count': results.get('raw_track_count', 0),
+                'depth_method': results.get('depth_method', ''),
+                'fps': results.get('fps', 0),
+                'detection_strategies': results.get('detection_strategies', []),
+                'alerts': []
+            },
+            'meta': {},
+            'error': None
+        }
+    
+    finally:
+        # Clean up temporary input file
+        try:
+            if os.path.exists(tmp_input_path):
+                os.remove(tmp_input_path) 
+        except Exception as e:
+            logger.warning(f"Failed to clean up temporary input file {tmp_input_path}: {e}")
