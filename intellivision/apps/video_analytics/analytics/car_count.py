@@ -1098,7 +1098,7 @@ def tracking_video(input_path: str, output_path: str = None, job_id: str = None)
     if ext in image_exts:
         # Initialize progress logger for image processing
         progress_logger = create_progress_logger(
-            job_id=str(job_id) if job_id else "unknown",
+            job_id=str(job_id) if job_id else "0",
             total_items=1,  # Single image
             job_type="car_count"
         )
@@ -1110,7 +1110,7 @@ def tracking_video(input_path: str, output_path: str = None, job_id: str = None)
     else:
         # Initialize progress logger for video processing
         progress_logger = create_progress_logger(
-            job_id=str(job_id) if job_id else "unknown",
+            job_id=str(job_id) if job_id else "0",
             total_items=100,  # Estimate for video frames
             job_type="car_count"
         )

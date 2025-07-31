@@ -91,7 +91,6 @@ MODEL_CONFIGS = {
     "osnet_reid": {
         "filename": "osnet_x0_25_msmt17.pt",
         "url": "https://github.com/KaiyangZhou/deep-person-reid/releases/download/v1.0/osnet_x0_25_msmt17.pth",
-        "cache_path": Path.home() / ".cache/torch/checkpoints/osnet_x0_25_msmt17.pt",
         "description": "OSNet Re-ID model for person tracking"
     },
     "osnet_ibn_reid": {
@@ -271,36 +270,26 @@ def download_reid_model(models_dir: Path) -> bool:
     Download Re-ID model for person tracking.
 
     Args:
-        models_dir: Directory to save model (will use cache path)
+        models_dir: Directory to save model
 
     Returns:
         True if successful, False otherwise
     """
     config = MODEL_CONFIGS["osnet_reid"]
-    cache_path = config["cache_path"]
+    filepath = models_dir / config["filename"]
     url = config["url"]
 
-    if cache_path.exists():
-        logger.info(f"✅ Re-ID model already exists at {cache_path}")
+    if filepath.exists():
+        logger.info(f"✅ Re-ID model already exists at {filepath}")
         return True
 
     try:
-        logger.info("🔄 Downloading BotSort Re-ID model...")
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        urllib.request.urlretrieve(url, cache_path)
-        logger.info(f"✅ Re-ID model downloaded to {cache_path}")
+        logger.info("🔄 Downloading Re-ID model...")
+        models_dir.mkdir(parents=True, exist_ok=True)
+        urllib.request.urlretrieve(url, filepath)
+        logger.info(f"✅ Re-ID model downloaded to {filepath}")
         return True
 
-    except PermissionError:
-        # Try fallback location
-        fallback_path = models_dir / config["filename"]
-        try:
-            urllib.request.urlretrieve(url, fallback_path)
-            logger.warning(f"⚠️ Using fallback Re-ID location: {fallback_path}")
-            return True
-        except Exception as e:
-            logger.error(f"❌ Could not download Re-ID model to fallback location: {e}")
-            return False
     except Exception as e:
         logger.error(f"❌ Could not download Re-ID model: {e}")
         return False

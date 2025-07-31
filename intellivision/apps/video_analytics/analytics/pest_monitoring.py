@@ -187,8 +187,9 @@ def detect_snakes_in_image(image_path: str, output_path: str = None, job_id: str
             img = Image.open(f).convert("RGB")
             img_array = np.array(img)
 
-        # Run detection
-        model = YOLO(str(MODELS_DIR / "best_animal.pt"))
+        # Run detection using model manager
+        from .model_manager import get_model_with_fallback
+        model = YOLO(str(get_model_with_fallback("best_animal")))
         results = model(img_array, conf=DETECTION_CONFIDENCE)
         plotted = results[0].plot()
         num_snakes = len(results[0].boxes)
@@ -332,9 +333,9 @@ def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str
                 track_buffer=30,
                 device=device,
                 half=False,
-                reid_weights=REID_MODEL_PATH
+                reid_weights=Path(REID_MODEL_PATH)
             )
-            model = YOLO(str(MODELS_DIR / "best_animal.pt"))
+            model = YOLO(str(get_model_with_fallback("best_animal")))
 
             total_detected = 0
             detected_animals = []
@@ -537,7 +538,7 @@ def tracking_video(input_path: str, output_path: str = None, job_id: str = None)
     if ext in image_exts:
         # Initialize progress logger for image processing
         progress_logger = create_progress_logger(
-            job_id=str(job_id) if job_id else "unknown",
+            job_id=str(job_id) if job_id else "0",
             total_items=1,  # Single image
             job_type="wildlife_detection"
         )
@@ -549,7 +550,7 @@ def tracking_video(input_path: str, output_path: str = None, job_id: str = None)
     else:
         # Initialize progress logger for video processing
         progress_logger = create_progress_logger(
-            job_id=str(job_id) if job_id else "unknown",
+            job_id=str(job_id) if job_id else "0",
             total_items=100,  # Estimate for video frames
             job_type="wildlife_detection"
         )

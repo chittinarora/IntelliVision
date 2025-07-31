@@ -242,7 +242,7 @@ def setup_best_tracker(device, fps):
                     track_buffer=30,
                     match_thresh=0.8,
                     frame_rate=fps,
-                    reid_weights=str(reid_model_path),
+                    reid_weights=reid_model_path,
                     proximity_thresh=0.5,
                     appearance_thresh=0.25
                 )
@@ -574,7 +574,7 @@ def tracking_video(source_path: str, zone_configs: dict, output_path: str = None
 
     # Initialize progress logger for video processing
     progress_logger = create_progress_logger(
-        job_id=str(job_id) if job_id else "unknown",
+        job_id=str(job_id) if job_id else "0",
         total_items=100,  # Estimate for video frames
         job_type="lobby_detection"
     )

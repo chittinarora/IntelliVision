@@ -354,8 +354,9 @@ def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, outpu
     logger.info("🚀 RUNNING OPTIMAL YOLOv12x PEOPLE COUNTING")
     params.log_params()
 
-    # Load YOLOv12x model
-    model = load_yolo_model('../models/yolov12x.pt')
+    # Load YOLOv12x model using model manager for proper path resolution
+    from .model_manager import get_model_with_fallback
+    model = load_yolo_model(str(get_model_with_fallback("yolov12x")))
     logger.info("🔧 Using YOLOv12x (Optimal Configuration)")
 
     device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
@@ -650,7 +651,7 @@ def tracking_video(input_path: str, output_path: str, emergency_lines: dict = No
 
     # Initialize progress logger for consistency with other analytics modules
     progress_logger = create_progress_logger(
-        job_id=str(job_id) if job_id else "unknown",
+        job_id=str(job_id) if job_id else "0",
         total_items=100,  # Estimate for video frames
         job_type="emergency_count"
     )
