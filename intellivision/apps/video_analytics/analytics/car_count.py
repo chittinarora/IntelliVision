@@ -72,7 +72,7 @@ try:
     
     # Get model paths with automatic fallback
     PLATE_MODEL = str(get_model_with_fallback("best_car"))
-    CAR_MODEL = str(get_model_with_fallback("yolo11m"))
+    CAR_MODEL = str(get_model_with_fallback("yolo11m_car"))
     
     logger.info(f"✅ Resolved plate model: {PLATE_MODEL}")
     logger.info(f"✅ Resolved car model: {CAR_MODEL}")

@@ -10,7 +10,6 @@ import urllib.request
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import torch
-from django.conf import settings
 
 # ======================================
 # Logger Setup
@@ -20,11 +19,9 @@ logger = logging.getLogger("analytics.model_manager")
 # ======================================
 # Constants and Paths
 # ======================================
-# Use hardcoded path as primary, Django settings as fallback
-try:
-    MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
-except AttributeError:
-    MODELS_DIR = Path(settings.MEDIA_ROOT) / "models"
+# Use the same path as all analytics modules for consistency
+MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
+# This resolves to: /app/intellivision/apps/video_analytics/models
 
 # Model configurations
 MODEL_CONFIGS = {
@@ -49,16 +46,9 @@ MODEL_CONFIGS = {
         "fallback": "yolov11x",
         "description": "YOLOv12x object detection model (fallback: YOLOv11x)"
     },
-    "yolo12x": {
-        "filename": "yolo12x.pt",
-        "download_id": "yolov12x",
-        "loader": "ultralytics.YOLO",
-        "fallback": "yolov11x",
-        "description": "YOLOv12x object detection model (fallback: YOLOv11x)"
-    },
 
     # Specialized YOLO Models
-    "yolo11m": {
+    "yolo11m_car": {
         "filename": "yolo11m_car.pt",
         "loader": "ultralytics.YOLO",
         "fallback": "yolov11x",
@@ -223,43 +213,48 @@ def download_ultralytics_model(model_name: str, models_dir: Path) -> bool:
 
         # For Ultralytics models, they're automatically cached when loaded
         # We need to find the cached model and copy it to our models directory
-        try:
-            # Get the model's actual file path from Ultralytics cache
-            model_path = None
-            if hasattr(model, 'ckpt_path') and model.ckpt_path:
-                model_path = Path(model.ckpt_path)
-            elif hasattr(model, 'model_path') and model.model_path:
-                model_path = Path(model.model_path)
-            
-            # Fallback: look in common Ultralytics cache locations
-            if not model_path or not model_path.exists():
-                try:
-                    from ultralytics.utils import WEIGHTS_DIR
-                    weights_dir = WEIGHTS_DIR
-                except ImportError:
-                    weights_dir = Path.home() / ".cache" / "ultralytics"
-                
-                possible_paths = [
-                    weights_dir / f"{download_id}.pt",
-                    Path.home() / ".cache" / "ultralytics" / f"{download_id}.pt",
-                    Path.home() / ".ultralytics" / "weights" / f"{download_id}.pt"
-                ]
-                for path in possible_paths:
-                    if path.exists():
-                        model_path = path
-                        break
-            
-            if model_path and model_path.exists():
-                shutil.copy(model_path, filepath)
-                logger.info(f"✅ Copied model from cache: {model_path} -> {filepath}")
-            else:
-                logger.warning(f"⚠️ Could not locate cached model file for {download_id}, but model loaded successfully")
-                # Create a placeholder file to indicate the model is available
-                filepath.touch()
-        except Exception as copy_error:
-            logger.warning(f"⚠️ Could not copy model file for {model_name}: {copy_error}")
-            # Create a placeholder file to indicate the model is available
-            filepath.touch()
+        model_path = None
+
+        # Method 1: Try to get path from model object
+        if hasattr(model, 'ckpt_path') and model.ckpt_path:
+            model_path = Path(model.ckpt_path)
+            logger.info(f"Found model path via ckpt_path: {model_path}")
+        elif hasattr(model, 'model_path') and model.model_path:
+            model_path = Path(model.model_path)
+            logger.info(f"Found model path via model_path: {model_path}")
+
+        # Method 2: Search common Ultralytics cache locations
+        if not model_path or not model_path.exists():
+            search_paths = [
+                Path.home() / ".cache" / "ultralytics" / f"{download_id}.pt",
+                Path.home() / ".ultralytics" / "weights" / f"{download_id}.pt"
+            ]
+
+            # Try to get official weights directory
+            try:
+                from ultralytics.utils import WEIGHTS_DIR
+                search_paths.insert(0, WEIGHTS_DIR / f"{download_id}.pt")
+            except (ImportError, AttributeError):
+                pass
+
+            for path in search_paths:
+                if path.exists() and path.stat().st_size > 0:  # Check file exists and has content
+                    model_path = path
+                    logger.info(f"Found cached model at: {model_path}")
+                    break
+
+        # Copy model to our directory or handle failure appropriately
+        if model_path and model_path.exists() and model_path.stat().st_size > 0:
+            try:
+                shutil.copy2(model_path, filepath)  # copy2 preserves metadata
+                logger.info(f"✅ Copied model: {model_path} -> {filepath} ({filepath.stat().st_size / (1024*1024):.1f}MB)")
+            except Exception as copy_error:
+                logger.error(f"❌ Failed to copy model {model_name}: {copy_error}")
+                return False
+        else:
+            logger.error(f"❌ Could not locate cached model file for {download_id}")
+            logger.info(f"🔍 Searched paths: {[str(p) for p in search_paths] if 'search_paths' in locals() else 'N/A'}")
+            return False
 
         logger.info(f"✅ Downloaded {filename}")
         return True
@@ -364,25 +359,34 @@ def ensure_huggingface_model(model_name: str) -> bool:
 
         # Use specific model classes based on model type
         if "dpt" in model_name.lower():
-            from transformers import DPTImageProcessor, DPTForDepthEstimation
-            DPTImageProcessor.from_pretrained(hf_model_id)
-            DPTForDepthEstimation.from_pretrained(hf_model_id)
+            try:
+                from transformers import DPTImageProcessor, DPTForDepthEstimation
+                DPTImageProcessor.from_pretrained(hf_model_id)
+                DPTForDepthEstimation.from_pretrained(hf_model_id)
+            except ImportError as e:
+                logger.error(f"❌ transformers not installed or DPT classes not available: {e}")
+                return False
         elif "glpn" in model_name.lower():
-            from transformers import GLPNImageProcessor, GLPNForDepthEstimation
-            GLPNImageProcessor.from_pretrained(hf_model_id)
-            GLPNForDepthEstimation.from_pretrained(hf_model_id)
+            try:
+                from transformers import GLPNImageProcessor, GLPNForDepthEstimation
+                GLPNImageProcessor.from_pretrained(hf_model_id)
+                GLPNForDepthEstimation.from_pretrained(hf_model_id)
+            except ImportError as e:
+                logger.error(f"❌ transformers not installed or GLPN classes not available: {e}")
+                return False
         else:
             # Fallback to Auto classes for other models
-            from transformers import AutoImageProcessor, AutoModel
-            AutoImageProcessor.from_pretrained(hf_model_id)
-            AutoModel.from_pretrained(hf_model_id)
+            try:
+                from transformers import AutoImageProcessor, AutoModel
+                AutoImageProcessor.from_pretrained(hf_model_id)
+                AutoModel.from_pretrained(hf_model_id)
+            except ImportError as e:
+                logger.error(f"❌ transformers not installed or Auto classes not available: {e}")
+                return False
 
         logger.info(f"✅ {config['description']} cached successfully")
         return True
 
-    except ImportError:
-        logger.warning(f"⚠️ transformers not installed, skipping {model_name}")
-        return False
     except Exception as e:
         logger.error(f"❌ Could not cache {model_name}: {e}")
         return False
@@ -575,7 +579,7 @@ def get_model_with_fallback(model_name: str, auto_download: bool = True) -> Path
 
                 if fallback_results.get(fallback_name, False):
                     # Re-check if fallback download was successful
-                    fallback_path = get_model_path(fallback_name)  
+                    fallback_path = get_model_path(fallback_name)
                     if fallback_path and fallback_path.exists():
                         logger.info(f"✅ Downloaded and using fallback: {fallback_name} at {fallback_path}")
                         return fallback_path
@@ -674,7 +678,7 @@ def initialize_models(auto_download: bool = True) -> Dict[str, bool]:
     logger.info("🔧 Initializing model management system...")
 
     # Ensure models directory exists
-    models_dir = ensure_models_directory()
+    ensure_models_directory()
 
     # Check current availability
     availability = check_model_availability()

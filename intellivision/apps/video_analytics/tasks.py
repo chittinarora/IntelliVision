@@ -89,25 +89,51 @@ def save_output_and_get_url(job: VideoJob, output_file_path: str) -> str:
         Web-accessible URL or None if saving fails
     """
     if not output_file_path or not os.path.exists(output_file_path):
-        logger.warning(f"Job {job.id}: Output file '{output_file_path}' not found")
+        logger.error(f"Job {job.id}: Output file '{output_file_path}' not found")
         return None
 
-    actual_filename = os.path.basename(output_file_path)
-    saved_name = f"outputs/{actual_filename}"
-    ext = os.path.splitext(actual_filename)[1].lower()
+    try:
+        # Check file size and permissions
+        file_size = os.path.getsize(output_file_path)
+        logger.info(f"Job {job.id}: Saving output file - Size: {file_size / (1024*1024):.2f}MB, Path: {output_file_path}")
+        
+        actual_filename = os.path.basename(output_file_path)
+        saved_name = f"outputs/{actual_filename}"
+        ext = os.path.splitext(actual_filename)[1].lower()
 
-    with open(output_file_path, 'rb') as f:
-        saved_path = default_storage.save(saved_name, ContentFile(f.read()))
-        output_url = default_storage.url(saved_path)
+        # Check if output directory exists and is writable
+        output_dir = os.path.join(default_storage.location, 'outputs')
+        os.makedirs(output_dir, exist_ok=True)
+        logger.info(f"Job {job.id}: Output directory: {output_dir}")
 
-    # Assign to correct model field
-    if ext in ['.mp4', '.webm', '.mov']:
-        job.output_video.name = saved_name
-    else:
-        job.output_image.name = saved_name
+        with open(output_file_path, 'rb') as f:
+            saved_path = default_storage.save(saved_name, ContentFile(f.read()))
+            output_url = default_storage.url(saved_path)
 
-    logger.info(f"Job {job.id}: Saved output to {saved_path}")
-    return ensure_api_media_url(output_url)
+        # Verify the file was actually saved
+        if not default_storage.exists(saved_path):
+            logger.error(f"Job {job.id}: File save verification failed - {saved_path} does not exist in storage")
+            return None
+            
+        saved_size = default_storage.size(saved_path)
+        logger.info(f"Job {job.id}: File save verified - Saved size: {saved_size / (1024*1024):.2f}MB at {saved_path}")
+
+        # Assign to correct model field
+        if ext in ['.mp4', '.webm', '.mov']:
+            job.output_video.name = saved_name
+        else:
+            job.output_image.name = saved_name
+
+        job.save(update_fields=['output_video', 'output_image'])
+        logger.info(f"Job {job.id}: Model field updated and saved")
+        
+        final_url = ensure_api_media_url(output_url)
+        logger.info(f"Job {job.id}: Final URL: {final_url}")
+        return final_url
+        
+    except Exception as e:
+        logger.error(f"Job {job.id}: File save failed with error: {str(e)}", exc_info=True)
+        return None
 
 """
 =====================================
@@ -385,14 +411,11 @@ def process_video_job(self, job_id: int) -> None:
                 except Exception as e:
                     logger.warning(f"⚠️ Job {job_id}: Failed to clean up temporary file {output_file_path}: {e}")
             else:
-                logger.error(f"❌ Job {job_id}: Failed to save output")
-                # Clean up temporary file even if save failed
-                try:
-                    if os.path.exists(output_file_path):
-                        os.remove(output_file_path)
-                        logger.info(f"🗑️ Job {job_id}: Cleaned up temporary file after save failure: {output_file_path}")
-                except Exception as e:
-                    logger.warning(f"⚠️ Job {job_id}: Failed to clean up temporary file after save failure {output_file_path}: {e}")
+                logger.error(f"❌ Job {job_id}: Failed to save output - KEEPING TEMP FILE FOR DEBUGGING")
+                # DO NOT clean up temporary file if save failed - keep for debugging
+                logger.error(f"🚨 Job {job_id}: Temp file preserved at: {output_file_path}")
+                result_data[output_path_key] = None
+                result_data['output_path'] = None
         else:
             logger.info(f"ℹ️ Job {job_id}: No output file generated")
 

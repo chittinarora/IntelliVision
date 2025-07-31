@@ -66,6 +66,7 @@ services:
     volumes:
       - shared-tmp:/tmp
       - ./intellivision/media:/app/intellivision/media # Mount to where Apache expects files
+      - ./intellivision/apps/video_analytics/models:/app/intellivision/apps/video_analytics/models # Persist model files
       - ./logs:/app/intellivision/logs
     ports:
       - "8001:8001"
@@ -120,6 +121,7 @@ services:
     volumes:
       - shared-tmp:/tmp
       - ./intellivision/media:/app/intellivision/media # Mount to where Apache expects files
+      - ./intellivision/apps/video_analytics/models:/app/intellivision/apps/video_analytics/models # Persist model files
       - ./logs:/app/intellivision/logs
     # runtime: nvidia  # Using --gpus flag instead (modern approach)
     environment:

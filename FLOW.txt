@@ -1,0 +1,233 @@
+Current Model Management Flow Explanation
+
+  Let me walk you through the complete flow of how the IntelliVision system now handles models and job
+  processing:
+
+  🎯 High-Level Architecture
+
+  User Upload → Job Creation → Celery Task → Analytics Module → Model Manager → Processing → Storage
+
+  📋 Detailed Flow Breakdown
+
+  1. Job Initialization (tasks.py)
+
+  @shared_task(bind=True)
+  def process_video_job(self, job_id: int):
+      # 1. Initialize model management system
+      initialize_models(auto_download=True)
+
+      # 2. Get job from database with retry logic
+      job = get_job_with_retry(job_id)
+
+      # 3. Handle YouTube downloads if needed
+      if job.youtube_url and not job.input_video:
+          download_youtube_video()  # Downloads to temp file, saves to Django storage
+
+  2. Model Management System (model_manager.py)
+
+  A. Initialization Flow
+
+  def initialize_models(auto_download=True):
+      # 1. Ensure models directory exists
+      models_dir = /app/intellivision/media/models  # From Django settings
+
+      # 2. Check which models are already available
+      availability = check_model_availability()
+
+      # 3. Download missing critical models if auto_download=True
+      critical_models = ["yolov8x", "osnet_reid"]
+      download_all_models(missing_critical)
+
+  B. Model Download Flow
+
+  def download_ultralytics_model(model_name, models_dir):
+      # 1. Load model using Ultralytics (triggers cache download)
+      model = YOLO("yolov8x")  # Downloads to ~/.cache/ultralytics/
+
+      # 2. Find the cached model file
+      search_paths = [
+          ~/.cache/ultralytics/yolov8x.pt,
+          ~/.ultralytics/weights/yolov8x.pt,
+          WEIGHTS_DIR/yolov8x.pt  # Official ultralytics path
+      ]
+
+      # 3. Copy to our managed directory
+      shutil.copy2(cached_model, /app/intellivision/media/models/yolov8x.pt)
+
+      # 4. Verify file exists and has content
+      if filepath.exists() and filepath.stat().st_size > 0:
+          return True
+
+  C. Model Resolution with Fallback
+
+  def get_model_with_fallback(model_name, auto_download=True):
+      # 1. Try primary model
+      primary_path = /app/intellivision/media/models/yolov12x.pt
+      if primary_path.exists():
+          return primary_path
+
+      # 2. Auto-download if enabled
+      if auto_download:
+          download_all_models([model_name])
+          if download successful:
+              return primary_path
+
+      # 3. Try fallback model
+      fallback_name = "yolov11x"  # From MODEL_CONFIGS
+      fallback_path = /app/intellivision/media/models/yolov11x.pt
+      if fallback_path.exists():
+          return fallback_path
+
+      # 4. Auto-download fallback if needed
+      # 5. Raise FileNotFoundError if nothing works
+
+  3. Job Processing Strategy (tasks.py)
+
+  A. Processor Selection
+
+  # Strategy pattern - each job type gets specific processor
+  JOB_PROCESSORS = {
+      "people-count": {"args": [input_path, f"/tmp/output_{job_id}_{timestamp}.mp4"]},
+      "emergency-count": {"args": [input_path, f"/tmp/output_{job_id}_{timestamp}.mp4",
+                                  emergency_lines, video_width, video_height]},
+      # ... other job types
+  }
+
+  processor_func = get_processor_func(job.job_type)  # Lazy import
+  result_data = processor_func(*processor_args)
+
+  B. File Handling Flow
+
+  # Input: Django storage → Temp file for processing
+  input_path = job.input_video.path  # /app/intellivision/media/uploads/video.mp4
+
+  # Processing: Create temp output file
+  output_path = f"/tmp/output_{job_id}_{timestamp}.mp4"
+
+  # Analytics processing happens here...
+
+  # Output: Temp file → Django storage → Cleanup
+  final_output_url = save_output_and_get_url(job, output_path)
+
+  4. Enhanced File Save Process (tasks.py)
+
+  A. Comprehensive Saving
+
+  def save_output_and_get_url(job, output_file_path):
+      # 1. Validate temp file exists and has content
+      file_size = os.path.getsize(output_file_path)
+      logger.info(f"Saving file - Size: {file_size / (1024*1024):.2f}MB")
+
+      # 2. Ensure output directory exists
+      output_dir = /app/intellivision/media/outputs/
+      os.makedirs(output_dir, exist_ok=True)
+
+      # 3. Save to Django storage
+      saved_path = default_storage.save("outputs/filename.mp4", ContentFile(file_data))
+
+      # 4. Verify save was successful
+      if not default_storage.exists(saved_path):
+          return None  # Save failed
+
+      # 5. Update job model fields
+      job.output_video.name = saved_path
+      job.save(update_fields=['output_video'])
+
+      # 6. Return web-accessible URL
+      return ensure_api_media_url(output_url)
+
+  B. Improved Cleanup Logic
+
+  # New logic: Only cleanup temp files if permanent save succeeds
+  if final_output_url:
+      # SUCCESS: Clean up temp file
+      os.remove(output_file_path)
+      logger.info("Cleaned up temporary file")
+  else:
+      # FAILURE: Keep temp file for debugging
+      logger.error("KEEPING TEMP FILE FOR DEBUGGING")
+      logger.error(f"Temp file preserved at: {output_file_path}")
+
+  5. Analytics Module Integration
+
+  A. Emergency Count Example (emergency_count.py)
+
+  def tracking_video(input_path, output_path, emergency_lines, video_width, video_height, job_id):
+      # 1. Create progress logger
+      progress_logger = create_progress_logger(job_id, 100, "emergency_count")
+
+      # 2. Copy Django storage file to temp location for processing
+      with default_storage.open(input_path, 'rb') as f:
+          with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
+              tmp.write(f.read())
+              tmp_input_path = tmp.name
+
+      # 3. Process with optimal YOLO parameters
+      result = run_optimal_yolov12x_counting(
+          video_path=tmp_input_path,
+          line_definitions=emergency_lines,
+          output_path=output_path  # /tmp/output_123_456.mp4
+      )
+
+      # 4. Clean up temp input file
+      os.remove(tmp_input_path)
+
+      # 5. Return structured result
+      return {
+          'status': 'completed',
+          'job_type': 'emergency_count',
+          'output_video': output_path,  # Will be processed by tasks.py
+          'data': {
+              'in_count': final_clean_in,
+              'out_count': final_clean_out,
+              'alerts': []
+          }
+      }
+
+  6. Docker Storage Architecture
+
+  A. Volume Mounts
+
+  # docker-compose.yml
+  volumes:
+    - ./intellivision/media:/app/intellivision/media  # Persistent storage
+    - shared-tmp:/tmp  # Shared temp space between web/celery
+
+  B. Directory Structure
+
+  /app/intellivision/media/
+  ├── uploads/           # User uploaded files
+  ├── outputs/           # Processed job outputs
+  ├── models/            # Managed model files
+  └── thumbnails/        # YouTube frame extractions
+
+  🔄 Complete Job Processing Flow
+
+  1. User uploads video → Saved to /app/intellivision/media/uploads/
+  2. Job created → Status: 'pending'
+  3. Celery picks up job → Status: 'processing'
+  4. Model manager initializes → Downloads missing models to /app/intellivision/media/models/
+  5. Analytics module runs → Uses models, processes temp files in /tmp/
+  6. Output generated → Temp file created (e.g., /tmp/output_123_456.mp4)
+  7. File save process → Copies temp to /app/intellivision/media/outputs/, updates job model
+  8. Cleanup → Removes temp files only if save succeeded
+  9. Job completed → Status: 'completed', results stored, output URL available
+
+  🛡️ Error Handling & Recovery
+
+  - Model missing: Auto-download with fallback to alternative models
+  - Save failure: Preserve temp files for debugging, don't cleanup
+  - Processing failure: Log errors, mark job as failed, cleanup resources
+  - Docker restart: Persistent volumes preserve models and outputs
+  - Network issues: Retry logic for downloads and database operations
+
+  🎯 Key Improvements Made
+
+  1. No more disappearing media - Fixed save verification and cleanup logic
+  2. Robust model management - Proper fallbacks and error handling
+  3. Better debugging - Detailed logging and preserved temp files on failure
+  4. Resource cleanup - GPU memory management and proper file cleanup
+  5. Docker compatibility - Proper volume mounts and persistent storage
+
+  The system now has a much more reliable flow with proper error handling and recovery mechanisms at each
+  step.

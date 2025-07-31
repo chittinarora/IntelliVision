@@ -383,7 +383,7 @@ class SmartAdaptiveDetector:
             if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
                 self.device = 'mps'
             elif torch.cuda.is_available():
-                self.device = '0'  # Use specific device number instead of 'cuda'
+                self.device = 'cuda:0'  # Use proper CUDA device string
             else:
                 self.device = 'cpu'
         else:
@@ -1052,7 +1052,7 @@ class DubsComprehensivePeopleCounting:
                 self.device = 'mps'
                 logger.info("🍎 Using MPS (Apple Silicon GPU) for acceleration")
             elif torch.cuda.is_available():
-                self.device = '0'  # Use specific device number instead of 'cuda'
+                self.device = 'cuda:0'  # Use proper CUDA device string
                 logger.info("🚀 Using CUDA GPU for acceleration")
             else:
                 self.device = 'cpu'
@@ -1412,7 +1412,7 @@ def tracking_video(input_path: str, output_path: str) -> dict:
 
     # Device selection: prefer cuda > mps > cpu
     if torch.cuda.is_available():
-        device = '0'  # Use specific device number instead of 'cuda'
+        device = 'cuda:0'  # Use proper CUDA device string
     elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
         device = 'mps'
     else:
