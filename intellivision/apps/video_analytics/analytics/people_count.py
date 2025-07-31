@@ -82,7 +82,7 @@ DEFAULT_USE_REID = True
 DEFAULT_POST_PROCESS = True
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 REID_MODEL_PATH = MODELS_DIR / "osnet_x0_25_msmt17.pt"
-YOLO_MODEL_PATH = '../models/yolo12x.pt'
+YOLO_MODEL_PATH = '../models/yolov12x.pt'
 RTDETR_MODEL_PATH = 'rtdetr-l.pt'
 MIDAS_WEIGHTS_PATH = 'midas/weights/dpt_large_384.pt'
 MIDAS_REPO = 'intel-isl/MiDaS'
@@ -135,7 +135,7 @@ class DepthEstimator:
                 self.device = torch.device('mps')
                 logger.info("🍎 Using MPS (Apple Silicon GPU) for acceleration")
             elif torch.cuda.is_available():
-                self.device = torch.device('cuda')
+                self.device = torch.device('cuda:0')
                 logger.info("🚀 Using CUDA GPU for acceleration")
             else:
                 self.device = torch.device('cpu')
@@ -178,7 +178,7 @@ class DepthEstimator:
                 self.transform = torch.hub.load(MIDAS_REPO, 'transforms').dpt_transform
 
             self.method = "midas"
-            logger.info("✅ MiDaS loaded successfully (PRIMARY - optimized for speed)")
+            logger.info("SUCCESS IN LOADING - MIDAS")
             return True
 
         except Exception as e:
@@ -196,7 +196,7 @@ class DepthEstimator:
             self.model = self.model.to(self.device).eval()
 
             self.method = "dpt_hf"
-            logger.info("✅ DPT (Hugging Face) loaded successfully")
+            logger.info("SUCCESS IN LOADING - DPT")
             return True
 
         except ImportError:
@@ -217,7 +217,7 @@ class DepthEstimator:
             self.model = self.model.to(self.device).eval()
 
             self.method = "glpn"
-            logger.info("✅ GLPN loaded successfully (WARNING: This will be slow ~0.3 FPS)")
+            logger.info("SUCCESS IN LOADING - GLPN")
             return True
 
         except ImportError:
@@ -383,7 +383,7 @@ class SmartAdaptiveDetector:
             if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
                 self.device = 'mps'
             elif torch.cuda.is_available():
-                self.device = 'cuda'
+                self.device = '0'  # Use specific device number instead of 'cuda'
             else:
                 self.device = 'cpu'
         else:
@@ -401,13 +401,13 @@ class SmartAdaptiveDetector:
 
         try:
             self.yolo = load_yolo_model(YOLO_MODEL_PATH)
-            logger.info("✅ YOLO loaded")
+            logger.info("SUCCESS IN LOADING - YOLO")
         except Exception as e:
             self.yolo = None
             logger.error(f"❌ Failed to load YOLO: {e}")
         try:
             self.rtdetr = RTDETR(RTDETR_MODEL_PATH)
-            logger.info("✅ RT-DETR loaded")
+            logger.info("SUCCESS IN LOADING - RT-DETR")
         except Exception as e:
             self.rtdetr = None
             logger.error(f"❌ Failed to load RT-DETR: {e}")
@@ -1052,7 +1052,7 @@ class DubsComprehensivePeopleCounting:
                 self.device = 'mps'
                 logger.info("🍎 Using MPS (Apple Silicon GPU) for acceleration")
             elif torch.cuda.is_available():
-                self.device = 'cuda'
+                self.device = '0'  # Use specific device number instead of 'cuda'
                 logger.info("🚀 Using CUDA GPU for acceleration")
             else:
                 self.device = 'cpu'
@@ -1075,6 +1075,7 @@ class DubsComprehensivePeopleCounting:
                     track_buffer=300,
                     appearance_thresh=0.60
                 )
+                logger.info("SUCCESS IN LOADING - OSNET RE-ID")
             else:
                 logger.info("✅ Initializing ByteTrack (Re-ID disabled)...")
                 self.tracker = ByteTrack(
@@ -1408,21 +1409,21 @@ def tracking_video(input_path: str, output_path: str) -> dict:
     import torch
     import tempfile
     from django.core.files.storage import default_storage
-    
+
     # Device selection: prefer cuda > mps > cpu
     if torch.cuda.is_available():
-        device = 'cuda'
+        device = '0'  # Use specific device number instead of 'cuda'
     elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
         device = 'mps'
     else:
         device = 'cpu'
-    
+
     # Follow Django storage pattern: copy input file to temporary location
     with default_storage.open(input_path, 'rb') as f:
         with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
             tmp.write(f.read())
             tmp_input_path = tmp.name
-    
+
     try:
         counter = DubsComprehensivePeopleCounting(device=device, use_reid=DEFAULT_USE_REID)
         results = counter.process_video(
@@ -1430,14 +1431,14 @@ def tracking_video(input_path: str, output_path: str) -> dict:
             output_path=output_path,  # This is already a /tmp/ path from tasks.py
             use_post_process=DEFAULT_POST_PROCESS
         )
-        
+
         # Convert to web format if possible
         web_output_path = output_path.replace('.mp4', '_web.mp4')
         if convert_to_web_mp4(results.get('output_path', output_path), web_output_path):
             final_output_path = web_output_path
         else:
             final_output_path = results.get('output_path', output_path)
-        
+
         return {
             'status': 'completed',
             'job_type': 'people-count',
@@ -1453,11 +1454,11 @@ def tracking_video(input_path: str, output_path: str) -> dict:
             'meta': {},
             'error': None
         }
-    
+
     finally:
         # Clean up temporary input file
         try:
             if os.path.exists(tmp_input_path):
-                os.remove(tmp_input_path) 
+                os.remove(tmp_input_path)
         except Exception as e:
             logger.warning(f"Failed to clean up temporary input file {tmp_input_path}: {e}")

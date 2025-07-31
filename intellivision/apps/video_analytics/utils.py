@@ -28,10 +28,10 @@ def get_optimal_device():
         gpu_name = torch.cuda.get_device_name(0).lower()
         if 'tesla p100' in gpu_name or 'p100' in gpu_name:
             logger.info(f"✅ Tesla P100 GPU detected: {torch.cuda.get_device_name(0)}")
-            return "cuda"
+            return "0"
         else:
             logger.info(f"✅ CUDA GPU detected: {torch.cuda.get_device_name(0)}")
-            return "cuda"
+            return "0"
     elif torch.backends.mps.is_available():
         logger.info("✅ MPS (Apple Silicon) detected")
         return "mps"
@@ -55,7 +55,7 @@ def load_yolo_model(model_path: str, device: str = None):
 
     try:
         model = YOLO(model_path)
-        if device == "cuda":
+        if device == "0" or device == "cuda":
             model.to("cuda")
             # Optimize for Tesla P100
             if torch.cuda.is_available():

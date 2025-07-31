@@ -47,7 +47,7 @@ class LicensePlateDetector:
 
         # Auto-select device
         if torch.cuda.is_available():
-            device = "cuda"
+            device = "0"
         elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             device = "mps"
         else:

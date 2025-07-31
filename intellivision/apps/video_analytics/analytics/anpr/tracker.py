@@ -7,7 +7,7 @@ import torch
 
 # Set global device for torch (prefer CUDA, then MPS, then CPU)
 if torch.cuda.is_available():
-    TRACKER_DEVICE = "cuda"
+    TRACKER_DEVICE = "0"
 elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
     TRACKER_DEVICE = "mps"
 else:
@@ -50,7 +50,7 @@ class VehicleTracker:
         # Auto-select device if requested
         if device == "auto":
             if torch.cuda.is_available():
-                device = "cuda"
+                device = "0"
             elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
                 device = "mps"
             else:

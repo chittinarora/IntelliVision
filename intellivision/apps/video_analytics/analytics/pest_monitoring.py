@@ -325,7 +325,7 @@ def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str
             out = cv2.VideoWriter(tmp_out.name, cv2.VideoWriter_fourcc(*'mp4v'), fps, (width, height))
 
             # Tracker setup
-            device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+            device = "0" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
             tracker = BotSort(
                 track_high_thresh=0.15,
                 new_track_thresh=0.15,

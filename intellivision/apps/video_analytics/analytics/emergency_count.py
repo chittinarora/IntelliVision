@@ -462,7 +462,7 @@ def run_optimal_yolov12x_counting(video_path: str, line_definitions: dict, custo
 
             # Load model
             model = load_yolo_model(str(MODELS_DIR / "yolo12x.pt"))
-            device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+            device = "0" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
             model.to(device)
             logger.info(f"Using device: {device}")
 

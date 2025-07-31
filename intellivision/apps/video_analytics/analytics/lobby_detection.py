@@ -311,7 +311,7 @@ def run_crowd_analysis(source_path: str, zone_configs: dict, output_path: str = 
         model = YOLO(model_name)
 
         # Device setup
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        device = '0' if torch.cuda.is_available() else 'cpu'
         model.to(device)
         logger.info(f"Using model: {model_name} on device: {device}")
 
