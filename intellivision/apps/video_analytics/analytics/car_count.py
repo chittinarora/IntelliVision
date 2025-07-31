@@ -83,10 +83,10 @@ except Exception as e:
     BASE_DIR = Path(__file__).resolve().parent.parent.parent
     MODELS_DIR = BASE_DIR / 'video_analytics' / 'models'
     PLATE_MODEL = str(MODELS_DIR / 'best_car.pt')
-    CAR_MODEL = str(MODELS_DIR / 'yolo11m.pt')
+    CAR_MODEL = str(MODELS_DIR / 'yolo11m_car.pt')
     
     # Check model existence the old way
-    MODEL_FILES = ["best_car.pt", "yolo11m.pt"]
+    MODEL_FILES = ["best_car.pt", "yolo11m_car.pt"]
     for model_file in MODEL_FILES:
         if not (MODELS_DIR / model_file).exists():
             logger.error(f"Model file missing: {model_file}")

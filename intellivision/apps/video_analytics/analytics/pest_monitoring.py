@@ -332,7 +332,7 @@ def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str
                 track_buffer=30,
                 device=device,
                 half=False,
-                reid_weights=EMBEDDER_FILE
+                reid_weights=REID_MODEL_PATH
             )
             model = YOLO(str(MODELS_DIR / "best_animal.pt"))
 

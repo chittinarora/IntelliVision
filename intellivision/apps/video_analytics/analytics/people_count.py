@@ -168,17 +168,37 @@ def download_models(models_dir=None):
                     else:
                         model = loader(fname.replace(".pt", ""))  # Remove extension for model name
 
-                    # Save the model
-                    if hasattr(model, 'save'):
-                        model.save(str(fpath))
-                    else:
-                        # For older versions, use export
-                        model.export(format='pt', imgsz=640)
-                        exported_path = Path(model.trainer.save_dir) / "weights" / "best.pt"
-                        if exported_path.exists():
-                            shutil.copy(exported_path, fpath)
-
-                    logger.info(f"✅ Downloaded {fname}")
+                    # Save the model - Ultralytics models are cached automatically
+                    # We need to find the cached model and copy it to our models directory
+                    try:
+                        # Get the model's actual file path from Ultralytics cache
+                        model_path = None
+                        if hasattr(model, 'ckpt_path') and model.ckpt_path:
+                            model_path = Path(model.ckpt_path)
+                        elif hasattr(model, 'model_path') and model.model_path:
+                            model_path = Path(model.model_path)
+                        
+                        # Fallback: look in common Ultralytics cache locations
+                        if not model_path or not model_path.exists():
+                            model_name = "yolov8x" if fname == "yolov12x.pt" and "yolov8x" in str(model) else fname.replace(".pt", "")
+                            possible_paths = [
+                                Path.home() / ".cache" / "ultralytics" / f"{model_name}.pt",
+                                Path.home() / ".ultralytics" / "weights" / f"{model_name}.pt"
+                            ]
+                            for path in possible_paths:
+                                if path.exists():
+                                    model_path = path
+                                    break
+                        
+                        if model_path and model_path.exists():
+                            shutil.copy(model_path, fpath)
+                            logger.info(f"✅ Downloaded {fname} (copied from cache: {model_path})")
+                        else:
+                            logger.error(f"❌ Could not locate cached model file for {fname}")
+                            continue
+                    except Exception as copy_error:
+                        logger.error(f"❌ Failed to copy model file for {fname}: {copy_error}")
+                        continue
                 except Exception as e:
                     logger.error(f"❌ Failed to download {fname}: {e}")
             else:

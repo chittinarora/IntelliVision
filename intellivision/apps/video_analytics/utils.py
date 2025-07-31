@@ -175,6 +175,55 @@ def validate_file_upload(file_obj, max_size: int = 500 * 1024 * 1024, valid_exte
     return True, ""
 
 
+# Define job-type-specific file requirements
+IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
+VIDEO_EXTENSIONS = {'.mp4'}
+ALL_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
+
+JOB_TYPE_FILE_REQUIREMENTS = {
+    'pothole-detection': {
+        'allowed_extensions': IMAGE_EXTENSIONS,
+        'description': 'images (JPG, JPEG, PNG)'
+    },
+    'food-waste-estimation': {
+        'allowed_extensions': IMAGE_EXTENSIONS,
+        'description': 'images (JPG, JPEG, PNG)'
+    },
+    'room-readiness': {
+        'allowed_extensions': ALL_EXTENSIONS,
+        'description': 'videos (MP4) or images (JPG, JPEG, PNG)'
+    },
+    'wildlife-detection': {
+        'allowed_extensions': ALL_EXTENSIONS,
+        'description': 'videos (MP4) or images (JPG, JPEG, PNG)'
+    },
+    'people_count': {
+        'allowed_extensions': ALL_EXTENSIONS,
+        'description': 'videos (MP4) or images (JPG, JPEG, PNG)'
+    },
+    'emergency_count': {
+        'allowed_extensions': VIDEO_EXTENSIONS,
+        'description': 'videos (MP4)'
+    },
+    'car_count': {
+        'allowed_extensions': ALL_EXTENSIONS,
+        'description': 'videos (MP4) or images (JPG, JPEG, PNG)'
+    },
+    'pest_monitoring': {
+        'allowed_extensions': ALL_EXTENSIONS,
+        'description': 'videos (MP4) or images (JPG, JPEG, PNG)'
+    },
+    'lobby_detection': {
+        'allowed_extensions': VIDEO_EXTENSIONS,
+        'description': 'videos (MP4)'
+    },
+    # Default for other job types (video-only)
+    'default': {
+        'allowed_extensions': VIDEO_EXTENSIONS,
+        'description': 'videos (MP4)'
+    }
+}
+
 def validate_file_upload_for_job_type(file_obj, job_type: str, max_size: int = 500 * 1024 * 1024) -> tuple[bool, str]:
     """
     Validate uploaded file based on job type requirements.
@@ -195,35 +244,6 @@ def validate_file_upload_for_job_type(file_obj, job_type: str, max_size: int = 5
 
     import os
     ext = os.path.splitext(file_obj.name)[1].lower()
-
-    # Define job-type-specific file requirements
-    IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
-    VIDEO_EXTENSIONS = {'.mp4'}
-    ALL_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
-
-    JOB_TYPE_FILE_REQUIREMENTS = {
-        'pothole-detection': {
-            'allowed_extensions': IMAGE_EXTENSIONS,
-            'description': 'images (JPG, JPEG, PNG)'
-        },
-        'food-waste-estimation': {
-            'allowed_extensions': IMAGE_EXTENSIONS,
-            'description': 'images (JPG, JPEG, PNG)'
-        },
-        'room-readiness': {
-            'allowed_extensions': ALL_EXTENSIONS,
-            'description': 'videos (MP4) or images (JPG, JPEG, PNG)'
-        },
-        'wildlife-detection': {
-            'allowed_extensions': ALL_EXTENSIONS,
-            'description': 'videos (MP4) or images (JPG, JPEG, PNG)'
-        },
-        # Default for other job types (video-only)
-        'default': {
-            'allowed_extensions': VIDEO_EXTENSIONS,
-            'description': 'videos (MP4)'
-        }
-    }
 
     # Get requirements for this job type, fallback to default
     requirements = JOB_TYPE_FILE_REQUIREMENTS.get(job_type, JOB_TYPE_FILE_REQUIREMENTS['default'])
