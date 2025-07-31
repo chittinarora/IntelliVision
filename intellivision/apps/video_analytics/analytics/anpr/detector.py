@@ -99,14 +99,14 @@ class LicensePlateDetector:
         Get optimal device with proper error handling.
         
         Returns:
-            str: Device string ("0" for CUDA, "mps", or "cpu")
+            str: Device string ("cuda:0" for CUDA, "mps", or "cpu")
         """
         try:
             if torch.cuda.is_available() and torch.cuda.device_count() > 0:
                 # Additional CUDA health check
                 try:
                     torch.cuda.get_device_properties(0)
-                    return "0"
+                    return "cuda:0"
                 except Exception as cuda_error:
                     logger.warning(f"CUDA device check failed: {cuda_error}, falling back")
         except Exception as e:
@@ -156,6 +156,7 @@ class LicensePlateDetector:
         try:
             return (hasattr(self, 'device') and 
                     self.device not in ["cpu"] and 
+                    self.device.startswith("cuda") and
                     torch.cuda.is_available())
         except Exception as e:
             logger.warning(f"GPU availability check failed: {e}")

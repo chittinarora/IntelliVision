@@ -69,14 +69,14 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 # Initialize model paths using model manager with fallback support
 try:
     from .model_manager import get_model_with_fallback
-    
+
     # Get model paths with automatic fallback
     PLATE_MODEL = str(get_model_with_fallback("best_car"))
     CAR_MODEL = str(get_model_with_fallback("yolo11m_car"))
-    
+
     logger.info(f"✅ Resolved plate model: {PLATE_MODEL}")
     logger.info(f"✅ Resolved car model: {CAR_MODEL}")
-    
+
 except Exception as e:
     logger.error(f"❌ Failed to resolve models with fallback: {e}")
     # Fallback to old hardcoded paths as last resort
@@ -84,7 +84,7 @@ except Exception as e:
     MODELS_DIR = BASE_DIR / 'video_analytics' / 'models'
     PLATE_MODEL = str(MODELS_DIR / 'best_car.pt')
     CAR_MODEL = str(MODELS_DIR / 'yolo11m_car.pt')
-    
+
     # Check model existence the old way
     MODEL_FILES = ["best_car.pt", "yolo11m_car.pt"]
     for model_file in MODEL_FILES:
@@ -110,9 +110,17 @@ MONGO_URI = os.environ.get('MONGO_URI', 'mongodb+srv://toram444444:06nJTevaUItCD
 mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
 db = mongo_client['anpr']
 
-# Initialize processors
-sync_anpr_processor = ANPRProcessor(str(PLATE_MODEL), str(CAR_MODEL))
-sync_parking_processor = ParkingProcessor(str(PLATE_MODEL), str(CAR_MODEL), total_slots=50)
+# Initialize processors with error handling
+try:
+    sync_anpr_processor = ANPRProcessor(str(PLATE_MODEL), str(CAR_MODEL))
+    sync_parking_processor = ParkingProcessor(str(PLATE_MODEL), str(CAR_MODEL), total_slots=50)
+    logger.info("✅ ANPR processors initialized successfully")
+except Exception as e:
+    logger.error(f"❌ Failed to initialize ANPR processors: {e}")
+    sync_anpr_processor = None
+    sync_parking_processor = None
+    logger.warning("⚠️ ANPR functionality will be disabled")
+
 anpr_lock = Lock()
 parking_lock = Lock()
 
@@ -172,6 +180,8 @@ def recognize_number_plates(video_path: str) -> Dict:
 
         with anpr_lock:
             logger.info(f"Starting plate recognition: {video_path}")
+            if sync_anpr_processor is None:
+                raise RuntimeError("ANPR processor not available - initialization failed")
             output, summary = sync_anpr_processor.process_video(video_path)
 
         if output and default_storage.exists(output):
@@ -403,6 +413,8 @@ def process_image_file(image_path: str, output_path: str = None, job_id: str = N
 
         with anpr_lock:
             logger.info(f"Processing image: {image_path}")
+            if sync_anpr_processor is None:
+                raise RuntimeError("ANPR processor not available - initialization failed")
             output, detections = sync_anpr_processor.process_image(image_path)
 
         if output and os.path.exists(output):

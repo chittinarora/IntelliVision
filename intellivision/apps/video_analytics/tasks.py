@@ -19,6 +19,14 @@ from typing import Dict, Any
 from uuid import uuid4
 from io import BytesIO
 
+# Memory monitoring
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    logger.warning("psutil not available - memory monitoring disabled")
+
 from celery import shared_task
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
@@ -135,6 +143,20 @@ def save_output_and_get_url(job: VideoJob, output_file_path: str) -> str:
         logger.error(f"Job {job.id}: File save failed with error: {str(e)}", exc_info=True)
         return None
 
+def log_memory_usage(job_id: str = None, stage: str = "unknown"):
+    """Log current memory usage for debugging."""
+    if not PSUTIL_AVAILABLE:
+        return
+
+    try:
+        process = psutil.Process(os.getpid())
+        memory_mb = process.memory_info().rss / 1024 / 1024
+        memory_percent = process.memory_percent()
+        job_prefix = f"Job {job_id}: " if job_id else ""
+        logger.info(f"{job_prefix}Memory usage at {stage}: {memory_mb:.1f}MB ({memory_percent:.1f}%)")
+    except Exception as e:
+        logger.warning(f"Failed to log memory usage: {e}")
+
 """
 =====================================
 Celery Task Definition
@@ -181,11 +203,13 @@ def process_video_job(self, job_id: int) -> None:
         job_id: ID of the VideoJob to process
     """
     logger.info(f"🚀 STARTING CELERY JOB {job_id} 🚀")
+    log_memory_usage(str(job_id), "job_start")
 
     # Initialize model management system if not already done
     try:
         initialize_models(auto_download=True)
         logger.info("✅ Model management system initialized for job processing")
+        log_memory_usage(str(job_id), "after_model_init")
     except Exception as e:
         logger.warning(f"⚠️ Model management initialization failed: {e}")
         # Continue with job processing, models will be resolved individually
@@ -366,6 +390,7 @@ def process_video_job(self, job_id: int) -> None:
         # Process job
         start_time = time.time()
         logger.info(f"🚀 Job {job_id}: Starting analytics at {datetime.now().strftime('%H:%M:%S')}")
+        log_memory_usage(str(job_id), "before_analytics")
 
         # Update job status to processing
         job.status = 'processing'
@@ -376,8 +401,10 @@ def process_video_job(self, job_id: int) -> None:
         # So we don't need to pass 'self' anymore
         try:
             result_data = processor_func_instance(*processor_args)
+            log_memory_usage(str(job_id), "after_analytics")
         except (GPUError, ModelLoadingError) as e:
             logger.error(f"❌ Job {job_id}: Analytics processing failed due to model/GPU error: {e}", exc_info=True)
+            log_memory_usage(str(job_id), "after_analytics_error")
 
             job.status = 'failed'
             job.results = {
@@ -449,6 +476,8 @@ def process_video_job(self, job_id: int) -> None:
 
     finally:
         # Always release job slot and clean up resources
+        log_memory_usage(str(job_id), "job_completion")
+
         try:
             release_job_slot()
             logger.info(f"💾 Job {job_id}: Job slot released")

@@ -299,11 +299,11 @@ def detect_snakes_in_image(image_path: str, output_path: str = None, job_id: str
     finally:
         # Safe cleanup for temporary files
         temp_files_to_clean = []
-        
+
         # Check for temporary file from image processing
         if 'tmp' in locals() and hasattr(tmp, 'name'):
             temp_files_to_clean.append(tmp.name)
-            
+
         # Clean up all temporary files safely
         for temp_file in temp_files_to_clean:
             if os.path.exists(temp_file):
@@ -367,7 +367,7 @@ def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = cap.get(cv2.CAP_PROP_FPS) or 30
-        
+
         # Use provided job_id, don't overwrite it
         output_job_id = job_id or str(int(time.time()))
         with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp_out:
@@ -376,8 +376,8 @@ def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str
             # Tracker setup with availability check
             if not BOTSORT_AVAILABLE:
                 raise RuntimeError("BotSort not available. Install with: pip install boxmot")
-            
-            device = "0" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+
+            device = "cuda:0" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
             tracker = BotSort(
                 track_high_thresh=0.15,
                 new_track_thresh=0.15,
@@ -512,27 +512,27 @@ def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str
                 logger.debug("Released video capture")
             except Exception as e:
                 logger.warning(f"Failed to release video capture: {e}")
-                
+
         if 'out' in locals() and out is not None:
             try:
                 out.release()
                 logger.debug("Released video writer")
             except Exception as e:
                 logger.warning(f"Failed to release video writer: {e}")
-        
+
         # Clean up temporary files safely
         temp_files_to_clean = []
-        
+
         if 'tmp_path' in locals():
             temp_files_to_clean.append(tmp_path)
-            
+
         # Only clean up tmp_out if it's not the final_output_path
-        if ('tmp_out' in locals() and 'final_output_path' in locals() and 
+        if ('tmp_out' in locals() and 'final_output_path' in locals() and
             hasattr(tmp_out, 'name') and tmp_out.name != final_output_path):
             temp_files_to_clean.append(tmp_out.name)
         elif 'tmp_out' in locals() and 'final_output_path' not in locals() and hasattr(tmp_out, 'name'):
             temp_files_to_clean.append(tmp_out.name)
-            
+
         # Clean up all temporary files
         for temp_file in temp_files_to_clean:
             if os.path.exists(temp_file):
@@ -541,7 +541,7 @@ def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str
                     logger.debug(f"Cleaned up temporary file: {temp_file}")
                 except Exception as e:
                     logger.warning(f"Failed to clean up temporary file {temp_file}: {e}")
-                    
+
         # Note: final_output_path is not cleaned up here as tasks.py needs it
         # tasks.py will handle cleanup after saving to Django storage
 
