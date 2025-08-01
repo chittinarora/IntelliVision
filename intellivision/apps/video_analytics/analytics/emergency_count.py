@@ -659,6 +659,13 @@ def tracking_video(input_path: str, output_path: str, emergency_lines: dict = No
 
     start_time = time.time()
     logger.info(f"🚀 Starting emergency count job {job_id}")
+    
+    # Parameter validation logging
+    logger.info(f"📊 Parameter validation:")
+    logger.info(f"   emergency_lines type: {type(emergency_lines)}")
+    logger.info(f"   emergency_lines content: {emergency_lines}")
+    logger.info(f"   video_width: {video_width}")
+    logger.info(f"   video_height: {video_height}")
 
     # Initialize progress logger for consistency with other analytics modules
     progress_logger = create_progress_logger(
@@ -676,16 +683,54 @@ def tracking_video(input_path: str, output_path: str, emergency_lines: dict = No
     try:
         progress_logger.update_progress(0, status="Starting emergency counting...", force_log=True)
 
+        # Validate emergency_lines parameter
+        if not emergency_lines:
+            logger.error("❌ No emergency_lines provided")
+            return {
+                'status': 'failed',
+                'job_type': 'emergency_count',
+                'output_video': None,
+                'data': {'error': 'emergency_lines parameter is required'},
+                'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
+                'error': {'message': 'emergency_lines parameter is required', 'code': 'MISSING_EMERGENCY_LINES'}
+            }
+
         # Convert emergency_lines format to line_definitions format expected by run_optimal_yolov11x_counting
         line_definitions = {}
 
         if isinstance(emergency_lines, list):
+            # Validate list has exactly 2 lines
+            if len(emergency_lines) != 2:
+                logger.error(f"❌ Expected exactly 2 emergency lines, got {len(emergency_lines)}")
+                return {
+                    'status': 'failed',
+                    'job_type': 'emergency_count',
+                    'output_video': None,
+                    'data': {'error': f'Expected exactly 2 emergency lines, got {len(emergency_lines)}'},
+                    'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
+                    'error': {'message': f'Expected exactly 2 emergency lines, got {len(emergency_lines)}', 'code': 'INVALID_EMERGENCY_LINES_COUNT'}
+                }
+            
             # Convert list format to dict format
             for i, line in enumerate(emergency_lines):
+                # Validate required fields
+                required_fields = ['start_x', 'start_y', 'end_x', 'end_y']
+                missing_fields = [field for field in required_fields if field not in line]
+                if missing_fields:
+                    logger.error(f"❌ Line {i+1} missing required fields: {missing_fields}")
+                    return {
+                        'status': 'failed',
+                        'job_type': 'emergency_count',
+                        'output_video': None,
+                        'data': {'error': f'Line {i+1} missing required fields: {missing_fields}'},
+                        'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
+                        'error': {'message': f'Line {i+1} missing required fields: {missing_fields}', 'code': 'INVALID_LINE_FORMAT'}
+                    }
+                
                 line_name = f"line_{i+1}"
                 line_definitions[line_name] = {
                     'coords': [(line['start_x'], line['start_y']), (line['end_x'], line['end_y'])],
-                    'inDirection': line.get('inDirection', 'UP')
+                    'inDirection': line.get('in_direction', 'UP')  # Fix: use underscore version from frontend
                 }
         elif isinstance(emergency_lines, dict):
             # Already in dict format
@@ -700,6 +745,11 @@ def tracking_video(input_path: str, output_path: str, emergency_lines: dict = No
                 'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
                 'error': {'message': 'Invalid emergency_lines format', 'code': 'INVALID_INPUT'}
             }
+
+        # Log the converted line definitions for debugging
+        logger.info(f"✅ Converted line_definitions:")
+        for line_name, line_data in line_definitions.items():
+            logger.info(f"   {line_name}: coords={line_data['coords']}, inDirection={line_data['inDirection']}")
 
         progress_logger.update_progress(50, status="Processing video frames...", force_log=True)
 

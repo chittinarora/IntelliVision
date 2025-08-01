@@ -43,6 +43,9 @@ from .rate_limiting import release_job_slot
 # Add model manager import
 from .analytics.model_manager import initialize_models, get_model_with_fallback
 
+# Import exception classes
+from .exception_handlers import GPUError, ModelLoadingError
+
 # Analytics Function Imports - Using lazy imports to prevent eager model loading
 # Models will only be loaded when the specific task is executed, not on worker startup
 
@@ -332,8 +335,8 @@ def process_video_job(self, job_id: int) -> None:
         timestamp = int(time.time())
         JOB_PROCESSORS = {
             "people-count": {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.mp4"]},
-            "car-count": {"args": [os.path.basename(job.input_video.path), f"/tmp/output_{job_id}_{timestamp}.mp4"]},
-            "parking-analysis": {"args": [os.path.basename(job.input_video.path), f"/tmp/output_{job_id}_{timestamp}.mp4"]},
+            "car-count": {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.mp4"]},
+            "parking-analysis": {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.mp4"]},
             "wildlife-detection": {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.mp4"]},
             "food-waste-estimation": {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.mp4"]},
             "room-readiness": {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.mp4"]},

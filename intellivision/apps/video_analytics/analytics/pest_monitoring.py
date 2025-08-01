@@ -145,21 +145,24 @@ else:
 # Model Caching
 # ======================================
 
-# Global model cache to prevent repeated loading
+# Thread-safe global model cache to prevent repeated loading
+import threading
 _model_cache = {}
+_model_cache_lock = threading.Lock()
 
 def get_cached_model(model_type: str):
-    """Get cached model instance or create new one."""
-    if model_type not in _model_cache:
-        try:
-            from .model_manager import get_model_with_fallback
-            model_path = str(get_model_with_fallback(model_type))
-            _model_cache[model_type] = YOLO(model_path)
-            logger.info(f"✅ Loaded and cached {model_type} model: {model_path}")
-        except Exception as e:
-            logger.error(f"❌ Failed to load {model_type} model: {e}")
-            raise
-    return _model_cache[model_type]
+    """Get cached model instance or create new one (thread-safe)."""
+    with _model_cache_lock:
+        if model_type not in _model_cache:
+            try:
+                from .model_manager import get_model_with_fallback
+                model_path = str(get_model_with_fallback(model_type))
+                _model_cache[model_type] = YOLO(model_path)
+                logger.info(f"✅ Loaded and cached {model_type} model: {model_path}")
+            except Exception as e:
+                logger.error(f"❌ Failed to load {model_type} model: {e}")
+                raise
+        return _model_cache[model_type]
 
 # ======================================
 # Helper Functions

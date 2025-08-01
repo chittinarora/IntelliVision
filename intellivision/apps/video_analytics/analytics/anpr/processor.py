@@ -176,13 +176,19 @@ class ANPRProcessor:
         processing_error = False
         error_details = ""
 
-        # Debug visualization setup
-        debug_mode = os.getenv("DEBUG_VIDEO", "false").lower() == "true"
+        # Debug visualization setup (disabled in Docker/headless environments)
+        debug_mode = (os.getenv("DEBUG_VIDEO", "false").lower() == "true" and 
+                     os.getenv("ENVIRONMENT", "production") != "production" and
+                     os.getenv("DISPLAY") is not None)
         debug_window_name = f"Processing: {filename}"
 
         if debug_mode:
-            cv2.namedWindow(debug_window_name, cv2.WINDOW_NORMAL)
-            cv2.resizeWindow(debug_window_name, 800, 600)
+            try:
+                cv2.namedWindow(debug_window_name, cv2.WINDOW_NORMAL)
+                cv2.resizeWindow(debug_window_name, 800, 600)
+            except cv2.error as e:
+                logger.warning(f"Could not create debug window (headless environment?): {e}")
+                debug_mode = False
 
         try:
             while True:
@@ -338,10 +344,14 @@ class ANPRProcessor:
 
                 # Show debug frame
                 if debug_mode:
-                    cv2.imshow(debug_window_name, debug_frame)
-                    if cv2.waitKey(1) & 0xFF == ord('q'):
-                        logger.info("User interrupted processing")
-                        break
+                    try:
+                        cv2.imshow(debug_window_name, debug_frame)
+                        if cv2.waitKey(1) & 0xFF == ord('q'):
+                            logger.info("User interrupted processing")
+                            break
+                    except cv2.error as e:
+                        logger.warning(f"Debug display failed: {e}")
+                        debug_mode = False
 
                 writer.write(frame)
         except Exception as e:
@@ -352,7 +362,10 @@ class ANPRProcessor:
             cap.release()
             writer.release()
             if debug_mode:
-                cv2.destroyAllWindows()
+                try:
+                    cv2.destroyAllWindows()
+                except cv2.error as e:
+                    logger.warning(f"Could not destroy debug windows: {e}")
             logger.info("Released video resources")
 
             # Verify output file was created
@@ -429,18 +442,15 @@ class ANPRProcessor:
             logger.debug(f"[PATCH] plate_history: {dict(self.plate_history)}")
             logger.debug(f"[PATCH] locked_plate: {self.locked_plate}")
 
-        # Create CSV and Excel reports
+        # Create CSV report only (removed Excel functionality)
         try:
             df = pd.DataFrame(rows)
             csv_file = OUTPUT_DIR / f"annotated_{base}.csv"
-            xlsx_file = OUTPUT_DIR / f"annotated_{base}.xlsx"
             df.to_csv(csv_file, index=False)
-            df.to_excel(xlsx_file, index=False)
-            logger.info(f"Created reports: {csv_file}, {xlsx_file}")
+            logger.info(f"Created CSV report: {csv_file}")
         except Exception as e:
-            logger.error(f"Failed to create reports: {str(e)}")
+            logger.error(f"Failed to create CSV report: {str(e)}")
             csv_file = None
-            xlsx_file = None
 
         summary = {
             "plates_detected": df.get("Plate Number", []).tolist() if not df.empty else [],
@@ -454,7 +464,6 @@ class ANPRProcessor:
             "processed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "output_video": str(annotated_video),
             "csv_file": str(csv_file) if csv_file else None,
-            "xlsx_file": str(xlsx_file) if xlsx_file else None,
         }
         return str(annotated_video), summary
 

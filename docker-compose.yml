@@ -140,6 +140,7 @@ services:
       - JOB_OUTPUT_DIR=/app/intellivision/media/outputs
       - SERVICE_TYPE=celery
       - ENVIRONMENT=production
+      - CUDA_LAUNCH_BLOCKING=1  # For debugging CUDA-related segfaults
     env_file:
       - .env
     depends_on:

@@ -164,7 +164,6 @@ def create_job_record(request: Request, filename: str, job_type: str):
         "output_path": None,
         "completed_at": None,
         "csv_path": None,
-        "xlsx_path": None
     }
     result = jobs_collection.insert_one(job)
     return str(result.inserted_id)
@@ -181,8 +180,6 @@ def update_job_status(request: Request, job_id: str, status: str, output_path: s
         update_data["output_path"] = output_path
     if csv_path:
         update_data["csv_path"] = csv_path
-    if xlsx_path:
-        update_data["xlsx_path"] = xlsx_path
 
     jobs_collection.update_one(
         {"_id": ObjectId(job_id)},
@@ -362,7 +359,6 @@ async def process_video_task(request: Request, input_path: str, job_id: str):
 
         # Extract report paths from summary
         csv_path = summary.get("csv_file")
-        xlsx_path = summary.get("xlsx_file")
 
         logger.success(f"Completed video processing for job {job_id}")
 
@@ -405,19 +401,16 @@ async def upload_image(request: Request, image: UploadFile = File(...)):
         # Process image
         output_image, results = anpr_processor.process_image(str(input_path))
 
-        # Create CSV and Excel reports
+        # Create CSV report only (removed Excel functionality)
         base = Path(input_path).stem
         csv_file = OUTPUT_DIR / f"annotated_{base}.csv"
-        xlsx_file = OUTPUT_DIR / f"annotated_{base}.xlsx"
 
         if results:
             df = pd.DataFrame(results)
             df.to_csv(csv_file, index=False)
-            df.to_excel(xlsx_file, index=False)
-            logger.info(f"Created reports: {csv_file}, {xlsx_file}")
+            logger.info(f"Created CSV report: {csv_file}")
         else:
             csv_file = None
-            xlsx_file = None
 
         logger.success(f"Completed image processing for job {job_id}")
 
@@ -519,17 +512,14 @@ async def download_file(request: Request, job_id: str):
 
     output_path = job.get("output_path")
     csv_path = job.get("csv_path")
-    xlsx_path = job.get("xlsx_path")
-
-    if not any([output_path, csv_path, xlsx_path]):
+    if not any([output_path, csv_path]):
         raise HTTPException(status_code=404, detail="No output files found")
 
     # Collect valid files
     valid_files = []
     file_types = {
         output_path: "media",
-        csv_path: "csv",
-        xlsx_path: "xlsx"
+        csv_path: "csv"
     }
 
     for path, file_type in file_types.items():
