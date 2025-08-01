@@ -105,7 +105,7 @@ class ANPRProcessor:
         y2 = min(frame_height - 1, y2)
         return x1, y1, x2, y2
 
-    def process_video(self, video_path: str):
+    def process_video(self, video_path: str, output_path: str = None):
         """Process a video file with enhanced debugging and diagnostics"""
         # Reset state for new video
         self.reset()
@@ -121,9 +121,12 @@ class ANPRProcessor:
         base, ext = os.path.splitext(filename)
         logger.info(f"Starting video processing: {filename}")
 
-        # Create annotated filename
-        annotated_filename = f"annotated_{filename}"
-        annotated_video = OUTPUT_DIR / annotated_filename
+        # Use provided output_path or create default
+        if output_path is None:
+            annotated_filename = f"annotated_{filename}"
+            annotated_video = OUTPUT_DIR / annotated_filename
+        else:
+            annotated_video = Path(output_path)
 
         # Cleanup any existing output file
         if annotated_video.exists():
@@ -496,7 +499,7 @@ class ANPRProcessor:
         }
         return str(annotated_video), summary
 
-    def process_image(self, image_path: str):
+    def process_image(self, image_path: str, output_path: str = None):
         """Process an image file with output saved to output directory"""
         image_path = Path(image_path)
         if not image_path.exists():
@@ -504,9 +507,12 @@ class ANPRProcessor:
             return None, {"error": "Input image not found", "path": str(image_path)}
 
         base = image_path.stem
-        # Create annotated filename
-        annotated_filename = f"annotated_{base}.jpg"
-        out_file = OUTPUT_DIR / annotated_filename
+        # Use provided output_path or create default
+        if output_path is None:
+            annotated_filename = f"annotated_{base}.jpg"
+            out_file = OUTPUT_DIR / annotated_filename
+        else:
+            out_file = Path(output_path)
 
         # Cleanup any existing output file
         if out_file.exists():

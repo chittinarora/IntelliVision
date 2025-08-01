@@ -684,7 +684,7 @@ class PostProcessingEngine:
     def _default_config(self):
         """Default configuration parameters."""
         return {
-            'max_time_gap_seconds': 7.0,
+            'max_time_gap_seconds': 8.0,
             'max_distance_pixels': 250.0,
             'reid_threshold_high': 0.80,  # Definite match
             'reid_threshold_medium': 0.60,  # Need spatial support

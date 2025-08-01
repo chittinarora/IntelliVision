@@ -192,7 +192,7 @@ def recognize_number_plates(video_path: str, output_path: str = None, job_id: st
         logger.error(f"Invalid input: {error_msg}")
         return {
             'status': 'failed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': None,
             'output_video': None,
             'data': {'alerts': [], 'error': error_msg},
@@ -215,7 +215,7 @@ def recognize_number_plates(video_path: str, output_path: str = None, job_id: st
             logger.info(f"Starting plate recognition: {video_path}")
             if sync_anpr_processor is None:
                 raise RuntimeError("ANPR processor not available - initialization failed")
-            output, summary = sync_anpr_processor.process_video(video_path)
+            output, summary = sync_anpr_processor.process_video(video_path, output_path)
 
         if output and os.path.exists(output):
             # The processor has created the output file, use it directly
@@ -225,7 +225,7 @@ def recognize_number_plates(video_path: str, output_path: str = None, job_id: st
             logger.error(f"Output video not created: {output}")
             return {
                 'status': 'failed',
-                'job_type': 'car_count',
+                'job_type': 'car-count',
                 'output_image': None,
                 'output_video': None,
                 'data': {'alerts': [], 'error': 'Output video not created'},
@@ -236,13 +236,11 @@ def recognize_number_plates(video_path: str, output_path: str = None, job_id: st
         processing_time = time.time() - start_time
         result = {
             'status': 'completed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': None,
             'output_video': final_output_path,
             'data': {
                 'summary': summary,
-                'preview_url': final_output_path,
-                'download_url': final_output_path,
                 'alerts': [{"message": f"Plate {p} detected", "timestamp": timezone.now().isoformat()} for p in summary.get('recognized_plates', [])]
             },
             'meta': {
@@ -271,7 +269,7 @@ def recognize_number_plates(video_path: str, output_path: str = None, job_id: st
         logger.exception(f"Plate recognition failed: {str(e)}")
         return {
             'status': 'failed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': None,
             'output_video': None,
             'data': {'alerts': [], 'error': str(e)},
@@ -295,14 +293,14 @@ def analyze_parking_video(video_path: str, output_path: str = None, job_id: str 
 
     # Add job_id logging for progress tracking
     if job_id:
-        logger.info(f"🚀 Starting car detection video job {job_id}")
+        logger.info(f"🚀 Starting parking analysis video job {job_id}")
 
     is_valid, error_msg = validate_input_file(video_path)
     if not is_valid:
         logger.error(f"Invalid input: {error_msg}")
         return {
             'status': 'failed',
-            'job_type': 'car_count',
+            'job_type': 'parking-analysis',
             'output_image': None,
             'output_video': None,
             'data': {'alerts': [], 'error': error_msg},
@@ -333,7 +331,7 @@ def analyze_parking_video(video_path: str, output_path: str = None, job_id: str 
             logger.error(f"Output video not created: {output}")
             return {
                 'status': 'failed',
-                'job_type': 'car_count',
+                'job_type': 'parking-analysis',
                 'output_image': None,
                 'output_video': None,
                 'data': {'alerts': [], 'error': 'Output video not created'},
@@ -363,13 +361,11 @@ def analyze_parking_video(video_path: str, output_path: str = None, job_id: str 
         processing_time = time.time() - start_time
         result = {
             'status': 'completed',
-            'job_type': 'car_count',
+            'job_type': 'parking-analysis',
             'output_image': None,
             'output_video': final_output_path,
             'data': {
                 'summary': summary,
-                'preview_url': final_output_path,
-                'download_url': final_output_path,
                 'alerts': [{"message": f"Plate {p} detected", "timestamp": timezone.now().isoformat()} for p in summary.get('recognized_plates', [])]
             },
             'meta': {
@@ -398,7 +394,7 @@ def analyze_parking_video(video_path: str, output_path: str = None, job_id: str 
         logger.exception(f"Parking analysis failed: {str(e)}")
         return {
             'status': 'failed',
-            'job_type': 'car_count',
+            'job_type': 'parking-analysis',
             'output_image': None,
             'output_video': None,
             'data': {'alerts': [], 'error': str(e)},
@@ -429,7 +425,7 @@ def process_image_file(image_path: str, output_path: str = None, job_id: str = N
         logger.error(f"Invalid input: {error_msg}")
         return {
             'status': 'failed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': None,
             'output_video': None,
             'data': {'alerts': [], 'error': error_msg},
@@ -450,18 +446,16 @@ def process_image_file(image_path: str, output_path: str = None, job_id: str = N
             logger.info(f"Processing image: {image_path}")
             if sync_anpr_processor is None:
                 raise RuntimeError("ANPR processor not available - initialization failed")
-            output, detections = sync_anpr_processor.process_image(image_path)
+            output, detections = sync_anpr_processor.process_image(image_path, output_path)
 
         if output and os.path.exists(output):
             final_output_path = output
-            # Generate URL for the output file
-            output_url = default_storage.url(output) if hasattr(default_storage, 'url') else f"/media/{output}"
             logger.info(f"✅ Car detection completed, output saved to {final_output_path}")
         else:
             logger.error(f"Output image not created: {output}")
             return {
                 'status': 'failed',
-                'job_type': 'car_count',
+                'job_type': 'car-count',
                 'output_image': None,
                 'output_video': None,
                 'data': {'alerts': [], 'error': 'Output image not created'},
@@ -472,14 +466,12 @@ def process_image_file(image_path: str, output_path: str = None, job_id: str = N
         processing_time = time.time() - start_time
         result = {
             'status': 'completed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': final_output_path,
             'output_video': None,
             'data': {
                 'annotated_image': output,
                 'detections': detections,
-                'preview_url': output_url,
-                'download_url': output_url,
                 'alerts': [{"message": f"Plate {d['plate']} detected with confidence {d['confidence']:.2f}", "timestamp": timezone.now().isoformat()} for d in detections]
             },
             'meta': {
@@ -507,7 +499,7 @@ def process_image_file(image_path: str, output_path: str = None, job_id: str = N
         logger.exception(f"Image processing failed: {str(e)}")
         return {
             'status': 'failed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': None,
             'output_video': None,
             'data': {'alerts': [], 'error': str(e)},
@@ -535,7 +527,7 @@ def process_parking_stream(entry_cam: int = 0, exit_cam: int = 1) -> Dict:
         processing_time = time.time() - start_time
         return {
             'status': 'completed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': None,
             'output_video': None,
             'data': {
@@ -554,7 +546,7 @@ def process_parking_stream(entry_cam: int = 0, exit_cam: int = 1) -> Dict:
         logger.error(f"Parking stream failed: {str(e)}")
         return {
             'status': 'failed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': None,
             'output_video': None,
             'data': {'alerts': [], 'error': str(e)},
@@ -577,7 +569,7 @@ def stop_parking_system() -> Dict:
         processing_time = time.time() - start_time
         return {
             'status': 'completed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': None,
             'output_video': None,
             'data': {
@@ -596,7 +588,7 @@ def stop_parking_system() -> Dict:
         logger.error(f"Stop parking error: {str(e)}")
         return {
             'status': 'failed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': None,
             'output_video': None,
             'data': {'alerts': [], 'error': str(e)},
@@ -620,7 +612,7 @@ def get_parking_status() -> Dict:
         processing_time = time.time() - start_time
         return {
             'status': 'completed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': None,
             'output_video': None,
             'data': {
@@ -639,7 +631,7 @@ def get_parking_status() -> Dict:
         logger.error(f"Parking status error: {str(e)}")
         return {
             'status': 'failed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': None,
             'output_video': None,
             'data': {
@@ -683,7 +675,7 @@ def manual_parking_action(plate: str, action: str) -> Dict:
                 processing_time = time.time() - start_time
                 return {
                     'status': 'completed',
-                    'job_type': 'car_count',
+                    'job_type': 'car-count',
                     'output_image': None,
                     'output_video': None,
                     'data': {
@@ -701,7 +693,7 @@ def manual_parking_action(plate: str, action: str) -> Dict:
                 }
             return {
                 'status': 'failed',
-                'job_type': 'car_count',
+                'job_type': 'car-count',
                 'output_image': None,
                 'output_video': None,
                 'data': {
@@ -723,7 +715,7 @@ def manual_parking_action(plate: str, action: str) -> Dict:
                 processing_time = time.time() - start_time
                 return {
                     'status': 'completed',
-                    'job_type': 'car_count',
+                    'job_type': 'car-count',
                     'output_image': None,
                     'output_video': None,
                     'data': {
@@ -740,7 +732,7 @@ def manual_parking_action(plate: str, action: str) -> Dict:
                 }
             return {
                 'status': 'failed',
-                'job_type': 'car_count',
+                'job_type': 'car-count',
                 'output_image': None,
                 'output_video': None,
                 'data': {
@@ -757,7 +749,7 @@ def manual_parking_action(plate: str, action: str) -> Dict:
             }
         return {
             'status': 'failed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': None,
             'output_video': None,
             'data': {
@@ -776,7 +768,7 @@ def manual_parking_action(plate: str, action: str) -> Dict:
         logger.error(f"Manual action error: {str(e)}")
         return {
             'status': 'failed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': None,
             'output_video': None,
             'data': {
@@ -809,7 +801,7 @@ def get_preview_path(filename: str) -> Dict:
             logger.error(f"Preview not found: {filename}")
             return {
                 'status': 'failed',
-                'job_type': 'car_count',
+                'job_type': 'car-count',
                 'output_image': None,
                 'output_video': None,
                 'data': {'alerts': [], 'error': f"Preview not found: {filename}"},
@@ -820,7 +812,7 @@ def get_preview_path(filename: str) -> Dict:
         processing_time = time.time() - start_time
         return {
             'status': 'completed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': output_url if path.suffix in ['.jpg', '.jpeg', '.png'] else None,
             'output_video': output_url if path.suffix == '.mp4' else None,
             'data': {
@@ -840,7 +832,7 @@ def get_preview_path(filename: str) -> Dict:
         logger.error(f"Preview error: {str(e)}")
         return {
             'status': 'failed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': None,
             'output_video': None,
             'data': {'alerts': [], 'error': str(e)},
@@ -871,7 +863,7 @@ def get_download_path(filename: str) -> Dict:
                 logger.error(f"Download not found: {filename}")
                 return {
                     'status': 'failed',
-                    'job_type': 'car_count',
+                    'job_type': 'car-count',
                     'output_image': None,
                     'output_video': None,
                     'data': {'alerts': [], 'error': f"Download not found: {filename}"},
@@ -882,7 +874,7 @@ def get_download_path(filename: str) -> Dict:
         processing_time = time.time() - start_time
         return {
             'status': 'completed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': output_url if candidate.suffix in ['.jpg', '.jpeg', '.png'] else None,
             'output_video': output_url if candidate.suffix == '.mp4' else None,
             'data': {
@@ -902,7 +894,7 @@ def get_download_path(filename: str) -> Dict:
         logger.error(f"Download error: {str(e)}")
         return {
             'status': 'failed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': None,
             'output_video': None,
             'data': {'alerts': [], 'error': str(e)},
@@ -926,7 +918,7 @@ def get_detection_history(limit: int = 100) -> Dict:
         processing_time = time.time() - start_time
         return {
             'status': 'completed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': None,
             'output_video': None,
             'data': {
@@ -945,7 +937,7 @@ def get_detection_history(limit: int = 100) -> Dict:
         logger.error(f"History error: {str(e)}")
         return {
             'status': 'failed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': None,
             'output_video': None,
             'data': {'alerts': [], 'error': str(e)},
@@ -969,7 +961,7 @@ def get_parking_events(limit: int = 100) -> Dict:
         processing_time = time.time() - start_time
         return {
             'status': 'completed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': None,
             'output_video': None,
             'data': {
@@ -988,7 +980,7 @@ def get_parking_events(limit: int = 100) -> Dict:
         logger.error(f"Parking events error: {str(e)}")
         return {
             'status': 'failed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': None,
             'output_video': None,
             'data': {'alerts': [], 'error': str(e)},
@@ -1009,7 +1001,7 @@ def export_parking_logs() -> Dict:
         if not logs:
             return {
                 'status': 'failed',
-                'job_type': 'car_count',
+                'job_type': 'car-count',
                 'output_image': None,
                 'output_video': None,
                 'data': {'alerts': [], 'error': 'No logs found'},
@@ -1028,7 +1020,7 @@ def export_parking_logs() -> Dict:
         processing_time = time.time() - start_time
         return {
             'status': 'completed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': None,
             'output_video': None,
             'data': {
@@ -1048,7 +1040,7 @@ def export_parking_logs() -> Dict:
         logger.error(f"Export error: {str(e)}")
         return {
             'status': 'failed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': None,
             'output_video': None,
             'data': {'alerts': [], 'error': str(e)},
@@ -1074,7 +1066,7 @@ def configure_parking_zones(zones: list) -> Dict:
         processing_time = time.time() - start_time
         return {
             'status': 'completed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': None,
             'output_video': None,
             'data': {
@@ -1093,7 +1085,7 @@ def configure_parking_zones(zones: list) -> Dict:
         logger.error(f"Zone config error: {str(e)}")
         return {
             'status': 'failed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': None,
             'output_video': None,
             'data': {'alerts': [], 'error': str(e)},
@@ -1120,7 +1112,7 @@ def get_system_config() -> Dict:
         processing_time = time.time() - start_time
         return {
             'status': 'completed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': None,
             'output_video': None,
             'data': {
@@ -1139,7 +1131,7 @@ def get_system_config() -> Dict:
         logger.error(f"Config error: {str(e)}")
         return {
             'status': 'failed',
-            'job_type': 'car_count',
+            'job_type': 'car-count',
             'output_image': None,
             'output_video': None,
             'data': {'alerts': [], 'error': str(e)},

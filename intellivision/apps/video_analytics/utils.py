@@ -205,9 +205,13 @@ JOB_TYPE_FILE_REQUIREMENTS = {
         'allowed_extensions': VIDEO_EXTENSIONS,
         'description': 'videos (MP4)'
     },
-    'car_count': {
+    'car-count': {
         'allowed_extensions': ALL_EXTENSIONS,
         'description': 'videos (MP4) or images (JPG, JPEG, PNG)'
+    },
+    'parking-analysis': {
+        'allowed_extensions': VIDEO_EXTENSIONS,
+        'description': 'videos (MP4)'
     },
     'pest_monitoring': {
         'allowed_extensions': ALL_EXTENSIONS,

@@ -450,6 +450,7 @@ def process_video_job(self, job_id: int) -> None:
         # Handle output
         output_path_key = 'output_video' if 'output_video' in result_data else 'output_image' if 'output_image' in result_data else 'output_path'
         output_file_path = result_data.get(output_path_key)
+        final_output_url = None
         if output_file_path:
             # Verify the output file after analytics processing
             if os.path.exists(output_file_path):
@@ -495,7 +496,12 @@ def process_video_job(self, job_id: int) -> None:
 
         # Save results - extract data field for all analytics jobs for consistency
         if isinstance(result_data, dict) and 'data' in result_data:
-            job.results = result_data['data']
+            job_results = result_data['data']
+            # Add preview_url and download_url to data field if available
+            if final_output_url:
+                job_results['preview_url'] = final_output_url
+                job_results['download_url'] = final_output_url
+            job.results = job_results
         else:
             job.results = result_data
         job.status = 'completed'  # Changed from 'done' to 'completed'

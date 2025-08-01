@@ -625,9 +625,7 @@ DATABASES = {
 # Media Files Configuration
 # =====================================
 # All media served under /api/ prefix as requested
-
-MEDIA_URL = '/api/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+# NOTE: MEDIA_ROOT already defined above at line 172 - removing duplicate
 
 # =====================================
 # Static Files Configuration

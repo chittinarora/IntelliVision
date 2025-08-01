@@ -87,7 +87,7 @@ try:
     from .model_manager import get_model_with_fallback
 
     # Get model paths with automatic fallback
-    YOLO_MODEL_PATH = str(get_model_with_fallback("yolov11x"))  # Use yolov11x for wildlife detection
+    YOLO_MODEL_PATH = str(get_model_with_fallback("best_animal"))  # Use best_animal for wildlife detection
     REID_MODEL_PATH = str(get_model_with_fallback("osnet_reid"))
 
     logger.info(f"✅ Resolved YOLO model: {YOLO_MODEL_PATH}")
@@ -98,11 +98,11 @@ except Exception as e:
     # Fallback to old hardcoded paths as last resort
     BASE_DIR = Path(__file__).resolve().parent.parent.parent
     MODELS_DIR = BASE_DIR / 'video_analytics' / 'models'
-    YOLO_MODEL_PATH = str(MODELS_DIR / 'yolov11x.pt')
+    YOLO_MODEL_PATH = str(MODELS_DIR / 'best_animal.pt')
     REID_MODEL_PATH = str(MODELS_DIR / 'osnet_x0_25_msmt17.pt')
 
     # Check model existence the old way
-    MODEL_FILES = ["yolov11x.pt", "osnet_x0_25_msmt17.pt"]
+    MODEL_FILES = ["best_animal.pt", "osnet_x0_25_msmt17.pt"]
     for model_file in MODEL_FILES:
         if not (MODELS_DIR / model_file).exists():
             logger.error(f"Model file missing: {model_file}")
@@ -185,6 +185,68 @@ def get_timestamp():
     return datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
 # ======================================
+# Helper Functions for Improvements
+# ======================================
+
+def initialize_progress_logger(job_id, job_type, total_items=1):
+    """Standardized progress logger initialization."""
+    return create_progress_logger(
+        job_id=str(job_id) if job_id else "0",
+        total_items=total_items,
+        job_type=job_type
+    )
+
+def create_error_response(error_msg, error_code, start_time, job_type="pest_monitoring"):
+    """Standardized error response creation."""
+    return {
+        'status': 'failed',
+        'job_type': job_type,
+        'output_image': None,
+        'output_video': None,
+        'data': {'alerts': [], 'error': error_msg},
+        'meta': {
+            'timestamp': timezone.now().isoformat(),
+            'processing_time_seconds': time.time() - start_time
+        },
+        'error': {'message': error_msg, 'code': error_code}
+    }
+
+def cleanup_video_resources(cap=None, out=None, temp_files=None):
+    """Centralized video resource cleanup."""
+    if cap is not None:
+        try:
+            cap.release()
+            logger.debug("Released video capture")
+        except Exception as e:
+            logger.warning(f"Failed to release video capture: {e}")
+
+    if out is not None:
+        try:
+            out.release()
+            logger.debug("Released video writer")
+        except Exception as e:
+            logger.warning(f"Failed to release video writer: {e}")
+
+    if temp_files:
+        for temp_file in temp_files:
+            if os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                    logger.debug(f"Cleaned up temporary file: {temp_file}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temporary file {temp_file}: {e}")
+
+def log_with_level(level, message, job_id=None):
+    """Standardized logging without emojis."""
+    prefix = f"[Job {job_id}] " if job_id else ""
+    if level == "info":
+        logger.info(f"{prefix}{message}")
+    elif level == "warning":
+        logger.warning(f"{prefix}{message}")
+    elif level == "error":
+        logger.error(f"{prefix}{message}")
+
+# ======================================
 # Main Analysis Functions
 # ======================================
 
@@ -204,20 +266,12 @@ def detect_snakes_in_image(image_path: str, output_path: str = None, job_id: str
 
     # Add job_id logging for progress tracking
     if job_id:
-        logger.info(f"🚀 Starting snake detection job {job_id}")
+        log_with_level("info", "Starting snake detection job", job_id)
 
     is_valid, error_msg = validate_input_file(image_path)
     if not is_valid:
-        logger.error(f"Invalid input: {error_msg}")
-        return {
-            'status': 'failed',
-            'job_type': 'pest_monitoring',
-            'output_image': None,
-            'output_video': None,
-            'data': {'alerts': [], 'error': error_msg},
-            'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
-            'error': {'message': error_msg, 'code': 'INVALID_INPUT'}
-        }
+        log_with_level("error", f"Invalid input: {error_msg}", job_id)
+        return create_error_response(error_msg, 'INVALID_INPUT', start_time)
 
     try:
         # Load image
@@ -249,7 +303,7 @@ def detect_snakes_in_image(image_path: str, output_path: str = None, job_id: str
             cv2.imwrite(tmp.name, cv2.cvtColor(plotted, cv2.COLOR_RGB2BGR))
             final_output_path = tmp.name
 
-        logger.info(f"✅ Snake detection completed, output saved to {final_output_path}")
+        log_with_level("info", f"Snake detection completed, output saved to {final_output_path}", job_id)
 
         # Log to MongoDB if available
         mongo_result = None
@@ -264,9 +318,9 @@ def detect_snakes_in_image(image_path: str, output_path: str = None, job_id: str
                     "output_url": output_path
                 }
                 mongo_result = snake_collection.insert_one(mongo_doc)
-                logger.info(f"✅ Logged to MongoDB: {mongo_result.inserted_id}")
+                log_with_level("info", f"Logged to MongoDB: {mongo_result.inserted_id}", job_id)
             except Exception as e:
-                logger.warning(f"⚠️ MongoDB logging failed: {e}")
+                log_with_level("warning", f"MongoDB logging failed: {e}", job_id)
 
         processing_time = time.time() - start_time
         return {
@@ -289,16 +343,8 @@ def detect_snakes_in_image(image_path: str, output_path: str = None, job_id: str
             'error': None
         }
     except Exception as e:
-        logger.exception(f"Image processing failed: {str(e)}")
-        return {
-            'status': 'failed',
-            'job_type': 'pest_monitoring',
-            'output_image': None,
-            'output_video': None,
-            'data': {'alerts': [], 'error': str(e)},
-            'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
-            'error': {'message': str(e), 'code': 'PROCESSING_ERROR'}
-        }
+        log_with_level("error", f"Image processing failed: {str(e)}", job_id)
+        return create_error_response(str(e), 'PROCESSING_ERROR', start_time)
     finally:
         # Safe cleanup for temporary files
         temp_files_to_clean = []
@@ -332,20 +378,12 @@ def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str
 
     # Add job_id logging for progress tracking
     if job_id:
-        logger.info(f"🚀 Starting snake detection video job {job_id}")
+        log_with_level("info", "Starting snake detection video job", job_id)
 
     is_valid, error_msg = validate_input_file(video_path)
     if not is_valid:
-        logger.error(f"Invalid input: {error_msg}")
-        return {
-            'status': 'failed',
-            'job_type': 'pest_monitoring',
-            'output_image': None,
-            'output_video': None,
-            'data': {'alerts': [], 'error': error_msg},
-            'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
-            'error': {'message': error_msg, 'code': 'INVALID_INPUT'}
-        }
+        log_with_level("error", f"Invalid input: {error_msg}", job_id)
+        return create_error_response(error_msg, 'INVALID_INPUT', start_time)
 
     try:
         # Open video
@@ -355,16 +393,8 @@ def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str
                 tmp_path = tmp.name
         cap = cv2.VideoCapture(tmp_path)
         if not cap.isOpened():
-            logger.error("Failed to open video")
-            return {
-                'status': 'failed',
-                'job_type': 'pest_monitoring',
-                'output_image': None,
-                'output_video': None,
-                'data': {'alerts': [], 'error': 'Failed to open video'},
-                'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
-                'error': {'message': 'Failed to open video', 'code': 'VIDEO_READ_ERROR'}
-            }
+            log_with_level("error", "Failed to open video", job_id)
+            return create_error_response('Failed to open video', 'VIDEO_READ_ERROR', start_time)
 
         # Video setup
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -450,13 +480,13 @@ def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str
             with tempfile.NamedTemporaryFile(suffix='_web.mp4', delete=False) as web_tmp:
                 web_tmp_path = web_tmp.name
 
-            logger.info(f"🔄 Attempting ffmpeg conversion: {tmp_out.name} -> {web_tmp_path}")
+            log_with_level("info", f"Attempting ffmpeg conversion: {tmp_out.name} -> {web_tmp_path}", job_id)
             if convert_to_web_mp4(tmp_out.name, web_tmp_path):
                 final_output_path = web_tmp_path  # Use converted file
-                logger.info(f"✅ FFmpeg conversion successful")
+                log_with_level("info", "FFmpeg conversion successful", job_id)
             else:
                 final_output_path = tmp_out.name  # Fallback to original
-                logger.warning(f"⚠️ FFmpeg conversion failed, using original file")
+                log_with_level("warning", "FFmpeg conversion failed, using original file", job_id)
 
             # Log to MongoDB if available
             mongo_result = None
@@ -471,9 +501,9 @@ def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str
                         "output_url": output_path
                     }
                     mongo_result = snake_collection.insert_one(mongo_doc)
-                    logger.info(f"✅ Logged to MongoDB: {mongo_result.inserted_id}")
+                    log_with_level("info", f"Logged to MongoDB: {mongo_result.inserted_id}", job_id)
                 except Exception as e:
-                    logger.warning(f"⚠️ MongoDB logging failed: {e}")
+                    log_with_level("warning", f"MongoDB logging failed: {e}", job_id)
 
             processing_time = time.time() - start_time
             return {
@@ -496,34 +526,10 @@ def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str
                 'error': None
             }
     except Exception as e:
-        logger.exception(f"Video processing failed: {str(e)}")
-        return {
-            'status': 'failed',
-            'job_type': 'pest_monitoring',
-            'output_image': None,
-            'output_video': None,
-            'data': {'alerts': [], 'error': str(e)},
-            'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
-            'error': {'message': str(e), 'code': 'PROCESSING_ERROR'}
-        }
+        log_with_level("error", f"Video processing failed: {str(e)}", job_id)
+        return create_error_response(str(e), 'PROCESSING_ERROR', start_time)
     finally:
-        # Safe cleanup for video processing
-        # Release video resources
-        if 'cap' in locals() and cap is not None:
-            try:
-                cap.release()
-                logger.debug("Released video capture")
-            except Exception as e:
-                logger.warning(f"Failed to release video capture: {e}")
-
-        if 'out' in locals() and out is not None:
-            try:
-                out.release()
-                logger.debug("Released video writer")
-            except Exception as e:
-                logger.warning(f"Failed to release video writer: {e}")
-
-        # Clean up temporary files safely
+        # Centralized cleanup for video processing
         temp_files_to_clean = []
 
         if 'tmp_path' in locals():
@@ -536,14 +542,11 @@ def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str
         elif 'tmp_out' in locals() and 'final_output_path' not in locals() and hasattr(tmp_out, 'name'):
             temp_files_to_clean.append(tmp_out.name)
 
-        # Clean up all temporary files
-        for temp_file in temp_files_to_clean:
-            if os.path.exists(temp_file):
-                try:
-                    os.remove(temp_file)
-                    logger.debug(f"Cleaned up temporary file: {temp_file}")
-                except Exception as e:
-                    logger.warning(f"Failed to clean up temporary file {temp_file}: {e}")
+        cleanup_video_resources(
+            cap=locals().get('cap'),
+            out=locals().get('out'),
+            temp_files=temp_files_to_clean
+        )
 
         # Note: final_output_path is not cleaned up here as tasks.py needs it
         # tasks.py will handle cleanup after saving to Django storage
@@ -569,16 +572,8 @@ def tracking_image(input_path: str, output_path: str = None, job_id: str = None)
     # Validate input
     is_valid, error_msg = validate_input_file(input_path)
     if not is_valid:
-        logger.error(f"Invalid input: {error_msg}")
-        return {
-            'status': 'failed',
-            'job_type': 'wildlife-detection',
-            'output_image': None,
-            'output_video': None,
-            'data': {'error': error_msg},
-            'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
-            'error': {'message': error_msg, 'code': 'INVALID_INPUT'}
-        }
+        log_with_level("error", f"Invalid input: {error_msg}", job_id)
+        return create_error_response(error_msg, 'INVALID_INPUT', start_time, 'pest_monitoring')
 
     try:
         # Process image for wildlife detection
@@ -591,20 +586,12 @@ def tracking_image(input_path: str, output_path: str = None, job_id: str = None)
             'job_id': job_id
         }
 
-        logger.info(f"✅ Wildlife detection completed for image: {input_path}")
+        log_with_level("info", f"Wildlife detection completed for image: {input_path}", job_id)
         return result
 
     except Exception as e:
-        logger.error(f"❌ Wildlife detection failed for image {input_path}: {str(e)}", exc_info=True)
-        return {
-            'status': 'failed',
-            'job_type': 'wildlife-detection',
-            'output_image': None,
-            'output_video': None,
-            'data': {'error': str(e)},
-            'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
-            'error': {'message': str(e), 'code': 'PROCESSING_ERROR'}
-        }
+        log_with_level("error", f"Wildlife detection failed for image {input_path}: {str(e)}", job_id)
+        return create_error_response(str(e), 'PROCESSING_ERROR', start_time, 'pest_monitoring')
 
 def tracking_video(input_path: str, output_path: str = None, job_id: str = None) -> Dict:
     """
@@ -620,32 +607,24 @@ def tracking_video(input_path: str, output_path: str = None, job_id: str = None)
         Standardized response dictionary
     """
     start_time = time.time()
-    logger.info(f"🚀 Starting pest monitoring job {job_id}")
+    log_with_level("info", "Starting pest monitoring job", job_id)
 
     ext = os.path.splitext(input_path)[1].lower()
     image_exts = ['.jpg', '.jpeg', '.png']
 
     if ext in image_exts:
         # Initialize progress logger for image processing
-        progress_logger = create_progress_logger(
-            job_id=str(job_id) if job_id else "0",
-            total_items=1,  # Single image
-            job_type="wildlife-detection"
-        )
+        progress_logger = initialize_progress_logger(job_id, "pest_monitoring", 1)
 
-        progress_logger.update_progress(0, status="Processing image for wildlife detection...", force_log=True)
+        progress_logger.update_progress(0, status="Processing image for pest monitoring...", force_log=True)
         result = detect_snakes_in_image(input_path, output_path, job_id)
-        progress_logger.update_progress(1, status="Wildlife detection completed", force_log=True)
+        progress_logger.update_progress(1, status="Pest monitoring completed", force_log=True)
         progress_logger.log_completion(1)
     else:
         # Initialize progress logger for video processing
-        progress_logger = create_progress_logger(
-            job_id=str(job_id) if job_id else "0",
-            total_items=100,  # Estimate for video frames
-            job_type="wildlife-detection"
-        )
+        progress_logger = initialize_progress_logger(job_id, "pest_monitoring", 100)
 
-        progress_logger.update_progress(0, status="Starting video processing for wildlife detection...", force_log=True)
+        progress_logger.update_progress(0, status="Starting video processing for pest monitoring...", force_log=True)
         result = detect_snakes_in_video(input_path, output_path, job_id)
         progress_logger.update_progress(100, status="Video processing completed", force_log=True)
         progress_logger.log_completion(100)
