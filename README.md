@@ -99,6 +99,17 @@ POSTGRES_PORT=5432
 # Redis
 REDIS_URL=redis://redis:6379/0
 
+# Analytics Processing Directories (Optional)
+JOB_OUTPUT_DIR=/app/intellivision/media/outputs  # Default: /app/intellivision/media/outputs
+JOB_TEMP_DIR=/app/intellivision/media/temp       # Default: /app/intellivision/media/temp
+
+### Directory Configuration:
+
+- **JOB_OUTPUT_DIR**: Directory where processed video outputs are stored
+- **JOB_TEMP_DIR**: Directory for temporary files during processing (persistent across container restarts)
+- Both directories are automatically created if they don't exist
+- Default paths are within the media directory for better persistence
+
 # GPU Configuration (Tesla P100)
 CUDA_VISIBLE_DEVICES=0
 TORCH_CUDA_ARCH_LIST=6.0

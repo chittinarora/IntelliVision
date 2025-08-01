@@ -206,34 +206,10 @@ def recognize_number_plates(video_path: str, output_path: str = None, job_id: st
                 raise RuntimeError("ANPR processor not available - initialization failed")
             output, summary = sync_anpr_processor.process_video(video_path)
 
-        if output and default_storage.exists(output):
-            # Extract filename for Django storage (avoid path traversal)
-            output_filename = os.path.basename(output)
-            web_output_filename = output_filename.replace('.mp4', '_web.mp4')
-
-            with default_storage.open(output, 'rb') as f:
-                with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
-                    tmp.write(f.read())
-                    tmp_path = tmp.name
-
-            # Convert and save with relative filename
-            web_output_path = f"outputs/{web_output_filename}"
-            converted_tmp_path = tmp_path.replace('.mp4', '_converted.mp4')
-
-            if convert_to_web_mp4(tmp_path, converted_tmp_path):
-                with open(converted_tmp_path, 'rb') as converted_file:
-                    default_storage.save(web_output_path, converted_file)
-                output = web_output_path
-                os.remove(tmp_path)
-                os.remove(converted_tmp_path)
-            else:
-                # Fallback to original if conversion fails
-                original_output_path = f"outputs/{output_filename}"
-                with open(tmp_path, 'rb') as original_file:
-                    default_storage.save(original_output_path, original_file)
-                output = original_output_path
-                os.remove(tmp_path)
-            output_url = default_storage.url(output)
+        if output and os.path.exists(output):
+            # The processor has created the output file, use it directly
+            final_output_path = output
+            logger.info(f"✅ Plate recognition output created: {final_output_path}")
         else:
             logger.error(f"Output video not created: {output}")
             return {
@@ -251,11 +227,11 @@ def recognize_number_plates(video_path: str, output_path: str = None, job_id: st
             'status': 'completed',
             'job_type': 'car_count',
             'output_image': None,
-            'output_video': output_url,
+            'output_video': final_output_path,
             'data': {
                 'summary': summary,
-                'preview_url': output_url,
-                'download_url': output_url,
+                'preview_url': final_output_path,
+                'download_url': final_output_path,
                 'alerts': [{"message": f"Plate {p} detected", "timestamp": timezone.now().isoformat()} for p in summary.get('recognized_plates', [])]
             },
             'meta': {

@@ -28,6 +28,7 @@ except ImportError:
     logger.warning("psutil not available - memory monitoring disabled")
 
 from celery import shared_task
+from django.conf import settings
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.utils import timezone
@@ -101,6 +102,13 @@ def save_output_and_get_url(job: VideoJob, output_file_path: str) -> str:
     """
     if not output_file_path or not os.path.exists(output_file_path):
         logger.error(f"Job {job.id}: Output file '{output_file_path}' not found")
+        # Add more debugging info
+        logger.error(f"Job {job.id}: File path exists: {os.path.exists(output_file_path) if output_file_path else 'None'}")
+        logger.error(f"Job {job.id}: File path type: {type(output_file_path)}")
+        logger.error(f"Job {job.id}: Current working directory: {os.getcwd()}")
+        if output_file_path and os.path.dirname(output_file_path):
+            logger.error(f"Job {job.id}: Directory exists: {os.path.exists(os.path.dirname(output_file_path))}")
+            logger.error(f"Job {job.id}: Directory contents: {os.listdir(os.path.dirname(output_file_path)) if os.path.exists(os.path.dirname(output_file_path)) else 'N/A'}")
         return None
 
     try:
@@ -332,30 +340,35 @@ def process_video_job(self, job_id: int) -> None:
                 raise ValueError(f"Unknown job type: {job_type}")
 
         # Create unique output paths with timestamp to prevent conflicts
+        # Use configurable temp directory from Django settings
         timestamp = int(time.time())
+        temp_dir = getattr(settings, 'JOB_TEMP_DIR', os.path.join(default_storage.location, 'temp'))
+        os.makedirs(temp_dir, exist_ok=True)
+        logger.info(f"Job {job_id}: Using temp directory: {temp_dir}")
+
         JOB_PROCESSORS = {
-            "people-count": {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.mp4"]},
-            "car-count": {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.mp4"]},
-            "parking-analysis": {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.mp4"]},
-            "wildlife-detection": {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.mp4"]},
-            "food-waste-estimation": {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.mp4"]},
-            "room-readiness": {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.mp4"]},
-            "lobby-detection": {"args": [job.input_video.path, job.lobby_zones, f"/tmp/output_{job_id}_{timestamp}.mp4", job.id]},
-            "emergency-count": {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.mp4", job.emergency_lines,
+            "people-count": {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.mp4")]},
+            "car-count": {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.mp4")]},
+            "parking-analysis": {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.mp4")]},
+            "wildlife-detection": {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.mp4")]},
+            "food-waste-estimation": {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.mp4")]},
+            "room-readiness": {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.mp4")]},
+            "lobby-detection": {"args": [job.input_video.path, job.lobby_zones, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.mp4"), job.id]},
+            "emergency-count": {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.mp4"), job.emergency_lines,
                                          job.video_width, job.video_height]},
-            "pothole-detection": {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.mp4"]},
+            "pothole-detection": {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.mp4")]},
         }
 
         # Handle image inputs - override function for special cases
         ext = os.path.splitext(job.input_video.name)[1].lower()
         if job.job_type == "pothole-detection" and ext in ['.jpg', '.jpeg', '.png']:
-            JOB_PROCESSORS["pothole-detection"] = {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.jpg"]}
+            JOB_PROCESSORS["pothole-detection"] = {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.jpg")]}
             processor_func = lambda job_type: get_processor_func("pothole-detection-image")
         elif job.job_type == "room-readiness" and ext in ['.jpg', '.jpeg', '.png']:
-            JOB_PROCESSORS["room-readiness"] = {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.jpg"]}
+            JOB_PROCESSORS["room-readiness"] = {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.jpg")]}
             processor_func = lambda job_type: get_processor_func("room-readiness-image")
         elif job.job_type == "wildlife-detection" and ext in ['.jpg', '.jpeg', '.png']:
-            JOB_PROCESSORS["wildlife-detection"] = {"args": [job.input_video.path, f"/tmp/output_{job_id}_{timestamp}.jpg"]}
+            JOB_PROCESSORS["wildlife-detection"] = {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.jpg")]}
             processor_func = lambda job_type: get_processor_func("wildlife-detection-image")
         elif job.job_type == "emergency-count" and ext in ['.jpg', '.jpeg', '.png']:
             # Emergency count doesn't support images, return error
@@ -433,6 +446,26 @@ def process_video_job(self, job_id: int) -> None:
         output_path_key = 'output_video' if 'output_video' in result_data else 'output_image' if 'output_image' in result_data else 'output_path'
         output_file_path = result_data.get(output_path_key)
         if output_file_path:
+            # Verify the output file after analytics processing
+            if os.path.exists(output_file_path):
+                file_size = os.path.getsize(output_file_path)
+                logger.info(f"Job {job_id}: Output file verified - Size: {file_size / (1024*1024):.2f}MB")
+                if file_size == 0:
+                    logger.error(f"Job {job_id}: Output file is empty!")
+                    result_data[output_path_key] = None
+                    result_data['output_path'] = None
+                    output_file_path = None
+            else:
+                logger.error(f"Job {job_id}: Output file does not exist after processing!")
+                logger.error(f"Job {job_id}: Expected file path: {output_file_path}")
+                logger.error(f"Job {job_id}: Current working directory: {os.getcwd()}")
+                if output_file_path and os.path.dirname(output_file_path):
+                    logger.error(f"Job {job_id}: Directory exists: {os.path.exists(os.path.dirname(output_file_path))}")
+                    if os.path.exists(os.path.dirname(output_file_path)):
+                        logger.error(f"Job {job_id}: Directory contents: {os.listdir(os.path.dirname(output_file_path))}")
+                result_data[output_path_key] = None
+                result_data['output_path'] = None
+                output_file_path = None
             final_output_url = save_output_and_get_url(job, output_file_path)
             if final_output_url:
                 result_data[output_path_key] = final_output_url
@@ -754,3 +787,55 @@ def extract_youtube_frame(self, job_id: int) -> None:
 
         # Release job slot
         release_job_slot()
+
+"""
+=====================================
+Temp File Cleanup Functions
+=====================================
+Functions for cleaning up old temporary files to prevent disk space issues.
+"""
+
+def cleanup_old_temp_files(max_age_hours: int = 24):
+    """
+    Clean up temporary files older than specified hours.
+
+    Args:
+        max_age_hours: Maximum age of temp files in hours before cleanup
+    """
+    try:
+        temp_dir = getattr(settings, 'JOB_TEMP_DIR', os.path.join(default_storage.location, 'temp'))
+        if not os.path.exists(temp_dir):
+            logger.info("Temp directory does not exist, nothing to clean")
+            return
+
+        current_time = time.time()
+        max_age_seconds = max_age_hours * 3600
+        cleaned_count = 0
+        total_size_cleaned = 0
+
+        for filename in os.listdir(temp_dir):
+            file_path = os.path.join(temp_dir, filename)
+            if os.path.isfile(file_path):
+                file_age = current_time - os.path.getmtime(file_path)
+                if file_age > max_age_seconds:
+                    try:
+                        file_size = os.path.getsize(file_path)
+                        os.remove(file_path)
+                        cleaned_count += 1
+                        total_size_cleaned += file_size
+                        logger.debug(f"Cleaned up old temp file: {filename}")
+                    except Exception as e:
+                        logger.warning(f"Failed to clean up temp file {filename}: {e}")
+
+        if cleaned_count > 0:
+            logger.info(f"Cleaned up {cleaned_count} old temp files ({total_size_cleaned / (1024*1024):.2f}MB)")
+        else:
+            logger.debug("No old temp files found to clean up")
+
+    except Exception as e:
+        logger.error(f"Error during temp file cleanup: {e}")
+
+@shared_task
+def cleanup_temp_files_task():
+    """Celery task to clean up old temporary files."""
+    cleanup_old_temp_files()

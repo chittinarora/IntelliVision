@@ -185,6 +185,17 @@ os.makedirs(JOB_OUTPUT_DIR, exist_ok=True)
 
 """
 =====================================
+Analytics Temp Directory
+=====================================
+Configures directory for temporary files during analytics processing.
+Uses persistent storage within media directory for better reliability.
+"""
+
+JOB_TEMP_DIR = os.environ.get('JOB_TEMP_DIR', '/app/intellivision/media/temp')
+os.makedirs(JOB_TEMP_DIR, exist_ok=True)
+
+"""
+=====================================
 Authentication & Password Validation
 =====================================
 Configures password validation rules.
