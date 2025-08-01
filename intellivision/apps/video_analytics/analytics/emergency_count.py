@@ -354,6 +354,22 @@ def run_optimal_yolov11x_counting(video_path: str, line_definitions: dict, outpu
     logger.info("🚀 RUNNING OPTIMAL YOLOv11x PEOPLE COUNTING")
     params.log_params()
 
+    # Debug: Validate line_definitions parameter
+    logger.info(f"🔍 Received line_definitions: type={type(line_definitions)}, count={len(line_definitions) if line_definitions else 0}")
+    if line_definitions:
+        for name, data in line_definitions.items():
+            logger.info(f"   {name}: {data}")
+    else:
+        logger.error("❌ line_definitions is None or empty!")
+        return {
+            'status': 'failed',
+            'job_type': 'emergency_count',
+            'output_video': None,
+            'data': {'error': 'line_definitions parameter is None or empty'},
+            'meta': {},
+            'error': {'message': 'line_definitions parameter is None or empty', 'code': 'MISSING_LINE_DEFINITIONS'}
+        }
+
     # Load YOLOv11x model using model manager for proper path resolution
     from .model_manager import get_model_with_fallback
     model = load_yolo_model(str(get_model_with_fallback("yolov11x")))
@@ -419,6 +435,23 @@ def run_optimal_yolov11x_counting(video_path: str, line_definitions: dict, outpu
 
     writer = cv2.VideoWriter(str(output_name), cv2.VideoWriter_fourcc(*'mp4v'), video_info.fps, video_info.resolution_wh)
 
+    # Debug: Check if video writer was initialized successfully
+    if not writer.isOpened():
+        logger.error(f"❌ Failed to initialize video writer for {output_name}")
+        return {
+            'status': 'failed',
+            'job_type': 'emergency_count',
+            'output_video': None,
+            'data': {'error': 'Failed to initialize video writer'},
+            'meta': {},
+            'error': {'message': 'Failed to initialize video writer', 'code': 'VIDEO_WRITER_ERROR'}
+        }
+    else:
+        logger.info(f"✅ Video writer initialized successfully: {output_name}")
+        logger.info(f"   Resolution: {video_info.resolution_wh}")
+        logger.info(f"   FPS: {video_info.fps}")
+        logger.info(f"   Total frames: {video_info.total_frames}")
+
     cap = cv2.VideoCapture(video_path)
     frame_number = 0
     frame_count = 0
@@ -474,28 +507,81 @@ def run_optimal_yolov11x_counting(video_path: str, line_definitions: dict, outpu
             # Draw counting lines as the LAST overlay, with high visibility
             h, w = annotated_frame.shape[:2]
             colors = [(0, 0, 255), (0, 255, 255)]  # Red, Yellow
+
+            # Debug: Log line definitions for first frame only
+            if frame_number == 1:
+                logger.info(f"🔍 Drawing lines - line_definitions count: {len(line_definitions)}")
+                for name, data in line_definitions.items():
+                    logger.info(f"   {name}: {data}")
+
             for idx, (name, data) in enumerate(line_definitions.items()):
-                pt1 = list(map(int, data['coords'][0]))
-                pt2 = list(map(int, data['coords'][1]))
-                # Clamp coordinates to frame bounds
-                pt1[0] = max(0, min(pt1[0], w-1))
-                pt1[1] = max(0, min(pt1[1], h-1))
-                pt2[0] = max(0, min(pt2[0], w-1))
-                pt2[1] = max(0, min(pt2[1], h-1))
-                color = colors[idx % len(colors)]
-                cv2.line(annotated_frame, tuple(pt1), tuple(pt2), color, 6)
-                # Draw a contrasting border for extra visibility
-                cv2.line(annotated_frame, tuple(pt1), tuple(pt2), (255,255,255), 2)
-                mid_x, mid_y = (pt1[0] + pt2[0]) // 2, (pt1[1] + pt2[1]) // 2
-                cv2.putText(
-                    annotated_frame,
-                    f"{data.get('inDirection', 'UP')} = IN",
-                    (mid_x, mid_y - 20),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1.0,
-                    color,
-                    3
-                )
+                try:
+                    # Validate data structure
+                    if 'coords' not in data or len(data['coords']) != 2:
+                        logger.warning(f"⚠️ Invalid line data for {name}: {data}")
+                        continue
+
+                    pt1 = list(map(int, data['coords'][0]))
+                    pt2 = list(map(int, data['coords'][1]))
+
+                    # Validate coordinate format
+                    if len(pt1) != 2 or len(pt2) != 2:
+                        logger.warning(f"⚠️ Invalid coordinates for {name}: pt1={pt1}, pt2={pt2}")
+                        continue
+
+                    # Validate coordinates are reasonable (not negative or extremely large)
+                    if any(coord < -1000 or coord > 10000 for coord in pt1 + pt2):
+                        logger.warning(f"⚠️ Coordinates out of reasonable range for {name}: pt1={pt1}, pt2={pt2}")
+                        continue
+
+                    # Clamp coordinates to frame bounds
+                    pt1[0] = max(0, min(pt1[0], w-1))
+                    pt1[1] = max(0, min(pt1[1], h-1))
+                    pt2[0] = max(0, min(pt2[0], w-1))
+                    pt2[1] = max(0, min(pt2[1], h-1))
+
+                    # Debug: Log the final coordinates for first frame
+                    if frame_number == 1:
+                        logger.info(f"   Final coordinates for {name}: {pt1} -> {pt2} (frame size: {w}x{h})")
+
+                    color = colors[idx % len(colors)]
+
+                    # Draw the main line with high thickness
+                    cv2.line(annotated_frame, tuple(pt1), tuple(pt2), color, 6)
+
+                    # Draw a contrasting border for extra visibility
+                    cv2.line(annotated_frame, tuple(pt1), tuple(pt2), (255,255,255), 2)
+
+                    # Debug: Draw a small circle at each endpoint to verify drawing is working
+                    cv2.circle(annotated_frame, tuple(pt1), 10, color, -1)
+                    cv2.circle(annotated_frame, tuple(pt2), 10, color, -1)
+
+                    # Add direction label
+                    mid_x, mid_y = (pt1[0] + pt2[0]) // 2, (pt1[1] + pt2[1]) // 2
+                    direction_text = f"{data.get('inDirection', 'UP')} = IN"
+                    cv2.putText(
+                        annotated_frame,
+                        direction_text,
+                        (mid_x, mid_y - 20),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        1.0,
+                        color,
+                        3
+                    )
+
+                    # Debug: Log successful line drawing for first frame
+                    if frame_number == 1:
+                        logger.info(f"✅ Drew line {name}: {pt1} -> {pt2}, color={color}")
+
+                except Exception as e:
+                    logger.error(f"❌ Error drawing line {name}: {e}")
+                    continue
+
+            # Debug: If no lines were drawn, draw a fallback line
+            if frame_number == 1 and not any('coords' in data for data in line_definitions.values()):
+                logger.warning("⚠️ No valid lines found, drawing fallback line")
+                cv2.line(annotated_frame, (50, 50), (250, 50), (255, 0, 0), 5)  # Blue horizontal line
+                cv2.putText(annotated_frame, "FALLBACK LINE", (100, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 0, 0), 2)
 
             # Show counts
             total_in_out = f"OPTIMAL YOLOv11x - IN: {fast_in} | OUT: {fast_out} | Total: {fast_in + fast_out}"
@@ -508,6 +594,12 @@ def run_optimal_yolov11x_counting(video_path: str, line_definitions: dict, outpu
                 (0, 255, 255),
                 2
             )
+
+            # Debug: Draw a test line to verify drawing functionality
+            if frame_number == 1:
+                logger.info("🔍 Drawing test line to verify functionality")
+                cv2.line(annotated_frame, (100, 100), (300, 100), (0, 255, 0), 5)  # Green horizontal line
+                cv2.putText(annotated_frame, "TEST LINE", (150, 80), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
 
             writer.write(annotated_frame)
             pbar.update(1)
@@ -659,7 +751,7 @@ def tracking_video(input_path: str, output_path: str, emergency_lines: dict = No
 
     start_time = time.time()
     logger.info(f"🚀 Starting emergency count job {job_id}")
-    
+
     # Parameter validation logging
     logger.info(f"📊 Parameter validation:")
     logger.info(f"   emergency_lines type: {type(emergency_lines)}")
@@ -710,7 +802,7 @@ def tracking_video(input_path: str, output_path: str, emergency_lines: dict = No
                     'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
                     'error': {'message': f'Expected exactly 2 emergency lines, got {len(emergency_lines)}', 'code': 'INVALID_EMERGENCY_LINES_COUNT'}
                 }
-            
+
             # Convert list format to dict format
             for i, line in enumerate(emergency_lines):
                 # Validate required fields
@@ -726,12 +818,49 @@ def tracking_video(input_path: str, output_path: str, emergency_lines: dict = No
                         'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
                         'error': {'message': f'Line {i+1} missing required fields: {missing_fields}', 'code': 'INVALID_LINE_FORMAT'}
                     }
-                
+
                 line_name = f"line_{i+1}"
+
+                # Convert normalized coordinates (0.0-1.0) to pixel coordinates
+                # Handle both normalized and absolute coordinate formats
+                start_x_raw = float(line['start_x'])
+                start_y_raw = float(line['start_y'])
+                end_x_raw = float(line['end_x'])
+                end_y_raw = float(line['end_y'])
+
+                # Check if coordinates are normalized (between 0 and 1)
+                if (0.0 <= start_x_raw <= 1.0 and 0.0 <= start_y_raw <= 1.0 and
+                    0.0 <= end_x_raw <= 1.0 and 0.0 <= end_y_raw <= 1.0):
+                    # Convert normalized coordinates to pixel coordinates
+                    if video_width and video_height:
+                        start_x = int(start_x_raw * video_width)
+                        start_y = int(start_y_raw * video_height)
+                        end_x = int(end_x_raw * video_width)
+                        end_y = int(end_y_raw * video_height)
+                        logger.info(f"   Converting normalized coordinates for {line_name}:")
+                        logger.info(f"     Normalized: ({start_x_raw:.3f}, {start_y_raw:.3f}) -> ({end_x_raw:.3f}, {end_y_raw:.3f})")
+                        logger.info(f"     Pixels: ({start_x}, {start_y}) -> ({end_x}, {end_y})")
+                    else:
+                        logger.warning(f"⚠️ Video dimensions not provided, using normalized coordinates as-is")
+                        start_x = int(start_x_raw)
+                        start_y = int(start_y_raw)
+                        end_x = int(end_x_raw)
+                        end_y = int(end_y_raw)
+                else:
+                    # Assume coordinates are already in pixels
+                    start_x = int(start_x_raw)
+                    start_y = int(start_y_raw)
+                    end_x = int(end_x_raw)
+                    end_y = int(end_y_raw)
+                    logger.info(f"   Using absolute pixel coordinates for {line_name}: ({start_x}, {start_y}) -> ({end_x}, {end_y})")
+
                 line_definitions[line_name] = {
-                    'coords': [(line['start_x'], line['start_y']), (line['end_x'], line['end_y'])],
+                    'coords': [(start_x, start_y), (end_x, end_y)],
                     'inDirection': line.get('in_direction', 'UP')  # Fix: use underscore version from frontend
                 }
+
+                # Debug: Log the converted coordinates
+                logger.info(f"   Final line {line_name}: ({start_x}, {start_y}) -> ({end_x}, {end_y})")
         elif isinstance(emergency_lines, dict):
             # Already in dict format
             line_definitions = emergency_lines
@@ -751,9 +880,22 @@ def tracking_video(input_path: str, output_path: str, emergency_lines: dict = No
         for line_name, line_data in line_definitions.items():
             logger.info(f"   {line_name}: coords={line_data['coords']}, inDirection={line_data['inDirection']}")
 
+        # Validate line_definitions before passing to main function
+        if not line_definitions:
+            logger.error("❌ line_definitions is empty after conversion")
+            return {
+                'status': 'failed',
+                'job_type': 'emergency_count',
+                'output_video': None,
+                'data': {'error': 'No valid line definitions found'},
+                'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
+                'error': {'message': 'No valid line definitions found', 'code': 'EMPTY_LINE_DEFINITIONS'}
+            }
+
         progress_logger.update_progress(50, status="Processing video frames...", force_log=True)
 
         # Pass all arguments to the main function
+        logger.info(f"🚀 Calling run_optimal_yolov11x_counting with {len(line_definitions)} line definitions")
         result = run_optimal_yolov11x_counting(
             video_path=tmp_input_path,  # Use temporary file path
             line_definitions=line_definitions,

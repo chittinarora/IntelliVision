@@ -354,6 +354,14 @@ class ANPRProcessor:
                         debug_mode = False
 
                 writer.write(frame)
+                
+                # Memory cleanup every 50 frames to prevent memory leaks
+                if frame_idx % 50 == 0:
+                    if debug_mode and 'debug_frame' in locals():
+                        del debug_frame
+                    # Force garbage collection periodically
+                    import gc
+                    gc.collect()
         except Exception as e:
             logger.exception("Video processing failed")
             processing_error = True
@@ -366,7 +374,20 @@ class ANPRProcessor:
                     cv2.destroyAllWindows()
                 except cv2.error as e:
                     logger.warning(f"Could not destroy debug windows: {e}")
-            logger.info("Released video resources")
+            
+            # GPU memory cleanup if available
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+            except ImportError:
+                pass  # PyTorch not available
+            
+            # Final memory cleanup
+            import gc
+            gc.collect()
+            logger.info("Released video resources and cleaned up memory")
 
             # Verify output file was created
             if annotated_video.exists():

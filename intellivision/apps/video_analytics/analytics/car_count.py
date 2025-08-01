@@ -110,129 +110,37 @@ MONGO_URI = os.environ.get('MONGO_URI', 'mongodb+srv://toram444444:06nJTevaUItCD
 mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
 db = mongo_client['anpr']
 
-# ======================================
-# LAZY LOADING PROCESSOR MANAGER
-# ======================================
-class ProcessorManager:
-    """
-    Thread-safe lazy loading manager for ANPR processors.
-    Maintains full backward compatibility with existing global processor pattern.
-    """
-    _instance = None
-    _init_lock = Lock()
+# Initialize processors with comprehensive error handling
+try:
+    logger.info("Initializing ANPR processors...")
+    sync_anpr_processor = ANPRProcessor(str(PLATE_MODEL), str(CAR_MODEL))
+    logger.info("ANPR processor initialized successfully")
     
-    def __init__(self):
-        # Initialize lightweight components only
-        self._anpr_processor = None
-        self._parking_processor = None
-        self._anpr_lock = Lock()
-        self._parking_lock = Lock()
-        self._anpr_init_attempted = False
-        self._parking_init_attempted = False
-        self._anpr_init_error = None
-        self._parking_init_error = None
-        logger.info("🔄 ProcessorManager initialized (models will load on demand)")
+    # Get total slots from settings or use default
+    total_slots = getattr(settings, 'PARKING_TOTAL_SLOTS', 50)
+    sync_parking_processor = ParkingProcessor(str(PLATE_MODEL), str(CAR_MODEL), total_slots=total_slots)
+    logger.info("Parking processor initialized successfully")
     
-    @classmethod
-    def get_instance(cls):
-        """Thread-safe singleton pattern"""
-        if cls._instance is None:
-            with cls._init_lock:
-                if cls._instance is None:
-                    cls._instance = cls()
-        return cls._instance
-    
-    def _lazy_load_anpr(self):
-        """Lazy load ANPR processor with same error handling as original"""
-        if self._anpr_init_attempted:
-            return self._anpr_processor
-        
-        with self._anpr_lock:
-            if self._anpr_init_attempted:
-                return self._anpr_processor
-            
-            self._anpr_init_attempted = True
-            logger.info("🔄 Loading ANPR processor (first request)...")
-            start_time = time.time()
-            
-            try:
-                self._anpr_processor = ANPRProcessor(str(PLATE_MODEL), str(CAR_MODEL))
-                load_time = time.time() - start_time
-                logger.info(f"✅ ANPR processor loaded in {load_time:.2f}s")
-            except Exception as e:
-                self._anpr_init_error = e
-                logger.error(f"❌ Failed to initialize ANPR processor: {e}")
-                logger.warning("⚠️ ANPR functionality will be disabled")
-                self._anpr_processor = None
-        
-        return self._anpr_processor
-    
-    def _lazy_load_parking(self):
-        """Lazy load parking processor with same error handling as original"""
-        if self._parking_init_attempted:
-            return self._parking_processor
-        
-        with self._parking_lock:
-            if self._parking_init_attempted:
-                return self._parking_processor
-            
-            self._parking_init_attempted = True
-            logger.info("🔄 Loading parking processor (first request)...")
-            start_time = time.time()
-            
-            try:
-                # Get total slots from settings or use default
-                total_slots = getattr(settings, 'PARKING_TOTAL_SLOTS', 50)
-                self._parking_processor = ParkingProcessor(str(PLATE_MODEL), str(CAR_MODEL), total_slots=total_slots)
-                load_time = time.time() - start_time
-                logger.info(f"✅ Parking processor loaded in {load_time:.2f}s")
-            except Exception as e:
-                self._parking_init_error = e
-                logger.error(f"❌ Failed to initialize parking processor: {e}")
-                logger.warning("⚠️ Parking functionality will be disabled")
-                self._parking_processor = None
-        
-        return self._parking_processor
-    
-    @property
-    def sync_anpr_processor(self):
-        """Property that maintains exact same interface as global variable"""
-        return self._lazy_load_anpr()
-    
-    @property
-    def sync_parking_processor(self):
-        """Property that maintains exact same interface as global variable"""
-        return self._lazy_load_parking()
-    
-    @property
-    def anpr_lock(self):
-        """Thread lock for ANPR operations - maintains compatibility"""
-        return self._anpr_lock
-    
-    @property
-    def parking_lock(self):
-        """Thread lock for parking operations - maintains compatibility"""
-        return self._parking_lock
+    logger.info("✅ All ANPR processors initialized successfully")
+except FileNotFoundError as e:
+    logger.error(f"❌ Model files not found: {e}")
+    sync_anpr_processor = None
+    sync_parking_processor = None
+    logger.warning("⚠️ ANPR functionality disabled - model files missing")
+except ImportError as e:
+    logger.error(f"❌ Required dependencies missing: {e}")
+    sync_anpr_processor = None
+    sync_parking_processor = None
+    logger.warning("⚠️ ANPR functionality disabled - dependencies missing")
+except Exception as e:
+    logger.error(f"❌ Failed to initialize ANPR processors: {e}")
+    sync_anpr_processor = None
+    sync_parking_processor = None
+    logger.warning("⚠️ ANPR functionality disabled - initialization failed")
+    # Continue loading the module even if processors fail
 
-# Create global processor manager instance
-_processor_manager = ProcessorManager.get_instance()
-
-# Maintain backward compatibility with existing global variable pattern
-# These will be accessed as properties, ensuring lazy loading works
-class _ProcessorProxy:
-    \"\"\"Proxy class to maintain global variable compatibility with lazy loading\"\"\"\n    @property\n    def sync_anpr_processor(self):\n        return _processor_manager.sync_anpr_processor\n    \n    @property\n    def sync_parking_processor(self):\n        return _processor_manager.sync_parking_processor\n    \n    @property\n    def anpr_lock(self):\n        return _processor_manager.anpr_lock\n    \n    @property\n    def parking_lock(self):\n        return _processor_manager.parking_lock\n\n_proxy = _ProcessorProxy()\n\n# Global variable access functions (to replace direct global variable usage)\ndef get_anpr_processor():\n    \"\"\"Get ANPR processor with lazy loading\"\"\"\n    return _processor_manager.sync_anpr_processor\n\ndef get_parking_processor():\n    \"\"\"Get parking processor with lazy loading\"\"\"\n    return _processor_manager.sync_parking_processor\n\ndef get_anpr_lock():\n    \"\"\"Get ANPR lock\"\"\"\n    return _processor_manager.anpr_lock\n\ndef get_parking_lock():\n    \"\"\"Get parking lock\"\"\"\n    return _processor_manager.parking_lock
-
-# For debugging and monitoring
-def get_processor_status():
-    """Get current processor loading status for monitoring"""
-    return {
-        'anpr_loaded': _processor_manager._anpr_processor is not None,
-        'parking_loaded': _processor_manager._parking_processor is not None,
-        'anpr_init_attempted': _processor_manager._anpr_init_attempted,
-        'parking_init_attempted': _processor_manager._parking_init_attempted,
-        'anpr_error': str(_processor_manager._anpr_init_error) if _processor_manager._anpr_init_error else None,
-        'parking_error': str(_processor_manager._parking_init_error) if _processor_manager._parking_init_error else None
-    }
+anpr_lock = Lock()
+parking_lock = Lock()
 
 # ======================================
 # Helper Functions
@@ -286,27 +194,26 @@ def recognize_number_plates(video_path: str, output_path: str) -> Dict:
         output_job_id = extracted_job_id.group(1) if extracted_job_id else str(int(time.time()))
         output_filename = f"outputs/annotated_{output_job_id}.mp4"
 
-        with get_anpr_lock():
+        with anpr_lock:
             logger.info(f"Starting plate recognition: {video_path}")
-            anpr_processor = get_anpr_processor()
-            if anpr_processor is None:
+            if sync_anpr_processor is None:
                 raise RuntimeError("ANPR processor not available - initialization failed")
-            output, summary = anpr_processor.process_video(video_path)
+            output, summary = sync_anpr_processor.process_video(video_path)
 
         if output and default_storage.exists(output):
             # Extract filename for Django storage (avoid path traversal)
             output_filename = os.path.basename(output)
             web_output_filename = output_filename.replace('.mp4', '_web.mp4')
-            
+
             with default_storage.open(output, 'rb') as f:
                 with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
                     tmp.write(f.read())
                     tmp_path = tmp.name
-            
+
             # Convert and save with relative filename
             web_output_path = f"outputs/{web_output_filename}"
             converted_tmp_path = tmp_path.replace('.mp4', '_converted.mp4')
-            
+
             if convert_to_web_mp4(tmp_path, converted_tmp_path):
                 with open(converted_tmp_path, 'rb') as converted_file:
                     default_storage.save(web_output_path, converted_file)
@@ -354,12 +261,16 @@ def recognize_number_plates(video_path: str, output_path: str) -> Dict:
             'error': None
         }
 
-        db.plate_results.insert_one({
-            'video_path': video_path,
-            'timestamp': datetime.utcnow(),
-            'result': result,
-            'type': 'plate_recognition'
-        })
+        try:
+            db.plate_results.insert_one({
+                'video_path': video_path,
+                'timestamp': datetime.utcnow(),
+                'result': result,
+                'type': 'plate_recognition'
+            })
+        except Exception as db_error:
+            logger.warning(f"Failed to save results to MongoDB: {db_error}")
+            # Continue processing - don't fail the job due to database issues
 
         return result
 
@@ -415,12 +326,11 @@ def analyze_parking_video(video_path: str, output_path: str = None, job_id: str 
             output_job_id = extracted_job_id.group(1) if extracted_job_id else str(int(time.time()))
         output_filename = f"outputs/parking_analysis_{output_job_id}.mp4"
 
-        with get_parking_lock():
+        with parking_lock:
             logger.info(f"Starting parking analysis: {video_path}")
-            parking_processor = get_parking_processor()
-            if parking_processor is None:
+            if sync_parking_processor is None:
                 raise RuntimeError("Parking processor not available - initialization failed")
-            output, summary = parking_processor.process_video(video_path)
+            output, summary = sync_parking_processor.process_video(video_path)
 
         if output and os.path.exists(output):
             # Create temporary file for web conversion
@@ -479,12 +389,16 @@ def analyze_parking_video(video_path: str, output_path: str = None, job_id: str 
             'error': None
         }
 
-        db.parking_results.insert_one({
-            'video_path': video_path,
-            'timestamp': datetime.utcnow(),
-            'result': result,
-            'type': 'parking_analysis'
-        })
+        try:
+            db.parking_results.insert_one({
+                'video_path': video_path,
+                'timestamp': datetime.utcnow(),
+                'result': result,
+                'type': 'parking_analysis'
+            })
+        except Exception as db_error:
+            logger.warning(f"Failed to save results to MongoDB: {db_error}")
+            # Continue processing - don't fail the job due to database issues
 
         return result
 
@@ -540,12 +454,11 @@ def process_image_file(image_path: str, output_path: str = None, job_id: str = N
             output_job_id = extracted_job_id.group(1) if extracted_job_id else str(int(time.time()))
         output_filename = f"outputs/annotated_{output_job_id}.jpg"
 
-        with get_anpr_lock():
+        with anpr_lock:
             logger.info(f"Processing image: {image_path}")
-            anpr_processor = get_anpr_processor()
-            if anpr_processor is None:
+            if sync_anpr_processor is None:
                 raise RuntimeError("ANPR processor not available - initialization failed")
-            output, detections = anpr_processor.process_image(image_path)
+            output, detections = sync_anpr_processor.process_image(image_path)
 
         if output and os.path.exists(output):
             final_output_path = output
@@ -586,11 +499,15 @@ def process_image_file(image_path: str, output_path: str = None, job_id: str = N
             'error': None
         }
 
-        db.image_results.insert_one({
-            'image_path': image_path,
-            'timestamp': datetime.utcnow(),
-            'result': result
-        })
+        try:
+            db.image_results.insert_one({
+                'image_path': image_path,
+                'timestamp': datetime.utcnow(),
+                'result': result
+            })
+        except Exception as db_error:
+            logger.warning(f"Failed to save results to MongoDB: {db_error}")
+            # Continue processing - don't fail the job due to database issues
 
         return result
 
@@ -619,11 +536,10 @@ def process_parking_stream(entry_cam: int = 0, exit_cam: int = 1) -> Dict:
     """
     start_time = time.time()
     try:
-        parking_processor = get_parking_processor()
-        if parking_processor is None:
+        if sync_parking_processor is None:
             raise RuntimeError("Parking processor not available - initialization failed")
-        parking_processor.configure_cameras(entry_cam_id=entry_cam, exit_cam_id=exit_cam)
-        parking_processor.start_processing()
+        sync_parking_processor.configure_cameras(entry_cam_id=entry_cam, exit_cam_id=exit_cam)
+        sync_parking_processor.start_processing()
         processing_time = time.time() - start_time
         return {
             'status': 'completed',
@@ -663,10 +579,9 @@ def stop_parking_system() -> Dict:
     """
     start_time = time.time()
     try:
-        parking_processor = get_parking_processor()
-        if parking_processor is None:
+        if sync_parking_processor is None:
             raise RuntimeError("Parking processor not available - initialization failed")
-        parking_processor.stop_processing()
+        sync_parking_processor.stop_processing()
         processing_time = time.time() - start_time
         return {
             'status': 'completed',
@@ -706,10 +621,9 @@ def get_parking_status() -> Dict:
     """
     start_time = time.time()
     try:
-        parking_processor = get_parking_processor()
-        if parking_processor is None:
+        if sync_parking_processor is None:
             raise RuntimeError("Parking processor not available - initialization failed")
-        status = parking_processor.get_parking_status()
+        status = sync_parking_processor.get_parking_status()
         status['updated_at'] = timezone.now().isoformat()
         processing_time = time.time() - start_time
         return {
@@ -770,10 +684,9 @@ def manual_parking_action(plate: str, action: str) -> Dict:
     plate = plate.upper().strip()
     try:
         if action == 'entry':
-            parking_processor = get_parking_processor()
-            if parking_processor is None:
+            if sync_parking_processor is None:
                 raise RuntimeError("Parking processor not available - initialization failed")
-            slot_id = parking_processor.assign_slot(plate)
+            slot_id = sync_parking_processor.assign_slot(plate)
             if slot_id:
                 processing_time = time.time() - start_time
                 return {
@@ -812,10 +725,9 @@ def manual_parking_action(plate: str, action: str) -> Dict:
                 'error': {'message': 'No available slots', 'code': 'NO_SLOTS'}
             }
         elif action == 'exit':
-            parking_processor = get_parking_processor()
-            if parking_processor is None:
+            if sync_parking_processor is None:
                 raise RuntimeError("Parking processor not available - initialization failed")
-            if parking_processor.release_slot(plate):
+            if sync_parking_processor.release_slot(plate):
                 processing_time = time.time() - start_time
                 return {
                     'status': 'completed',
@@ -1164,10 +1076,9 @@ def configure_parking_zones(zones: list) -> Dict:
     """
     start_time = time.time()
     try:
-        parking_processor = get_parking_processor()
-        if parking_processor is None:
+        if sync_parking_processor is None:
             raise RuntimeError("Parking processor not available - initialization failed")
-        parking_processor.configure_zones(zones)
+        sync_parking_processor.configure_zones(zones)
         processing_time = time.time() - start_time
         return {
             'status': 'completed',
@@ -1210,8 +1121,8 @@ def get_system_config() -> Dict:
         config = {
             'debug_mode': os.getenv('DEBUG_VIDEO', 'false').lower() == 'true',
             'plate_confidence': float(os.getenv('PLATE_CONFIDENCE', '0.75')),
-            'total_slots': get_parking_processor().total_slots if get_parking_processor() else 0,
-            'active_zones': get_parking_processor().zones if get_parking_processor() else [],
+            'total_slots': sync_parking_processor.total_slots if sync_parking_processor else 0,
+            'active_zones': sync_parking_processor.zones if sync_parking_processor else [],
             'mongodb_connected': mongo_client.server_info() is not None
         }
         processing_time = time.time() - start_time
