@@ -86,7 +86,7 @@ services:
           memory: 6G
         reservations:
           memory: 2G
-    command: sh -c "python intellivision/manage.py makemigrations video_analytics --noinput && python intellivision/manage.py migrate --noinput && /usr/local/bin/gunicorn intellivision.wsgi:application --bind 0.0.0.0:8001 --workers 2 --max-requests 100 --max-requests-jitter 10 --timeout 120 --keep-alive 5"
+    command: sh -c "/usr/local/bin/gunicorn intellivision.wsgi:application --bind 0.0.0.0:8001 --workers 2 --max-requests 100 --max-requests-jitter 10 --timeout 120 --keep-alive 5"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health/"]
       interval: 30s
@@ -140,7 +140,7 @@ services:
       - JOB_OUTPUT_DIR=/app/intellivision/media/outputs
       - SERVICE_TYPE=celery
       - ENVIRONMENT=production
-      - CUDA_LAUNCH_BLOCKING=1  # For debugging CUDA-related segfaults
+      - CUDA_LAUNCH_BLOCKING=1 # For debugging CUDA-related segfaults
     env_file:
       - .env
     depends_on:

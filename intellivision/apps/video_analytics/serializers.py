@@ -20,13 +20,49 @@ VideoJob Serializer
 =====================================
 Serializer for VideoJob model, with validation for file size, type, and results.
 Added validate_results to enforce job-type-specific schemas (Issue #7).
+Added progress field for frontend compatibility.
 """
 
 class VideoJobSerializer(serializers.ModelSerializer):
+    # Computed progress field for frontend compatibility
+    progress = serializers.SerializerMethodField()
+
     class Meta:
         model = VideoJob
         fields = '__all__'
         read_only_fields = ('user', 'status', 'output_video', 'output_image', 'created_at', 'updated_at')
+
+    def get_progress(self, obj):
+        """
+        Extract progress data from results field and format for frontend.
+        Returns None if no progress data is available.
+        """
+        if not obj.results:
+            return None
+
+        processed_frames = obj.results.get('processed_frames')
+        total_frames = obj.results.get('total_frames')
+        fps = obj.results.get('fps')
+
+        if processed_frames is None or total_frames is None:
+            return None
+
+        # Calculate percentage
+        percentage = (processed_frames / total_frames * 100) if total_frames > 0 else 0
+
+        # Calculate estimated time remaining (if we have FPS data)
+        estimated_time_remaining = None
+        if fps and fps > 0 and total_frames > processed_frames:
+            remaining_frames = total_frames - processed_frames
+            estimated_time_remaining = remaining_frames / fps
+
+        return {
+            'processed_frames': processed_frames,
+            'total_frames': total_frames,
+            'percentage': round(percentage, 2),
+            'estimated_time_remaining': round(estimated_time_remaining, 2) if estimated_time_remaining else None,
+            'current_fps': fps
+        }
 
     def validate_input_video(self, value):
         """Validate input file size and type."""

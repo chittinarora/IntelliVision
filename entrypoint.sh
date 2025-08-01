@@ -123,7 +123,11 @@ python3 intellivision/manage.py collectstatic --noinput
 
 # Run database migrations
 echo "🔄 Running database migrations..."
-python3 intellivision/manage.py migrate
+python3 intellivision/manage.py migrate --noinput
+
+# Check for pending migrations (optional, for debugging)
+echo "🔍 Checking migration status..."
+python3 intellivision/manage.py showmigrations --verbosity=0
 
 # =====================================
 # Service Type Detection
