@@ -16,6 +16,7 @@ import logging
 import random
 import re
 from django.utils import timezone
+from ..progress_utils import update_job_progress
 
 import cv2
 import numpy as np
@@ -28,29 +29,39 @@ from ..utils import load_yolo_model
 from pathlib import Path
 from django.conf import settings
 
-# Import progress logger for consistency with other analytics modules
-try:
-    from ..progress_logger import create_progress_logger
-except ImportError:
-    def create_progress_logger(job_id, total_items, job_type, logger_name=None):
-        """Fallback progress logger if module not available."""
-        class DummyLogger:
-            def __init__(self, job_id, total_items, job_type, logger_name=None):
-                self.job_id = job_id
-                self.total_items = total_items
-                self.job_type = job_type
-                self.logger = logging.getLogger(logger_name or job_type)
+# Simple progress logger using progress_utils
+def create_progress_logger(job_id, total_items, job_type, logger_name=None):
+    """Create a simple progress logger that uses update_job_progress."""
+    class SimpleProgressLogger:
+        def __init__(self, job_id, total_items, job_type, logger_name=None):
+            self.job_id = int(job_id) if job_id and str(job_id).isdigit() else None
+            self.total_items = total_items
+            self.job_type = job_type
+            self.logger = logging.getLogger(logger_name or job_type)
 
-            def update_progress(self, processed_count, status=None, force_log=False):
-                self.logger.info(f"**Job {self.job_id}**: Progress {processed_count}/{self.total_items}")
+        def update_progress(self, processed_count, status=None, force_log=False):
+            if self.job_id:
+                try:
+                    update_job_progress(self.job_id, processed_count, self.total_items)
+                except Exception as e:
+                    self.logger.warning(f"Failed to update job progress: {e}")
+            
+            if force_log or processed_count % max(1, self.total_items // 10) == 0:
+                progress_pct = (processed_count / self.total_items * 100) if self.total_items > 0 else 0
+                self.logger.info(f"🚨 Job {self.job_id}: Progress {processed_count}/{self.total_items} ({progress_pct:.1f}%)")
 
-            def log_completion(self, final_count=None):
-                self.logger.info(f"**Job {self.job_id}**: Completed")
+        def log_completion(self, final_count=None):
+            if self.job_id:
+                try:
+                    update_job_progress(self.job_id, final_count or self.total_items, self.total_items)
+                except Exception as e:
+                    self.logger.warning(f"Failed to update final job progress: {e}")
+            self.logger.info(f"✅ Job {self.job_id}: Completed {self.job_type}")
 
-            def log_error(self, error_message):
-                self.logger.error(f"**Job {self.job_id}**: Error - {error_message}")
+        def log_error(self, error_message):
+            self.logger.error(f"❌ Job {self.job_id}: Error - {error_message}")
 
-        return DummyLogger(job_id, total_items, job_type, logger_name)
+    return SimpleProgressLogger(job_id, total_items, job_type, logger_name)
 
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 REID_MODEL_PATH = MODELS_DIR / "osnet_x0_25_msmt17.pt"

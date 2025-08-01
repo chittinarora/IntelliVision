@@ -280,6 +280,8 @@ CELERY_TASK_ROUTES = {
 }
 CELERY_WORKER_HIJACK_ROOT_LOGGER = False
 CELERY_WORKER_LOG_FORMAT = '[%(asctime)s: %(levelname)s/%(processName)s] %(message)s'
+CELERY_WORKER_REDIRECT_STDOUTS = False  # Prevent stdout/stderr redirection
+CELERY_WORKER_REDIRECT_STDOUTS_LEVEL = 'INFO'
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_SEND_SENT_EVENT = True
 
@@ -456,19 +458,14 @@ LOGGING = {
             'level': 'WARNING',  # Reduce task noise
             'propagate': False,
         },
-        'apps.video_analytics': {
-            'handlers': ['console_video', 'file_celery', 'file_performance'],
-            'level': 'INFO',  # Keep video analytics visible
-            'propagate': False,
-        },
-        'apps.video_analytics.analytics': {
-            'handlers': ['console_video', 'file_celery', 'file_performance'],
-            'level': 'INFO',  # Keep analytics visible
-            'propagate': False,
-        },
         'apps.video_analytics.tasks': {
             'handlers': ['console_video', 'file_celery', 'file_performance'],
             'level': 'INFO',  # Keep task progress visible
+            'propagate': False,
+        },
+        'apps.video_analytics.analytics': {
+            'handlers': ['file_performance'],  # Only performance logs, no console duplication
+            'level': 'INFO',  # Keep analytics visible
             'propagate': False,
         },
         'apps.face_auth': {
@@ -609,3 +606,51 @@ except ValueError as e:
 # =====================================
 # Database Configuration
 # =====================================
+
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.environ.get('POSTGRES_DB'),
+        'USER': os.environ.get('POSTGRES_USER'),
+        'PASSWORD': os.environ.get('POSTGRES_PASSWORD'),
+        'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
+        'PORT': os.environ.get('POSTGRES_PORT', '5432'),
+        'OPTIONS': {
+            'connect_timeout': 60,
+        }
+    }
+}
+
+# =====================================
+# Media Files Configuration
+# =====================================
+# All media served under /api/ prefix as requested
+
+MEDIA_URL = '/api/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# =====================================
+# Static Files Configuration
+# =====================================
+
+STATIC_URL = '/api/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+
+# =====================================
+# File Upload Settings
+# =====================================
+
+# These are already defined above but ensuring they're properly set
+FILE_UPLOAD_MAX_MEMORY_SIZE = 524288000  # 500MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 524288000  # 500MB
+
+# Additional file upload settings
+FILE_UPLOAD_PERMISSIONS = 0o644
+FILE_UPLOAD_DIRECTORY_PERMISSIONS = 0o755
+
+# =====================================
+# YouTube Download Configuration
+# =====================================
+# Optional: Path to cookies.txt file for YouTube authentication
+# This helps bypass bot detection for certain videos
+YOUTUBE_COOKIES_PATH = os.environ.get('YOUTUBE_COOKIES_PATH', '/app/intellivision/cookies.txt')

@@ -176,7 +176,32 @@ def _create_and_dispatch_job(request, job_type: str, extra_data: Dict[str, Any] 
             # OPTIMIZATION: Just validate URL, don't download in web worker
             # ======================================
             try:
-                with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+                ydl_opts = {
+                    'quiet': True,
+                    'no_warnings': True,
+                    # Anti-bot detection measures
+                    'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'extractor_args': {
+                        'youtube': {
+                            'skip': ['hls', 'dash'],
+                            'player_skip': ['configs'],
+                        }
+                    },
+                    'http_headers': {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        'Accept-Language': 'en-us,en;q=0.5',
+                        'Sec-Fetch-Mode': 'navigate',
+                    }
+                }
+                
+                # Add cookies if available
+                from django.conf import settings
+                cookies_path = getattr(settings, 'YOUTUBE_COOKIES_PATH', None)
+                if cookies_path and os.path.exists(cookies_path):
+                    ydl_opts['cookiefile'] = cookies_path
+                
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     # Only extract info to validate URL - NO DOWNLOAD
                     info = ydl.extract_info(youtube_url, download=False)
                     if not info:
@@ -394,7 +419,32 @@ def get_youtube_frame_view(request):
         # VALIDATE URL (but don't download)
         # ======================================
         try:
-            with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                # Anti-bot detection measures
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'extractor_args': {
+                    'youtube': {
+                        'skip': ['hls', 'dash'],
+                        'player_skip': ['configs'],
+                    }
+                },
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'en-us,en;q=0.5',
+                    'Sec-Fetch-Mode': 'navigate',
+                }
+            }
+            
+            # Add cookies if available
+            from django.conf import settings
+            cookies_path = getattr(settings, 'YOUTUBE_COOKIES_PATH', None)
+            if cookies_path and os.path.exists(cookies_path):
+                ydl_opts['cookiefile'] = cookies_path
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 # Only extract info to validate URL - NO DOWNLOAD
                 info = ydl.extract_info(youtube_url, download=False)
                 if not info:

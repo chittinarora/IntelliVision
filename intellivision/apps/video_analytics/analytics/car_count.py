@@ -28,32 +28,43 @@ import mimetypes
 from celery import shared_task
 from .anpr.processor import ANPRProcessor, ParkingProcessor
 from ..convert import convert_to_web_mp4
+from ..progress_utils import update_job_progress
 
 # ======================================
 # Logger and Constants
 # ======================================
 logger = logging.getLogger("anpr_functions")
 
-# Import progress logger
-try:
-    from ..progress_logger import create_progress_logger
-except ImportError:
-    def create_progress_logger(job_id, total_items, job_type, logger_name=None):
-        """Fallback progress logger if module not available."""
-        class DummyLogger:
-            def __init__(self, job_id, total_items, job_type, logger_name=None):
-                self.job_id = job_id
-                self.total_items = total_items
-                self.job_type = job_type
-                self.logger = logging.getLogger(logger_name or job_type)
+# Simple progress logger using progress_utils
+def create_progress_logger(job_id, total_items, job_type, logger_name=None):
+    """Create a simple progress logger that uses update_job_progress."""
+    class SimpleProgressLogger:
+        def __init__(self, job_id, total_items, job_type, logger_name=None):
+            self.job_id = int(job_id) if job_id and str(job_id).isdigit() else None
+            self.total_items = total_items
+            self.job_type = job_type
+            self.logger = logging.getLogger(logger_name or job_type)
 
-            def update_progress(self, processed_count, status=None, force_log=False):
-                self.logger.info(f"**Job {self.job_id}**: Progress {processed_count}/{self.total_items}")
+        def update_progress(self, processed_count, status=None, force_log=False):
+            if self.job_id:
+                try:
+                    update_job_progress(self.job_id, processed_count, self.total_items)
+                except Exception as e:
+                    self.logger.warning(f"Failed to update job progress: {e}")
+            
+            if force_log or processed_count % max(1, self.total_items // 10) == 0:
+                progress_pct = (processed_count / self.total_items * 100) if self.total_items > 0 else 0
+                self.logger.info(f"🎯 Job {self.job_id}: Progress {processed_count}/{self.total_items} ({progress_pct:.1f}%)")
 
-            def log_completion(self, final_count=None):
-                self.logger.info(f"**Job {self.job_id}**: Completed {self.job_type}")
+        def log_completion(self, final_count=None):
+            if self.job_id:
+                try:
+                    update_job_progress(self.job_id, final_count or self.total_items, self.total_items)
+                except Exception as e:
+                    self.logger.warning(f"Failed to update final job progress: {e}")
+            self.logger.info(f"✅ Job {self.job_id}: Completed {self.job_type}")
 
-        return DummyLogger(job_id, total_items, job_type, logger_name)
+    return SimpleProgressLogger(job_id, total_items, job_type, logger_name)
 
 VALID_EXTENSIONS = {'.mp4', '.jpg', '.jpeg', '.png'}
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB

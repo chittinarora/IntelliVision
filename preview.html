@@ -1,447 +1,1331 @@
 <!DOCTYPE html>
 <html lang="en" class="dark">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IntelliVision - Job Results Preview</title>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IntelliVision - Complete Frontend Styles Preview</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                container: {
-                    center: true,
-                    padding: '2rem',
-                    screens: {
-                        '2xl': '1400px'
-                    }
-                },
-                extend: {
-                    colors: {
-                        border: 'hsl(var(--border))',
-                        input: 'hsl(var(--input))',
-                        ring: 'hsl(var(--ring))',
-                        background: 'hsl(var(--background))',
-                        foreground: 'hsl(var(--foreground))',
-                        primary: {
-                            DEFAULT: 'hsl(var(--primary))',
-                            foreground: 'hsl(var(--primary-foreground))'
-                        },
-                        secondary: {
-                            DEFAULT: 'hsl(var(--secondary))',
-                            foreground: 'hsl(var(--secondary-foreground))'
-                        },
-                        destructive: {
-                            DEFAULT: 'hsl(var(--destructive))',
-                            foreground: 'hsl(var(--destructive-foreground))'
-                        },
-                        muted: {
-                            DEFAULT: 'hsl(var(--muted))',
-                            foreground: 'hsl(var(--muted-foreground))'
-                        },
-                        accent: {
-                            DEFAULT: 'hsl(var(--accent))',
-                            foreground: 'hsl(var(--accent-foreground))'
-                        },
-                        popover: {
-                            DEFAULT: 'hsl(var(--popover))',
-                            foreground: 'hsl(var(--popover-foreground))'
-                        },
-                        card: {
-                            DEFAULT: 'hsl(var(--card))',
-                            foreground: 'hsl(var(--card-foreground))'
-                        },
-                    },
-                    borderRadius: {
-                        lg: 'var(--radius)',
-                        md: 'calc(var(--radius) - 2px)',
-                        sm: 'calc(var(--radius) - 4px)',
-                        '3xl': '1.5rem',
-                        '4xl': '2rem',
-                        '5xl': '2.5rem',
-                    },
-                }
-            }
-        }
-    </script>
-    <style type="text/tailwindcss">
-        @layer base {
-          :root {
-            --background: 222 84% 5%;
-            --foreground: 210 40% 98%;
-            --card: 222 84% 6%;
-            --card-foreground: 210 40% 98%;
-            --popover: 222 84% 5%;
-            --popover-foreground: 210 40% 98%;
-            --primary: 217 91% 60%;
-            --primary-foreground: 222 84% 5%;
-            --secondary: 217 33% 17%;
-            --secondary-foreground: 210 40% 98%;
-            --muted: 217 33% 17%;
-            --muted-foreground: 215 20% 65%;
-            --accent: 217 33% 17%;
-            --accent-foreground: 210 40% 98%;
-            --destructive: 0 63% 31%;
-            --destructive-foreground: 210 40% 98%;
-            --border: 217 33% 17%;
-            --input: 217 33% 17%;
-            --ring: 212 27% 84%;
-            --radius: 0.5rem;
-          }
-        }
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    <style>
+      /* Design System Variables - Exact match from frontend */
+      :root {
+        --background: 222 84% 5%;
+        --foreground: 210 40% 98%;
+        --card: 222 84% 6%;
+        --card-foreground: 210 40% 98%;
+        --primary: 217 91% 60%;
+        --primary-foreground: 222 84% 5%;
+        --destructive: 0 63% 31%;
+        --destructive-foreground: 210 40% 98%;
+        --border: 217 33% 17%;
+        --ring: 212 27% 84%;
+      }
 
-        @layer base {
-          * {
-            @apply border-border;
-          }
-          body {
-            @apply bg-background text-foreground;
-            font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-          }
-        }
+      html,
+      body {
+        height: 100%;
+        overflow-x: hidden;
+        scroll-behavior: smooth;
+        background: linear-gradient(135deg, #203358 0%, #1a2d4a 100%);
+        color: white;
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+      }
 
-        .job-section {
-            margin-bottom: 4rem;
-        }
+      /* Glass Morphism Styles - Exact match from glassMorphism.ts */
+      .glass-intense {
+        background: rgba(255, 255, 255, 0.12);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        box-shadow: 0 25px 70px rgba(0, 0, 0, 0.12),
+          0 5px 25px rgba(255, 255, 255, 0.08) inset;
+        border-radius: 2rem;
+        transition: all 0.4s ease;
+      }
 
-        .job-title {
-            font-size: 1.8rem;
-            font-weight: 700;
-            margin-bottom: 1.5rem;
-            color: #ffffff;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
+      .glass-card {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        border: 1.5px solid rgba(255, 255, 255, 0.18);
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08),
+          0 2px 16px rgba(0, 200, 255, 0.1) inset;
+        border-radius: 1.5rem;
+        transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+      }
 
-        .job-icon {
-            width: 2rem;
-            height: 2rem;
-            padding: 0.4rem;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
+      .glass-navbar {
+        background: rgba(255, 255, 255, 0.06);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08),
+          0 1px 0 rgba(255, 255, 255, 0.15) inset;
+      }
 
-        .glass-card {
-            background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 1.5rem;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-        }
+      .glass-subtle {
+        background: rgba(255, 255, 255, 0.03);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+      }
 
-        .results-container {
-            padding: 2rem;
-        }
+      .glass-button {
+        background: rgba(255, 255, 255, 0.08);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        transition: all 0.3s ease;
+      }
 
-        .media-preview {
-            margin-bottom: 2rem;
-        }
+      .glass-button:hover {
+        background: rgba(255, 255, 255, 0.12);
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+      }
 
-        .media-title {
-            font-size: 1.25rem;
-            font-weight: 700;
-            color: #60a5fa;
-            margin-bottom: 1rem;
-        }
+      /* Animations - Exact match from frontend */
+      .fade-in-up {
+        animation: fadeInUp 0.6s ease-out forwards;
+      }
 
-        .video-container {
-            position: relative;
-            width: 100%;
-            aspect-ratio: 16/9;
-            background: #000;
-            border-radius: 1.5rem;
-            overflow: hidden;
+      @keyframes fadeInUp {
+        from {
+          opacity: 0;
+          transform: translateY(30px);
         }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
 
-        .video-placeholder {
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 50%, #1a1a1a 100%);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #9ca3af;
+      .scale-in {
+        animation: scaleIn 0.3s ease-out forwards;
+      }
+
+      @keyframes scaleIn {
+        from {
+          opacity: 0;
+          transform: scale(0.95);
         }
+        to {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+
+      .card-hover:hover {
+        transform: scale(1.02);
+        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.15);
+      }
+
+      /* Progress Bar Styles - Exact match from ProgressBar.tsx */
+      .progress-bar {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 9999px;
+        overflow: hidden;
+        position: relative;
+      }
+
+      .progress-fill {
+        height: 100%;
+        transition: width 0.3s ease-out;
+        background: linear-gradient(90deg, #3b82f6, #1d4ed8);
+        border-radius: 9999px;
+      }
+
+      .progress-fill.processing {
+        background: linear-gradient(90deg, #3b82f6, #1d4ed8);
+        animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.8;
+        }
+      }
+
+      .progress-dots {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .progress-dot {
+        width: 4px;
+        height: 4px;
+        background: white;
+        border-radius: 50%;
+        margin: 0 2px;
+        animation: bounce 1.4s ease-in-out infinite both;
+      }
+
+      .progress-dot:nth-child(1) {
+        animation-delay: -0.32s;
+      }
+      .progress-dot:nth-child(2) {
+        animation-delay: -0.16s;
+      }
+
+      @keyframes bounce {
+        0%,
+        80%,
+        100% {
+          transform: scale(0);
+        }
+        40% {
+          transform: scale(1);
+        }
+      }
+
+      /* Status Badge Styles - Exact match from JobCard.tsx */
+      .status-badge {
+        padding: 0.25rem 0.75rem;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        border: 1px solid;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .status-completed {
+        background: rgba(34, 197, 94, 0.2);
+        color: rgb(187, 247, 208);
+        border-color: rgba(34, 197, 94, 0.3);
+      }
+
+      .status-processing {
+        background: rgba(59, 130, 246, 0.2);
+        color: rgb(147, 197, 253);
+        border-color: rgba(59, 130, 246, 0.3);
+      }
+
+      .status-failed {
+        background: rgba(239, 68, 68, 0.2);
+        color: rgb(252, 165, 165);
+        border-color: rgba(239, 68, 68, 0.3);
+      }
+
+      .status-pending {
+        background: rgba(234, 179, 8, 0.2);
+        color: rgb(254, 240, 138);
+        border-color: rgba(234, 179, 8, 0.3);
+      }
+
+      /* Button Styles - Exact match from frontend */
+      .btn-primary {
+        background: linear-gradient(
+          135deg,
+          rgba(59, 130, 246, 0.6),
+          rgba(147, 51, 234, 0.6)
+        );
+        backdrop-filter: blur(16px);
+        border: 1px solid rgba(59, 130, 246, 0.7);
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 1rem;
+        font-weight: 600;
+        transition: all 0.3s ease;
+      }
+
+      .btn-primary:hover {
+        background: linear-gradient(
+          135deg,
+          rgba(59, 130, 246, 0.7),
+          rgba(147, 51, 234, 0.7)
+        );
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(59, 130, 246, 0.3);
+      }
+
+      .btn-danger {
+        background: linear-gradient(
+          135deg,
+          rgba(239, 68, 68, 0.6),
+          rgba(220, 38, 38, 0.6)
+        );
+        backdrop-filter: blur(16px);
+        border: 1px solid rgba(239, 68, 68, 0.7);
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 1rem;
+        font-weight: 600;
+        transition: all 0.3s ease;
+      }
+
+      .btn-danger:hover {
+        background: linear-gradient(
+          135deg,
+          rgba(239, 68, 68, 0.7),
+          rgba(220, 38, 38, 0.7)
+        );
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(239, 68, 68, 0.3);
+      }
+
+      /* Text Gradient - Exact match from frontend */
+      .text-gradient {
+        background: linear-gradient(
+          135deg,
+          #00bfff 0%,
+          #3b82f6 25%,
+          #0ea5e9 50%,
+          #1d4ed8 75%,
+          #0095ff 100%
+        );
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        background-size: 200% 200%;
+        color: #fff;
+      }
+
+      /* Responsive utilities */
+      .rounded-4xl {
+        border-radius: 2rem;
+      }
+      .rounded-3xl {
+        border-radius: 1.5rem;
+      }
+      .rounded-2xl {
+        border-radius: 1rem;
+      }
+
+      /* Loading spinner */
+      .spinner {
+        animation: spin 1s linear infinite;
+      }
+
+      @keyframes spin {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
+      }
     </style>
-</head>
-<body class="p-8">
-    <div class="container mx-auto">
-        <div class="text-center mb-12">
-            <h1 class="text-4xl font-extrabold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent mb-2">
-                IntelliVision Analytics Results
-            </h1>
-            <p class="text-lg text-muted-foreground">
-                Real-time preview of job result rendering for all analytics types
-            </p>
+  </head>
+  <body class="min-h-screen bg-navy-gradient">
+    <div class="container mx-auto px-4 py-8">
+      <h1 class="text-4xl font-bold text-center mb-8 text-gradient">
+        IntelliVision Frontend Styles Preview
+      </h1>
+
+      <!-- Glass Morphism Cards Section -->
+      <section class="mb-12">
+        <h2 class="text-2xl font-bold mb-6 text-white">
+          Glass Morphism Design System
+        </h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div class="glass-intense p-6">
+            <h3 class="text-lg font-semibold mb-2">Glass Intense</h3>
+            <p class="text-white/70">High blur, strong glass effect</p>
+          </div>
+          <div class="glass-card p-6">
+            <h3 class="text-lg font-semibold mb-2">Glass Card</h3>
+            <p class="text-white/70">Standard card with glass effect</p>
+          </div>
+          <div class="glass-subtle p-6">
+            <h3 class="text-lg font-semibold mb-2">Glass Subtle</h3>
+            <p class="text-white/70">Light glass effect for subtle elements</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Job Progress Display Section -->
+      <section class="mb-12">
+        <h2 class="text-2xl font-bold mb-6 text-white">Job Progress Display</h2>
+        <div class="glass-intense p-6 max-w-2xl mx-auto">
+          <div class="flex items-center mb-4">
+            <i
+              data-lucide="activity"
+              class="w-5 h-5 mr-2 text-blue-400 spinner"
+            ></i>
+            <h3 class="text-lg font-semibold text-white">
+              Processing Your Video
+            </h3>
+          </div>
+
+          <!-- Progress Bar -->
+          <div class="space-y-2 mb-4">
+            <div
+              class="flex justify-between items-center text-sm text-white/80"
+            >
+              <span>Progress</span>
+              <span class="font-semibold">65%</span>
+            </div>
+            <div class="progress-bar h-3">
+              <div class="progress-fill processing" style="width: 65%"></div>
+              <div class="progress-dots">
+                <div class="progress-dot"></div>
+                <div class="progress-dot"></div>
+                <div class="progress-dot"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Progress Stats Grid -->
+          <div class="grid grid-cols-2 gap-4">
+            <div class="bg-white/5 rounded-lg p-3">
+              <div class="flex items-center space-x-2 mb-2">
+                <i data-lucide="bar-chart-3" class="w-4 h-4 text-blue-400"></i>
+                <span class="text-sm font-medium text-white/80"
+                  >Frame Progress</span
+                >
+              </div>
+              <div class="text-2xl font-bold text-white">1,250</div>
+              <div class="text-xs text-white/60">of 2,000 frames</div>
+            </div>
+            <div class="bg-white/5 rounded-lg p-3">
+              <div class="flex items-center space-x-2 mb-2">
+                <i data-lucide="clock" class="w-4 h-4 text-yellow-400"></i>
+                <span class="text-sm font-medium text-white/80">Time Left</span>
+              </div>
+              <div class="text-2xl font-bold text-white">2m 15s</div>
+              <div class="text-xs text-white/60">remaining</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Job Status Views Section -->
+      <section class="mb-12">
+        <h2 class="text-2xl font-bold mb-6 text-white">Job Status Views</h2>
+
+        <!-- Processing Status -->
+        <div class="glass-intense p-6 mb-6 max-w-md mx-auto text-center">
+          <i
+            data-lucide="loader-circle"
+            class="w-16 h-16 text-cyan-400 spinner mx-auto mb-4"
+          ></i>
+          <h3 class="text-2xl font-bold text-white mb-2">Analyzing Video</h3>
+          <p class="text-white/70">
+            This may take a few moments. The status will update automatically.
+          </p>
         </div>
 
-        <div id="previews-container"></div>
+        <!-- Failed Status -->
+        <div class="glass-subtle p-6 mb-6 max-w-md mx-auto flex items-center">
+          <i
+            data-lucide="alert-circle"
+            class="w-6 h-6 text-red-400 mr-3 flex-shrink-0"
+          ></i>
+          <span class="text-red-400 font-semibold">
+            Processing failed. Please try uploading another video or check the
+            job list for details.
+          </span>
+        </div>
 
+        <!-- Completed Status -->
+        <div class="glass-intense p-6 max-w-4xl mx-auto">
+          <div class="flex items-center gap-4 mb-4">
+            <i
+              data-lucide="file"
+              class="w-8 h-8 text-cyan-400 flex-shrink-0"
+            ></i>
+            <div class="flex-1">
+              <p class="font-semibold text-white">sample_video.mp4</p>
+              <div class="flex items-center gap-4 text-sm text-white/70 mt-1">
+                <span class="flex items-center">
+                  <i data-lucide="calendar" class="w-4 h-4 mr-1"></i>
+                  Dec 15, 2024
+                </span>
+                <span class="text-white/30">•</span>
+                <span class="flex items-center">
+                  <i data-lucide="users" class="w-4 h-4 mr-1"></i>
+                  15 people
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Job Results Section -->
+      <section class="mb-12">
+        <h2 class="text-2xl font-bold mb-6 text-white">Job Results Display</h2>
+
+        <!-- People Count Results -->
+        <div class="glass-intense p-6 mb-6">
+          <h3 class="text-xl font-extrabold text-white mb-4">
+            Analysis Results
+          </h3>
+          <div class="flex flex-col gap-4">
+            <div
+              class="glass-card p-5 flex flex-col items-center justify-center"
+            >
+              <div
+                class="flex items-center gap-2 text-lg font-bold text-white mb-2"
+              >
+                <i data-lucide="users" class="w-5 h-5 text-blue-400"></i>
+                People Counted
+              </div>
+              <span class="text-4xl font-extrabold text-white mb-1 drop-shadow"
+                >15</span
+              >
+              <span class="text-sm font-semibold text-cyan-200 mt-1"
+                >Raw Tracks: 23</span
+              >
+            </div>
+          </div>
+        </div>
+
+        <!-- Car Count Results -->
+        <div class="glass-intense p-6 mb-6">
+          <h3 class="text-xl font-extrabold text-white mb-4">
+            Analysis Results
+          </h3>
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div
+              class="glass-card p-5 flex flex-col items-center justify-center"
+            >
+              <div
+                class="flex items-center gap-2 text-lg font-bold text-white mb-2"
+              >
+                <i data-lucide="car" class="w-5 h-5 text-purple-400"></i>
+                Total Unique Vehicles
+              </div>
+              <span class="text-4xl font-extrabold text-white mb-1 drop-shadow"
+                >8</span
+              >
+            </div>
+            <div
+              class="glass-card p-5 flex flex-col items-center justify-center"
+            >
+              <div class="text-lg font-bold text-white mb-2">Entries</div>
+              <span class="text-4xl font-extrabold text-white mb-1 drop-shadow"
+                >12</span
+              >
+            </div>
+            <div
+              class="glass-card p-5 flex flex-col items-center justify-center"
+            >
+              <div class="text-lg font-bold text-white mb-2">Exits</div>
+              <span class="text-4xl font-extrabold text-white mb-1 drop-shadow"
+                >4</span
+              >
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Job Cards Section -->
+      <section class="mb-12">
+        <h2 class="text-2xl font-bold mb-6 text-white">Job Cards</h2>
+        <div class="space-y-4">
+          <!-- Completed Job Card -->
+          <div
+            class="grid grid-cols-12 items-center gap-4 px-6 py-4 border-b border-white/10 backdrop-blur-sm shadow-sm hover:bg-white/5 transition-all duration-300"
+          >
+            <div class="col-span-2 flex items-center">
+              <i data-lucide="hash" class="w-4 h-4 mr-2 text-white/70"></i>
+              <span class="font-bold text-white">#123</span>
+            </div>
+            <div class="col-span-4 flex items-center">
+              <i data-lucide="tag" class="w-3 h-3 mr-2 text-white/70"></i>
+              <div class="px-2 py-1 rounded-xl bg-white/10">
+                <span class="text-sm text-white/90">People Counting</span>
+              </div>
+            </div>
+            <div class="col-span-3 flex items-center">
+              <i data-lucide="clock" class="w-4 h-4 mr-2 text-white/70"></i>
+              <span class="text-white font-medium">Dec 15, 2024</span>
+            </div>
+            <div class="col-span-3 flex justify-center">
+              <span class="status-badge status-completed">
+                <i data-lucide="check-circle" class="w-4 h-4"></i>
+                Completed
+              </span>
+            </div>
+          </div>
+
+          <!-- Processing Job Card -->
+          <div
+            class="grid grid-cols-12 items-center gap-4 px-6 py-4 border-b border-white/10 backdrop-blur-sm shadow-sm hover:bg-white/5 transition-all duration-300"
+          >
+            <div class="col-span-2 flex items-center">
+              <i data-lucide="hash" class="w-4 h-4 mr-2 text-white/70"></i>
+              <span class="font-bold text-white">#124</span>
+            </div>
+            <div class="col-span-4 flex items-center">
+              <i data-lucide="tag" class="w-3 h-3 mr-2 text-white/70"></i>
+              <div
+                class="px-2 py-1 rounded-xl bg-purple-500/20 border border-purple-400/30"
+              >
+                <i
+                  data-lucide="hotel"
+                  class="w-3 h-3 text-purple-300 inline mr-1"
+                ></i>
+                <span class="text-sm text-white/90">Room Readiness</span>
+              </div>
+            </div>
+            <div class="col-span-3 flex items-center">
+              <i data-lucide="clock" class="w-4 h-4 mr-2 text-white/70"></i>
+              <span class="text-white font-medium">Dec 15, 2024</span>
+            </div>
+            <div class="col-span-3 flex justify-center">
+              <span class="status-badge status-processing">
+                <i data-lucide="activity" class="w-4 h-4 spinner"></i>
+                Processing
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Action Buttons Section -->
+      <section class="mb-12">
+        <h2 class="text-2xl font-bold mb-6 text-white">Action Buttons</h2>
+        <div class="flex flex-wrap gap-4">
+          <button class="btn-primary">
+            <i data-lucide="eye" class="w-4 h-4 mr-2"></i>
+            View Results
+          </button>
+          <button class="btn-danger">
+            <i data-lucide="trash-2" class="w-4 h-4 mr-2"></i>
+            Delete Job
+          </button>
+          <button
+            class="glass-button px-4 py-2 rounded-xl text-white/70 hover:text-white"
+          >
+            <i data-lucide="settings" class="w-4 h-4 mr-2"></i>
+            Configure
+          </button>
+        </div>
+      </section>
+
+      <!-- Progress Bar Variants -->
+      <section class="mb-12">
+        <h2 class="text-2xl font-bold mb-6 text-white">
+          Progress Bar Variants
+        </h2>
+        <div class="space-y-6 max-w-2xl">
+          <div>
+            <h3 class="text-lg font-semibold mb-2">Default Progress</h3>
+            <div class="progress-bar h-3">
+              <div class="progress-fill" style="width: 75%"></div>
+            </div>
+          </div>
+          <div>
+            <h3 class="text-lg font-semibold mb-2">Processing Progress</h3>
+            <div class="progress-bar h-3">
+              <div class="progress-fill processing" style="width: 45%"></div>
+              <div class="progress-dots">
+                <div class="progress-dot"></div>
+                <div class="progress-dot"></div>
+                <div class="progress-dot"></div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <h3 class="text-lg font-semibold mb-2">Completed Progress</h3>
+            <div class="progress-bar h-3">
+              <div
+                class="progress-fill"
+                style="
+                  width: 100%;
+                  background: linear-gradient(90deg, #22c55e, #16a34a);
+                "
+              ></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Complete Job Results Display Section -->
+      <section class="mb-12">
+        <h2 class="text-2xl font-bold mb-6 text-white">
+          Complete Job Results Display
+        </h2>
+
+        <!-- People Count Results -->
+        <div class="glass-intense p-6 mb-8">
+          <h3 class="text-xl font-extrabold text-white mb-4">
+            People Count Results
+          </h3>
+          <div class="flex flex-col gap-4 w-full">
+            <div
+              class="glass-card p-5 flex flex-col items-center justify-center w-full h-auto"
+            >
+              <div
+                class="flex items-center gap-2 text-lg font-bold text-white mb-2"
+              >
+                <i data-lucide="users" class="w-5 h-5 text-blue-400"></i>
+                People Counted
+              </div>
+              <span class="text-4xl font-extrabold text-white mb-1 drop-shadow"
+                >42</span
+              >
+              <span class="text-sm font-semibold text-cyan-200 mt-1"
+                >Raw Tracks: 45</span
+              >
+            </div>
+          </div>
+        </div>
+
+        <!-- Car Count / ANPR Results -->
+        <div class="glass-intense p-6 mb-8">
+          <h3 class="text-xl font-extrabold text-white mb-4">
+            Car Count / ANPR Results
+          </h3>
+          <div class="flex flex-col gap-4 w-full">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div
+                class="glass-card p-5 flex flex-col items-center justify-center w-full h-auto"
+              >
+                <div
+                  class="flex items-center gap-2 text-lg font-bold text-white mb-2"
+                >
+                  <i data-lucide="car" class="w-5 h-5 text-purple-400"></i>
+                  Total Unique Vehicles
+                </div>
+                <span
+                  class="text-4xl font-extrabold text-white mb-1 drop-shadow"
+                  >11</span
+                >
+              </div>
+              <div
+                class="glass-card p-5 flex flex-col items-center justify-center w-full h-auto"
+              >
+                <div class="text-lg font-bold text-white mb-2">Entries</div>
+                <span
+                  class="text-4xl font-extrabold text-white mb-1 drop-shadow"
+                  >18</span
+                >
+              </div>
+              <div
+                class="glass-card p-5 flex flex-col items-center justify-center w-full h-auto"
+              >
+                <div class="text-lg font-bold text-white mb-2">Exits</div>
+                <span
+                  class="text-4xl font-extrabold text-white mb-1 drop-shadow"
+                  >7</span
+                >
+              </div>
+              <div
+                class="glass-card p-5 flex flex-col items-center justify-center w-full h-auto"
+              >
+                <div class="text-lg font-bold text-white mb-2">
+                  Max Occupancy
+                </div>
+                <span
+                  class="text-4xl font-extrabold text-white mb-1 drop-shadow"
+                  >25</span
+                >
+              </div>
+              <div
+                class="glass-card p-5 flex flex-col items-center justify-center w-full h-auto"
+              >
+                <div class="text-lg font-bold text-white mb-2">
+                  License Plates
+                </div>
+                <span
+                  class="text-4xl font-extrabold text-white mb-1 drop-shadow"
+                  >8</span
+                >
+              </div>
+            </div>
+            <div class="mt-4">
+              <h5 class="text-lg font-bold text-white mb-3">Detected Plates</h5>
+              <div class="flex flex-wrap gap-2">
+                <span
+                  class="px-3 py-1 bg-blue-500/20 text-blue-200 rounded-full text-sm font-semibold"
+                  >ABC-123</span
+                >
+                <span
+                  class="px-3 py-1 bg-blue-500/20 text-blue-200 rounded-full text-sm font-semibold"
+                  >XYZ-789</span
+                >
+                <span
+                  class="px-3 py-1 bg-blue-500/20 text-blue-200 rounded-full text-sm font-semibold"
+                  >LMN-456</span
+                >
+                <span
+                  class="px-3 py-1 bg-blue-500/20 text-blue-200 rounded-full text-sm font-semibold"
+                  >DEF-321</span
+                >
+                <span class="text-white/60 text-sm">+4 more</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Emergency Count Results -->
+        <div class="glass-intense p-6 mb-8">
+          <h3 class="text-xl font-extrabold text-white mb-4">
+            Emergency Count Results
+          </h3>
+          <div class="flex flex-col gap-4 w-full">
+            <div class="flex items-center gap-3 mb-4">
+              <div
+                class="w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center"
+              >
+                <i
+                  data-lucide="alert-circle"
+                  class="w-6 h-6 text-green-400"
+                ></i>
+              </div>
+              <div>
+                <h3 class="text-xl font-bold text-white">Emergency Analysis</h3>
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div
+                class="glass-card p-5 flex flex-col items-center justify-center w-full h-auto"
+              >
+                <div class="text-lg font-bold text-white mb-2">People In</div>
+                <span
+                  class="text-4xl font-extrabold text-white mb-1 drop-shadow"
+                  >28</span
+                >
+                <span class="text-sm font-semibold text-cyan-200 mt-1"
+                  >Fast: 25</span
+                >
+              </div>
+              <div
+                class="glass-card p-5 flex flex-col items-center justify-center w-full h-auto"
+              >
+                <div class="text-lg font-bold text-white mb-2">People Out</div>
+                <span
+                  class="text-4xl font-extrabold text-white mb-1 drop-shadow"
+                  >15</span
+                >
+                <span class="text-sm font-semibold text-cyan-200 mt-1"
+                  >Fast: 13</span
+                >
+              </div>
+            </div>
+            <div class="mt-4">
+              <h5
+                class="text-lg font-bold text-white mb-3 flex items-center gap-2"
+              >
+                Emergency Alerts
+                <span
+                  class="ml-2 px-2 py-0.5 rounded-full bg-red-500/20 text-red-200 text-sm font-bold"
+                  >2</span
+                >
+              </h5>
+              <div class="space-y-2">
+                <div class="glass-card p-3 border-l-4 border-red-400">
+                  <div class="text-sm font-semibold text-red-200">ALERT</div>
+                  <div class="text-white">Crowd density exceeded threshold</div>
+                  <div class="text-xs text-white/60 mt-1">
+                    2024-01-15 14:32:15
+                  </div>
+                </div>
+                <div class="glass-card p-3 border-l-4 border-red-400">
+                  <div class="text-sm font-semibold text-red-200">ALERT</div>
+                  <div class="text-white">
+                    Rapid movement detected in exit zone
+                  </div>
+                  <div class="text-xs text-white/60 mt-1">
+                    2024-01-15 14:35:22
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Parking Analysis Results -->
+        <div class="glass-intense p-6 mb-8">
+          <h3 class="text-xl font-extrabold text-white mb-4">
+            Parking Analysis Results
+          </h3>
+          <div class="flex flex-col gap-4 w-full">
+            <div class="grid grid-cols-2 lg:grid-cols-3 gap-4">
+              <div
+                class="glass-card p-5 flex flex-col items-center justify-center w-full h-auto"
+              >
+                <div
+                  class="flex items-center gap-2 text-lg font-bold text-white mb-2"
+                >
+                  <i
+                    data-lucide="parking-circle"
+                    class="w-5 h-5 text-purple-400"
+                  ></i>
+                  Entries
+                </div>
+                <span
+                  class="text-4xl font-extrabold text-white mb-1 drop-shadow"
+                  >18</span
+                >
+              </div>
+              <div
+                class="glass-card p-5 flex flex-col items-center justify-center w-full h-auto"
+              >
+                <div class="text-lg font-bold text-white mb-2">Exits</div>
+                <span
+                  class="text-4xl font-extrabold text-white mb-1 drop-shadow"
+                  >12</span
+                >
+              </div>
+              <div
+                class="glass-card p-5 flex flex-col items-center justify-center w-full h-auto"
+              >
+                <div class="text-lg font-bold text-white mb-2">
+                  Max Occupancy
+                </div>
+                <span
+                  class="text-4xl font-extrabold text-white mb-1 drop-shadow"
+                  >25</span
+                >
+              </div>
+              <div
+                class="glass-card p-5 flex flex-col items-center justify-center w-full h-auto"
+              >
+                <div class="text-lg font-bold text-white mb-2">
+                  Final Occupancy
+                </div>
+                <span
+                  class="text-4xl font-extrabold text-white mb-1 drop-shadow"
+                  >6</span
+                >
+              </div>
+              <div
+                class="glass-card p-5 flex flex-col items-center justify-center w-full h-auto"
+              >
+                <div class="text-lg font-bold text-white mb-2">
+                  Total Unique Vehicles
+                </div>
+                <span
+                  class="text-4xl font-extrabold text-white mb-1 drop-shadow"
+                  >11</span
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pothole Detection Results -->
+        <div class="glass-intense p-6 mb-8">
+          <h3 class="text-xl font-extrabold text-white mb-4">
+            Pothole Detection Results
+          </h3>
+          <div class="flex flex-col gap-4 w-full">
+            <div
+              class="glass-card p-5 flex flex-col items-center justify-center w-full h-auto"
+            >
+              <div
+                class="flex items-center gap-2 text-lg font-bold text-white mb-2"
+              >
+                <i data-lucide="route" class="w-5 h-5 text-orange-400"></i>
+                Potholes Detected
+              </div>
+              <span class="text-4xl font-extrabold text-white mb-1 drop-shadow"
+                >7</span
+              >
+            </div>
+            <div class="mt-4">
+              <h5 class="text-lg font-bold text-white mb-3">
+                Detection Details
+              </h5>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div class="glass-card p-3">
+                  <div class="text-sm font-semibold text-orange-200">
+                    Frame 1250
+                  </div>
+                  <div class="text-white">Potholes: 2</div>
+                  <div class="text-xs text-white/60">Time: 00:42:15</div>
+                </div>
+                <div class="glass-card p-3">
+                  <div class="text-sm font-semibold text-orange-200">
+                    Frame 1350
+                  </div>
+                  <div class="text-white">Potholes: 1</div>
+                  <div class="text-xs text-white/60">Time: 00:45:30</div>
+                </div>
+                <div class="glass-card p-3">
+                  <div class="text-sm font-semibold text-orange-200">
+                    Frame 1450
+                  </div>
+                  <div class="text-white">Potholes: 3</div>
+                  <div class="text-xs text-white/60">Time: 00:48:45</div>
+                </div>
+                <div class="glass-card p-3">
+                  <div class="text-sm font-semibold text-orange-200">
+                    Frame 1550
+                  </div>
+                  <div class="text-white">Potholes: 1</div>
+                  <div class="text-xs text-white/60">Time: 00:52:00</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Lobby Detection Results -->
+        <div class="glass-intense p-6 mb-8">
+          <h3 class="text-xl font-extrabold text-white mb-4">
+            Lobby Detection Results
+          </h3>
+          <div class="flex flex-col gap-4 w-full">
+            <div class="flex items-center gap-3 mb-4">
+              <div
+                class="w-12 h-12 bg-purple-500/20 rounded-full flex items-center justify-center"
+              >
+                <i data-lucide="scan" class="w-6 h-6 text-indigo-400"></i>
+              </div>
+              <div>
+                <h3 class="text-xl font-bold text-white">Lobby Detection</h3>
+              </div>
+            </div>
+            <div
+              class="glass-card p-5 flex flex-col items-center justify-center w-full h-auto"
+            >
+              <div class="text-lg font-bold text-white mb-2">Total People</div>
+              <span class="text-4xl font-extrabold text-white mb-1 drop-shadow"
+                >34</span
+              >
+              <span class="text-sm font-semibold text-cyan-200 mt-1"
+                >Level: Moderate</span
+              >
+            </div>
+            <div class="mt-4">
+              <h5 class="text-lg font-bold text-white mb-3">Zone Counts</h5>
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div class="glass-card p-3">
+                  <div class="text-sm font-semibold text-purple-200">
+                    Main Entrance
+                  </div>
+                  <div class="text-lg font-bold text-white">12</div>
+                </div>
+                <div class="glass-card p-3">
+                  <div class="text-sm font-semibold text-purple-200">
+                    Reception Area
+                  </div>
+                  <div class="text-lg font-bold text-white">8</div>
+                </div>
+                <div class="glass-card p-3">
+                  <div class="text-sm font-semibold text-purple-200">
+                    Waiting Zone
+                  </div>
+                  <div class="text-lg font-bold text-white">14</div>
+                </div>
+              </div>
+            </div>
+            <div class="mt-4">
+              <h5
+                class="text-lg font-bold text-white mb-3 flex items-center gap-2"
+              >
+                Zone Alerts
+                <span
+                  class="ml-2 px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-200 text-sm font-bold"
+                  >1</span
+                >
+              </h5>
+              <div class="space-y-2">
+                <div class="glass-card p-3 border-l-4 border-yellow-400">
+                  <div class="text-sm font-semibold text-yellow-200">
+                    Main Entrance
+                  </div>
+                  <div class="text-white">
+                    High traffic detected in entrance zone
+                  </div>
+                  <div class="text-xs text-white/60 mt-1">@ 00:15:30</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Wildlife Detection Results -->
+        <div class="glass-intense p-6 mb-8">
+          <h3 class="text-xl font-extrabold text-white mb-4">
+            Wildlife Detection Results
+          </h3>
+          <div class="flex flex-col gap-4 w-full">
+            <div
+              class="glass-card p-5 flex flex-col items-center justify-center w-full h-auto"
+            >
+              <div
+                class="flex items-center gap-2 text-lg font-bold text-white mb-2"
+              >
+                <i data-lucide="bird" class="w-5 h-5 text-emerald-400"></i>
+                Snakes Detected
+              </div>
+              <span class="text-4xl font-extrabold text-white mb-1 drop-shadow"
+                >0</span
+              >
+            </div>
+            <div class="mt-4">
+              <h5 class="text-lg font-bold text-white mb-3">
+                Detected Animals
+              </h5>
+              <div class="space-y-2">
+                <div class="glass-card p-3">
+                  <div class="text-sm font-semibold text-green-200">Deer</div>
+                  <div class="text-xs text-white/60">Confidence: 94.2%</div>
+                </div>
+                <div class="glass-card p-3">
+                  <div class="text-sm font-semibold text-green-200">Rabbit</div>
+                  <div class="text-xs text-white/60">Confidence: 87.6%</div>
+                </div>
+                <div class="glass-card p-3">
+                  <div class="text-sm font-semibold text-green-200">Fox</div>
+                  <div class="text-xs text-white/60">Confidence: 82.1%</div>
+                </div>
+                <div class="glass-card p-3">
+                  <div class="text-sm font-semibold text-green-200">
+                    Squirrel
+                  </div>
+                  <div class="text-xs text-white/60">Confidence: 78.9%</div>
+                </div>
+                <div class="glass-card p-3">
+                  <div class="text-sm font-semibold text-green-200">
+                    Raccoon
+                  </div>
+                  <div class="text-xs text-white/60">Confidence: 75.3%</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Food Waste Estimation Results -->
+        <div class="glass-intense p-6 mb-8">
+          <h3 class="text-xl font-extrabold text-white mb-4">
+            Food Waste Estimation Results
+          </h3>
+          <div class="flex flex-col gap-4 w-full">
+            <div class="flex items-center justify-between">
+              <p class="flex items-center text-xl font-bold text-white">
+                <i
+                  data-lucide="trash-2"
+                  class="w-7 h-7 mr-3 text-emerald-400 flex-shrink-0"
+                ></i>
+                Food Waste Analysis Results
+              </p>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div class="glass-card text-center p-4">
+                <div class="text-2xl font-bold text-emerald-400">12,345</div>
+                <div class="text-sm text-white/70 mt-1">Total Calories</div>
+              </div>
+              <div class="glass-card text-center p-4">
+                <div class="text-2xl font-bold text-emerald-400">1,234g</div>
+                <div class="text-sm text-white/70 mt-1">Total Weight</div>
+              </div>
+              <div class="glass-card text-center p-4">
+                <div class="text-2xl font-bold text-emerald-400">56</div>
+                <div class="text-sm text-white/70 mt-1">Items Detected</div>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div
+                class="glass-card p-3 text-white text-sm flex flex-col gap-1 hover:scale-[1.02] transition-all duration-300"
+              >
+                <div class="font-semibold truncate">Apple</div>
+                <div class="flex justify-between text-xs text-white/70">
+                  <span>100g</span>
+                  <span>52 cal</span>
+                </div>
+                <div class="flex flex-wrap gap-1 mt-1">
+                  <span
+                    class="px-2 py-0.5 bg-emerald-600/20 text-emerald-300 rounded-full text-[10px]"
+                    >fruit</span
+                  >
+                </div>
+              </div>
+              <div
+                class="glass-card p-3 text-white text-sm flex flex-col gap-1 hover:scale-[1.02] transition-all duration-300"
+              >
+                <div class="font-semibold truncate">Banana</div>
+                <div class="flex justify-between text-xs text-white/70">
+                  <span>118g</span>
+                  <span>89 cal</span>
+                </div>
+                <div class="flex flex-wrap gap-1 mt-1">
+                  <span
+                    class="px-2 py-0.5 bg-emerald-600/20 text-emerald-300 rounded-full text-[10px]"
+                    >fruit</span
+                  >
+                </div>
+              </div>
+              <div
+                class="glass-card p-3 text-white text-sm flex flex-col gap-1 hover:scale-[1.02] transition-all duration-300"
+              >
+                <div class="font-semibold truncate">Bread</div>
+                <div class="flex justify-between text-xs text-white/70">
+                  <span>85g</span>
+                  <span>265 cal</span>
+                </div>
+                <div class="flex flex-wrap gap-1 mt-1">
+                  <span
+                    class="px-2 py-0.5 bg-emerald-600/20 text-emerald-300 rounded-full text-[10px]"
+                    >grain</span
+                  >
+                </div>
+              </div>
+              <div
+                class="glass-card p-3 text-white text-sm flex flex-col gap-1 hover:scale-[1.02] transition-all duration-300"
+              >
+                <div class="font-semibold truncate">Chicken</div>
+                <div class="flex justify-between text-xs text-white/70">
+                  <span>150g</span>
+                  <span>165 cal</span>
+                </div>
+                <div class="flex flex-wrap gap-1 mt-1">
+                  <span
+                    class="px-2 py-0.5 bg-emerald-600/20 text-emerald-300 rounded-full text-[10px]"
+                    >protein</span
+                  >
+                </div>
+              </div>
+            </div>
+            <div class="glass-card text-sm text-white/80 p-3">
+              "Analysis shows significant food waste with 56 items detected
+              totaling 12,345 calories. Main contributors include bread products
+              and fresh fruits."
+            </div>
+          </div>
+        </div>
+
+        <!-- Room Readiness Results -->
+        <div class="glass-intense p-6 mb-8">
+          <h3 class="text-xl font-extrabold text-white mb-4">
+            Room Readiness Results
+          </h3>
+          <div class="space-y-6 w-full">
+            <div>
+              <div class="text-lg font-bold text-cyan-200 mb-2">Summary</div>
+              <div class="glass-card p-6 flex flex-col items-start w-full">
+                <div
+                  class="grid grid-cols-1 sm:grid-cols-2 gap-6 items-center mb-1 w-full"
+                >
+                  <span class="text-xl font-extrabold text-emerald-400"
+                    >Guest Ready</span
+                  >
+                  <span
+                    class="text-xl font-extrabold text-emerald-400 text-right"
+                    >100/100</span
+                  >
+                </div>
+                <span class="text-sm text-white/70">
+                  All items are ready • Rooms analyzed: 1, Ready: 1, Issues: 0
+                </span>
+              </div>
+            </div>
+            <div class="space-y-6">
+              <div
+                class="glass-card p-6 flex flex-col gap-6 items-start hover:scale-[1.01] transition-all duration-300"
+              >
+                <div class="flex items-center gap-3 mb-2">
+                  <i data-lucide="bed" class="w-5 h-5 text-cyan-400"></i>
+                  <span class="text-lg font-bold text-white capitalize"
+                    >Standard Room</span
+                  >
+                  <span
+                    class="ml-4 flex items-center gap-2 px-3 py-1 rounded-full text-sm font-bold border-2 bg-emerald-500/20 border-emerald-500/40 text-emerald-400"
+                    style="min-width: 120px"
+                  >
+                    <i
+                      data-lucide="check-circle"
+                      class="w-4 h-4 text-emerald-400 mr-1"
+                    ></i>
+                    <span class="text-emerald-400">Guest Ready</span>
+                    <span class="mx-2 text-white/40">|</span>
+                    <span class="text-emerald-400">100/100</span>
+                  </span>
+                </div>
+                <div class="glass-card p-4 flex flex-col w-full">
+                  <span
+                    class="text-lg font-bold text-blue-300 mb-4 flex items-center gap-2"
+                  >
+                    <i
+                      data-lucide="clipboard-list"
+                      class="w-5 h-5 text-blue-400"
+                    ></i>
+                    Room Checklist
+                  </span>
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div
+                      class="glass-card flex items-center justify-between p-3"
+                    >
+                      <div class="flex items-center gap-2">
+                        <i
+                          data-lucide="check-circle"
+                          class="w-4 h-4 text-emerald-400"
+                        ></i>
+                        <span class="text-white/90 font-medium text-sm"
+                          >Bed Made</span
+                        >
+                      </div>
+                      <span class="text-sm font-semibold text-emerald-400"
+                        >Ready</span
+                      >
+                    </div>
+                    <div
+                      class="glass-card flex items-center justify-between p-3"
+                    >
+                      <div class="flex items-center gap-2">
+                        <i
+                          data-lucide="check-circle"
+                          class="w-4 h-4 text-emerald-400"
+                        ></i>
+                        <span class="text-white/90 font-medium text-sm"
+                          >Floor Clean</span
+                        >
+                      </div>
+                      <span class="text-sm font-semibold text-emerald-400"
+                        >Ready</span
+                      >
+                    </div>
+                    <div
+                      class="glass-card flex items-center justify-between p-3"
+                    >
+                      <div class="flex items-center gap-2">
+                        <i
+                          data-lucide="check-circle"
+                          class="w-4 h-4 text-emerald-400"
+                        ></i>
+                        <span class="text-white/90 font-medium text-sm"
+                          >Bathroom Clean</span
+                        >
+                      </div>
+                      <span class="text-sm font-semibold text-emerald-400"
+                        >Ready</span
+                      >
+                    </div>
+                    <div
+                      class="glass-card flex items-center justify-between p-3"
+                    >
+                      <div class="flex items-center gap-2">
+                        <i
+                          data-lucide="check-circle"
+                          class="w-4 h-4 text-emerald-400"
+                        ></i>
+                        <span class="text-white/90 font-medium text-sm"
+                          >Towels Fresh</span
+                        >
+                      </div>
+                      <span class="text-sm font-semibold text-emerald-400"
+                        >Ready</span
+                      >
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
 
     <script>
-        const jobTypes = [
-            'people-count',
-            'car-count',
-            'parking-analysis',
-            'emergency-count',
-            'pothole-detection',
-            'food-waste-estimation',
-            'room-readiness',
-            'lobby-detection',
-            'wildlife-detection'
-        ];
-
-        const jobIcons = {
-            'people-count': '👥',
-            'car-count': '🚗',
-            'parking-analysis': '🅿️',
-            'emergency-count': '🚨',
-            'pothole-detection': '🕳️',
-            'food-waste-estimation': '🍽️',
-            'room-readiness': '🛏️',
-            'lobby-detection': '🏢',
-            'wildlife-detection': '🦌'
-        };
-
-        const jobResults = {
-            'people-count': `
-                <div class="media-preview">
-                    <div class="media-title">📹 Analysis Result</div>
-                    <div class="video-container">
-                        <div class="video-placeholder">People Counting Video</div>
-                    </div>
-                </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <div class="bg-card p-4 rounded-lg text-center">
-                        <div class="text-sm text-muted-foreground">People Counted</div>
-                        <div class="text-3xl font-bold">42</div>
-                    </div>
-                    <div class="bg-card p-4 rounded-lg text-center">
-                        <div class="text-sm text-muted-foreground">Raw Tracks</div>
-                        <div class="text-3xl font-bold">45</div>
-                    </div>
-                </div>`,
-            'car-count': `
-                <div class="media-preview">
-                    <div class="media-title">📹 Analysis Result</div>
-                    <div class="video-container">
-                        <div class="video-placeholder">ANPR Detection Video</div>
-                    </div>
-                </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <div class="bg-card p-4 rounded-lg text-center">
-                        <div class="text-sm text-muted-foreground">Vehicles Detected</div>
-                        <div class="text-3xl font-bold">11</div>
-                    </div>
-                    <div class="bg-card p-4 rounded-lg text-center">
-                        <div class="text-sm text-muted-foreground">License Plates</div>
-                        <div class="text-3xl font-bold">8</div>
-                    </div>
-                </div>
-                <div class="mt-4">
-                    <h5 class="text-lg font-bold mb-3">Detected Plates</h5>
-                    <div class="flex flex-wrap gap-2">
-                        <span class="px-3 py-1 bg-secondary text-secondary-foreground rounded-full text-sm font-semibold">ABC-123</span>
-                        <span class="px-3 py-1 bg-secondary text-secondary-foreground rounded-full text-sm font-semibold">XYZ-789</span>
-                        <span class="px-3 py-1 bg-secondary text-secondary-foreground rounded-full text-sm font-semibold">LMN-456</span>
-                    </div>
-                </div>`,
-            'parking-analysis': `
-                <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div class="bg-card p-4 rounded-lg text-center">
-                        <div class="text-sm text-muted-foreground">Entries</div>
-                        <div class="text-3xl font-bold">18</div>
-                    </div>
-                    <div class="bg-card p-4 rounded-lg text-center">
-                        <div class="text-sm text-muted-foreground">Exits</div>
-                        <div class="text-3xl font-bold">12</div>
-                    </div>
-                    <div class="bg-card p-4 rounded-lg text-center">
-                        <div class="text-sm text-muted-foreground">Max Occupancy</div>
-                        <div class="text-3xl font-bold">25</div>
-                    </div>
-                    <div class="bg-card p-4 rounded-lg text-center">
-                        <div class="text-sm text-muted-foreground">Final Occupancy</div>
-                        <div class="text-3xl font-bold">6</div>
-                    </div>
-                </div>`,
-            'emergency-count': `
-                <div class="grid grid-cols-2 gap-4">
-                    <div class="bg-card p-4 rounded-lg text-center">
-                        <div class="text-sm text-muted-foreground">People In</div>
-                        <div class="text-3xl font-bold">28</div>
-                        <div class="text-sm text-cyan-400">Fast: 25</div>
-                    </div>
-                    <div class="bg-card p-4 rounded-lg text-center">
-                        <div class="text-sm text-muted-foreground">People Out</div>
-                        <div class="text-3xl font-bold">15</div>
-                        <div class="text-sm text-cyan-400">Fast: 13</div>
-                    </div>
-                </div>
-                <div class="mt-4">
-                    <h5 class="text-lg font-bold mb-3">Emergency Alerts</h5>
-                    <div class="space-y-2">
-                        <div class="bg-card p-3 border-l-4 border-red-400">
-                            <div class="text-sm font-semibold text-red-200">ALERT</div>
-                            <div class="text-white">Crowd density exceeded threshold</div>
-                            <div class="text-xs text-muted-foreground">2024-01-15 14:32:15</div>
-                        </div>
-                    </div>
-                </div>`,
-            'pothole-detection': `
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <div class="bg-card p-4 rounded-lg text-center">
-                        <div class="text-sm text-muted-foreground">Potholes Detected</div>
-                        <div class="text-3xl font-bold">7</div>
-                    </div>
-                </div>`,
-            'food-waste-estimation': `
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <div class="bg-card text-center p-4">
-                        <div class="text-2xl font-bold text-emerald-400">12,345</div>
-                        <div class="text-sm text-muted-foreground mt-1">Total Calories</div>
-                    </div>
-                    <div class="bg-card text-center p-4">
-                        <div class="text-2xl font-bold text-emerald-400">1,234g</div>
-                        <div class="text-sm text-muted-foreground mt-1">Total Weight</div>
-                    </div>
-                    <div class="bg-card text-center p-4">
-                        <div class="text-2xl font-bold text-emerald-400">56</div>
-                        <div class="text-sm text-muted-foreground mt-1">Items Detected</div>
-                    </div>
-                </div>
-                <div class="mt-4">
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                        <div class="bg-card p-3 text-sm">
-                            <div class="font-semibold truncate">Apple</div>
-                            <div class="flex justify-between text-xs text-muted-foreground">
-                                <span>100g</span>
-                                <span>52 cal</span>
-                            </div>
-                        </div>
-                        <div class="bg-card p-3 text-sm">
-                            <div class="font-semibold truncate">Banana</div>
-                            <div class="flex justify-between text-xs text-muted-foreground">
-                                <span>118g</span>
-                                <span>89 cal</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>`,
-            'room-readiness': `
-                <div>
-                    <div class="text-lg font-bold text-cyan-200 mb-2">Summary</div>
-                    <div class="bg-card p-6 flex flex-col items-start w-full rounded-lg">
-                        <div class="grid grid-cols-2 gap-6 items-center mb-1 w-full">
-                            <span class="text-xl font-extrabold text-emerald-400">Guest Ready</span>
-                            <span class="text-xl font-extrabold text-emerald-400 text-right">100/100</span>
-                        </div>
-                        <span class="text-sm text-muted-foreground">All items are ready &middot; Rooms analyzed: 1, Ready: 1, Issues: 0</span>
-                    </div>
-                </div>
-                <div class="mt-8">
-                    <div class="bg-card p-6 rounded-lg">
-                        <div class="flex items-center gap-3 mb-2">
-                            <span class="text-lg font-bold text-white capitalize">Standard Room</span>
-                            <span class="ml-4 flex items-center gap-2 px-3 py-1 rounded-full text-sm font-bold border-2 bg-emerald-500/20 border-emerald-500/40 text-emerald-400">Ready</span>
-                        </div>
-                        <div class="mt-4">
-                            <span class="text-lg font-bold text-blue-300 mb-4 flex items-center gap-2">Room Checklist</span>
-                            <div class="grid grid-cols-2 gap-3">
-                                <div class="bg-secondary flex items-center justify-between p-3 rounded-lg">
-                                    <div class="flex items-center gap-2">
-                                        <span class="text-white/90 font-medium text-sm">Bed Made</span>
-                                    </div>
-                                    <span class="text-sm font-semibold text-emerald-400">Ready</span>
-                                </div>
-                                <div class="bg-secondary flex items-center justify-between p-3 rounded-lg">
-                                    <div class="flex items-center gap-2">
-                                        <span class="text-white/90 font-medium text-sm">Floor Clean</span>
-                                    </div>
-                                    <span class="text-sm font-semibold text-emerald-400">Ready</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>`,
-            'lobby-detection': `
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <div class="bg-card p-4 rounded-lg text-center">
-                        <div class="text-sm text-muted-foreground">Total People</div>
-                        <div class="text-3xl font-bold">34</div>
-                        <div class="text-sm text-cyan-400">Level: Moderate</div>
-                    </div>
-                </div>
-                <div class="mt-4">
-                    <h5 class="text-lg font-bold mb-3">Zone Counts</h5>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                        <div class="bg-card p-3">
-                            <div class="text-sm font-semibold text-purple-200">Main Entrance</div>
-                            <div class="text-lg font-bold">12</div>
-                        </div>
-                        <div class="bg-card p-3">
-                            <div class="text-sm font-semibold text-purple-200">Reception Area</div>
-                            <div class="text-lg font-bold">8</div>
-                        </div>
-                        <div class="bg-card p-3">
-                            <div class="text-sm font-semibold text-purple-200">Waiting Zone</div>
-                            <div class="text-lg font-bold">14</div>
-                        </div>
-                    </div>
-                </div>`,
-            'wildlife-detection': `
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <div class="bg-card p-4 rounded-lg text-center">
-                        <div class="text-sm text-muted-foreground">Snakes Detected</div>
-                        <div class="text-3xl font-bold">0</div>
-                    </div>
-                    <div class="bg-card p-4 rounded-lg text-center">
-                        <div class="text-sm text-muted-foreground">Animals Detected</div>
-                        <div class="text-3xl font-bold">5</div>
-                    </div>
-                </div>
-                <div class="mt-4">
-                    <h5 class="text-lg font-bold mb-3">Detected Animals</h5>
-                    <div class="space-y-2">
-                        <div class="bg-card p-3">
-                            <div class="text-sm font-semibold text-green-200">Deer</div>
-                            <div class="text-xs text-muted-foreground">Confidence: 94.2%</div>
-                        </div>
-                        <div class="bg-card p-3">
-                            <div class="text-sm font-semibold text-green-200">Rabbit</div>
-                            <div class="text-xs text-muted-foreground">Confidence: 87.6%</div>
-                        </div>
-                    </div>
-                </div>`,
-        };
-
-        const previewsContainer = document.getElementById('previews-container');
-
-        jobTypes.forEach(jobType => {
-            const section = document.createElement('div');
-            section.className = `job-section ${jobType}`;
-
-            const title = document.createElement('div');
-            title.className = 'job-title';
-            title.innerHTML = `<div class="job-icon">${jobIcons[jobType]}</div> ${jobType.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}`;
-
-            const card = document.createElement('div');
-            card.className = 'glass-card';
-
-            const container = document.createElement('div');
-            container.className = 'results-container';
-            container.innerHTML = jobResults[jobType];
-
-            card.appendChild(container);
-            section.appendChild(title);
-            section.appendChild(card);
-            previewsContainer.appendChild(section);
-        });
+      // Initialize Lucide icons
+      lucide.createIcons();
     </script>
-
-</body>
+  </body>
 </html>

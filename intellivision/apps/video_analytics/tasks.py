@@ -138,7 +138,7 @@ def save_output_and_get_url(job: VideoJob, output_file_path: str) -> str:
         logger.info(f"Job {job.id}: File save verified - Saved size: {saved_size / (1024*1024):.2f}MB at {saved_path}")
 
         # Assign to correct model field
-        if ext in ['.mp4', '.webm', '.mov']:
+        if ext in ['.mp4', '.webm', '.mov', '.avi', '.mkv', '.flv', '.wmv', '.m4v']:
             job.output_video.name = saved_name
         else:
             job.output_image.name = saved_name
@@ -348,35 +348,40 @@ def process_video_job(self, job_id: int) -> None:
 
         JOB_PROCESSORS = {
             "people-count": {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.mp4")]},
-            "car-count": {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.mp4")]},
-            "parking-analysis": {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.mp4")]},
-            "wildlife-detection": {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.mp4")]},
-            "food-waste-estimation": {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.mp4")]},
+            "car-count": {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.mp4"), str(job.id)]},
+            "parking-analysis": {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.mp4"), str(job.id)]},
+            "wildlife-detection": {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.mp4"), str(job.id)]},
+            "food-waste-estimation": {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.jpg"), str(job.id)]},
             "room-readiness": {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.mp4")]},
-            "lobby-detection": {"args": [job.input_video.path, job.lobby_zones, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.mp4"), job.id]},
+            "lobby-detection": {"args": [job.input_video.path, job.lobby_zones, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.mp4"), str(job.id)]},
             "emergency-count": {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.mp4"), job.emergency_lines,
-                                         job.video_width, job.video_height]},
-            "pothole-detection": {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.mp4")]},
+                                         job.video_width, job.video_height, str(job.id)]},
+            "pothole-detection": {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.mp4"), str(job.id)]},
         }
 
         # Handle image inputs - override function for special cases
         ext = os.path.splitext(job.input_video.name)[1].lower()
+        processor_config_key = job.job_type  # Default to original job type
+        
         if job.job_type == "pothole-detection" and ext in ['.jpg', '.jpeg', '.png']:
-            JOB_PROCESSORS["pothole-detection"] = {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.jpg")]}
+            JOB_PROCESSORS["pothole-detection-image"] = {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.jpg"), str(job.id)]}
             processor_func = lambda job_type: get_processor_func("pothole-detection-image")
+            processor_config_key = "pothole-detection-image"
         elif job.job_type == "room-readiness" and ext in ['.jpg', '.jpeg', '.png']:
-            JOB_PROCESSORS["room-readiness"] = {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.jpg")]}
+            JOB_PROCESSORS["room-readiness-image"] = {"args": [job.input_video.path]}
             processor_func = lambda job_type: get_processor_func("room-readiness-image")
+            processor_config_key = "room-readiness-image"
         elif job.job_type == "wildlife-detection" and ext in ['.jpg', '.jpeg', '.png']:
-            JOB_PROCESSORS["wildlife-detection"] = {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.jpg")]}
+            JOB_PROCESSORS["wildlife-detection-image"] = {"args": [job.input_video.path, os.path.join(temp_dir, f"output_{job_id}_{timestamp}.jpg"), str(job.id)]}
             processor_func = lambda job_type: get_processor_func("wildlife-detection-image")
+            processor_config_key = "wildlife-detection-image"
         elif job.job_type == "emergency-count" and ext in ['.jpg', '.jpeg', '.png']:
             # Emergency count doesn't support images, return error
             raise ValueError(f"Emergency count job type does not support image files ({ext}). Please use video files.")
         else:
             processor_func = get_processor_func
 
-        processor_config = JOB_PROCESSORS.get(job.job_type)
+        processor_config = JOB_PROCESSORS.get(processor_config_key)
         if not processor_config:
             raise ValueError(f"Unknown job type: {job.job_type}")
 
@@ -553,6 +558,20 @@ def download_youtube_video(youtube_url: str, temp_path: str, quality: str = 'bes
             'no_warnings': True,
             'extract_flat': False,
             'socket_timeout': 60,  # Longer timeout for Celery
+            # Anti-bot detection measures
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'extractor_args': {
+                'youtube': {
+                    'skip': ['hls', 'dash'],  # Skip HLS/DASH to avoid some bot detection
+                    'player_skip': ['configs'],  # Skip config requests that might trigger detection
+                }
+            },
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-us,en;q=0.5',
+                'Sec-Fetch-Mode': 'navigate',
+            }
         }
 
         # Add cookies if available
@@ -667,7 +686,31 @@ def extract_youtube_frame(self, job_id: int) -> None:
             logger.info(f"📸 Job {job_id}: Attempting thumbnail extraction")
 
             import yt_dlp
-            with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                # Anti-bot detection measures
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'extractor_args': {
+                    'youtube': {
+                        'skip': ['hls', 'dash'],
+                        'player_skip': ['configs'],
+                    }
+                },
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'en-us,en;q=0.5',
+                    'Sec-Fetch-Mode': 'navigate',
+                }
+            }
+            
+            # Add cookies if available
+            cookies_path = getattr(settings, 'YOUTUBE_COOKIES_PATH', None)
+            if cookies_path and os.path.exists(cookies_path):
+                ydl_opts['cookiefile'] = cookies_path
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(job.youtube_url, download=False)
                 if info and 'thumbnails' in info and info['thumbnails']:
                     # Get highest quality thumbnail
