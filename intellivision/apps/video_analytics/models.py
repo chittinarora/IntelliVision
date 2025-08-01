@@ -64,10 +64,26 @@ RESULT_SCHEMAS = {
                         "type": "array",
                         "items": {"type": "string"}
                     },
+                    "locked_plates": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    },
+                    "candidate_plates": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    },
                     "processing_fps": {"type": "number"},
                     "total_frames": {"type": "number"},
                     "processing_time": {"type": "number"},
-                    "vehicle_count": {"type": "number"}
+                    "vehicle_count": {"type": "number"},
+                    "detection_stats": {
+                        "type": "object",
+                        "properties": {
+                            "locked_count": {"type": "number"},
+                            "tracked_vehicles": {"type": "number"},
+                            "total_unique_vehicles": {"type": "number"}
+                        }
+                    }
                 }
             },
             "preview_url": {"type": "string"},
@@ -345,10 +361,26 @@ RESULT_SCHEMAS = {
                         "type": "array",
                         "items": {"type": "string"}
                     },
+                    "locked_plates": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    },
+                    "candidate_plates": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    },
                     "processing_fps": {"type": "number"},
                     "total_frames": {"type": "number"},
                     "processing_time": {"type": "number"},
-                    "vehicle_count": {"type": "number"}
+                    "vehicle_count": {"type": "number"},
+                    "detection_stats": {
+                        "type": "object",
+                        "properties": {
+                            "locked_count": {"type": "number"},
+                            "tracked_vehicles": {"type": "number"},
+                            "total_unique_vehicles": {"type": "number"}
+                        }
+                    }
                 }
             },
             "preview_url": {"type": "string"},

@@ -115,12 +115,12 @@ try:
     logger.info("Initializing ANPR processors...")
     sync_anpr_processor = ANPRProcessor(str(PLATE_MODEL), str(CAR_MODEL))
     logger.info("ANPR processor initialized successfully")
-    
+
     # Get total slots from settings or use default
     total_slots = getattr(settings, 'PARKING_TOTAL_SLOTS', 50)
     sync_parking_processor = ParkingProcessor(str(PLATE_MODEL), str(CAR_MODEL), total_slots=total_slots)
     logger.info("Parking processor initialized successfully")
-    
+
     logger.info("✅ All ANPR processors initialized successfully")
 except FileNotFoundError as e:
     logger.error(f"❌ Model files not found: {e}")
@@ -142,6 +142,7 @@ except Exception as e:
 anpr_lock = Lock()
 parking_lock = Lock()
 
+
 # ======================================
 # Helper Functions
 # ======================================
@@ -162,7 +163,7 @@ def validate_input_file(file_path: str) -> tuple[bool, str]:
 # Main Analysis Functions
 # ======================================
 
-def recognize_number_plates(video_path: str, output_path: str) -> Dict:
+def recognize_number_plates(video_path: str, output_path: str = None, job_id: str = None) -> Dict:
     """
     Process video for number plate recognition.
 
@@ -189,9 +190,14 @@ def recognize_number_plates(video_path: str, output_path: str) -> Dict:
         }
 
     try:
-        # Extract job_id from output_path to use for filename
-        extracted_job_id = re.search(r'output_(\d+)_', output_path)
-        output_job_id = extracted_job_id.group(1) if extracted_job_id else str(int(time.time()))
+        # Use provided job_id or extract from output_path or generate timestamp
+        if job_id:
+            output_job_id = str(job_id)
+        elif output_path:
+            extracted_job_id = re.search(r'output_(\d+)_', output_path)
+            output_job_id = extracted_job_id.group(1) if extracted_job_id else str(int(time.time()))
+        else:
+            output_job_id = str(int(time.time()))
         output_filename = f"outputs/annotated_{output_job_id}.mp4"
 
         with anpr_lock:
@@ -330,20 +336,12 @@ def analyze_parking_video(video_path: str, output_path: str = None, job_id: str 
             logger.info(f"Starting parking analysis: {video_path}")
             if sync_parking_processor is None:
                 raise RuntimeError("Parking processor not available - initialization failed")
-            output, summary = sync_parking_processor.process_video(video_path)
+            output, summary = sync_parking_processor.process_video(video_path, output_path)
 
         if output and os.path.exists(output):
-            # Create temporary file for web conversion
-            with tempfile.NamedTemporaryFile(suffix='_web.mp4', delete=False) as web_tmp:
-                web_tmp_path = web_tmp.name
-
-            logger.info(f"🔄 Attempting ffmpeg conversion: {output} -> {web_tmp_path}")
-            if convert_to_web_mp4(output, web_tmp_path):
-                final_output_path = web_tmp_path  # Use converted file
-                logger.info(f"✅ FFmpeg conversion successful")
-            else:
-                final_output_path = output  # Fallback to original
-                logger.warning(f"⚠️ FFmpeg conversion failed, using original file")
+            # The processor has created the output file, use it directly
+            final_output_path = output
+            logger.info(f"✅ Parking analysis output created: {final_output_path}")
         else:
             logger.error(f"Output video not created: {output}")
             return {
@@ -362,10 +360,17 @@ def analyze_parking_video(video_path: str, output_path: str = None, job_id: str 
             'max_occupancy': summary.get('max_occupancy', 0),
             'final_occupancy': summary.get('final_occupancy', 0),
             'recognized_plates': summary.get('recognized_plates', []),
+            'locked_plates': summary.get('locked_plates', []),
+            'candidate_plates': summary.get('candidate_plates', []),
             'processing_fps': summary.get('processing_fps', 0),
             'total_frames': summary.get('total_frames', 0),
             'processing_time': summary.get('processing_time', 0),
-            'vehicle_count': summary.get('vehicle_count', 0)
+            'vehicle_count': summary.get('vehicle_count', 0),
+            'detection_stats': summary.get('detection_stats', {
+                'locked_count': 0,
+                'tracked_vehicles': 0,
+                'total_unique_vehicles': 0
+            })
         }
 
         processing_time = time.time() - start_time
@@ -1159,12 +1164,11 @@ def get_system_config() -> Dict:
 # Celery Integration
 # ======================================
 
-def tracking_video(input_path: str, output_path: str = None, job_id: str = None) -> Dict:
+def tracking_video_plate(input_path: str, output_path: str = None, job_id: str = None) -> Dict:
     """
-    Celery task for car counting and ANPR.
+    Celery task for number plate recognition (ANPR).
 
     Args:
-        self: Celery task instance
         input_path: Path to input video or image
         output_path: Path to save output
         job_id: VideoJob ID
@@ -1173,7 +1177,7 @@ def tracking_video(input_path: str, output_path: str = None, job_id: str = None)
         Standardized response dictionary
     """
     start_time = time.time()
-    logger.info(f"🚀 Starting car count job {job_id}")
+    logger.info(f"🚀 Starting number plate recognition job {job_id}")
 
     ext = os.path.splitext(input_path)[1].lower()
     image_exts = ['.jpg', '.jpeg', '.png']
@@ -1198,9 +1202,9 @@ def tracking_video(input_path: str, output_path: str = None, job_id: str = None)
             job_type="car-count"
         )
 
-        progress_logger.update_progress(0, status="Starting video processing...", force_log=True)
-        result = analyze_parking_video(input_path, output_path, job_id)
-        progress_logger.update_progress(100, status="Video processing completed", force_log=True)
+        progress_logger.update_progress(0, status="Starting number plate recognition...", force_log=True)
+        result = recognize_number_plates(input_path, output_path, job_id)
+        progress_logger.update_progress(100, status="Number plate recognition completed", force_log=True)
         progress_logger.log_completion(100)
 
     processing_time = time.time() - start_time
@@ -1208,3 +1212,63 @@ def tracking_video(input_path: str, output_path: str = None, job_id: str = None)
     result['meta']['timestamp'] = timezone.now().isoformat()
 
     return result
+
+def tracking_video_parking(input_path: str, output_path: str = None, job_id: str = None) -> Dict:
+    """
+    Celery task for parking analysis.
+
+    Args:
+        input_path: Path to input video or image
+        output_path: Path to save output
+        job_id: VideoJob ID
+
+    Returns:
+        Standardized response dictionary
+    """
+    start_time = time.time()
+    logger.info(f"🚀 Starting parking analysis job {job_id}")
+
+    ext = os.path.splitext(input_path)[1].lower()
+    image_exts = ['.jpg', '.jpeg', '.png']
+
+    if ext in image_exts:
+        # For parking analysis, images don't make much sense, but handle gracefully
+        logger.warning("Parking analysis requested for image file - using general car detection")
+        progress_logger = create_progress_logger(
+            job_id=str(job_id) if job_id else "0",
+            total_items=1,  # Single image
+            job_type="parking-analysis"
+        )
+
+        progress_logger.update_progress(0, status="Processing image...", force_log=True)
+        result = process_image_file(input_path, output_path, job_id)
+        progress_logger.update_progress(1, status="Analysis completed", force_log=True)
+        progress_logger.log_completion(1)
+    else:
+        # Initialize progress logger for video processing
+        progress_logger = create_progress_logger(
+            job_id=str(job_id) if job_id else "0",
+            total_items=100,  # Estimate for video frames
+            job_type="parking-analysis"
+        )
+
+        progress_logger.update_progress(0, status="Starting parking analysis...", force_log=True)
+        result = analyze_parking_video(input_path, output_path, job_id)
+        progress_logger.update_progress(100, status="Parking analysis completed", force_log=True)
+        progress_logger.log_completion(100)
+
+    processing_time = time.time() - start_time
+    result['meta']['processing_time_seconds'] = processing_time
+    result['meta']['timestamp'] = timezone.now().isoformat()
+
+    return result
+
+# Keep the original function for backward compatibility
+def tracking_video(input_path: str, output_path: str = None, job_id: str = None) -> Dict:
+    """
+    Legacy function - defaults to number plate recognition for backward compatibility.
+
+    DEPRECATED: Use tracking_video_plate or tracking_video_parking instead.
+    """
+    logger.warning("tracking_video() is deprecated. Use tracking_video_plate() or tracking_video_parking() instead.")
+    return tracking_video_plate(input_path, output_path, job_id)

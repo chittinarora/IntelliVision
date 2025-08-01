@@ -298,15 +298,23 @@ class ANPRProcessor:
                             logger.error(f"OCR failed for plate at {rx1},{ry1}-{rx2},{ry2}: {str(e)}")
                             continue
 
-                        # Always track ALL detected plates in history
-                        if text:
-                            self.plate_history[tid][text] += 1
-                            self.plate_timestamps[tid].setdefault(text, datetime.now())
-                            # Lock in high-confidence reads
+                        # Only track high-quality plate detections in history
+                        if text and conf_txt >= 0.5:  # Minimum confidence threshold for history
+                            # Lock in high-confidence reads first
                             if conf_txt >= self.LOCK_CONF_THRESHOLD and tid not in self.locked_plate:
                                 self.locked_plate[tid] = text
-                                logger.info(f"Track {tid}: Locked plate: {text}")
-                            logger.debug(f"Track {tid}: Added plate to history: {text} (conf={conf_txt:.2f}, locked={tid in self.locked_plate})")
+                                self.plate_timestamps[tid][text] = datetime.now()
+                                logger.info(f"Track {tid}: Locked plate: {text} (conf={conf_txt:.2f})")
+                            
+                            # Only update history if not already locked (prevents overwriting good detections)
+                            elif tid not in self.locked_plate:
+                                self.plate_history[tid][text] += 1
+                                self.plate_timestamps[tid].setdefault(text, datetime.now())
+                                logger.debug(f"Track {tid}: Added plate candidate: {text} (conf={conf_txt:.2f})")
+                            
+                            # If locked, just log but don't update history
+                            elif tid in self.locked_plate:
+                                logger.debug(f"Track {tid}: Ignoring detection {text} - already locked to {self.locked_plate[tid]}")
 
                         # Decide final text and styling
                         if tid in self.locked_plate:
@@ -414,54 +422,42 @@ class ANPRProcessor:
             logger.info(f"Track {tid} history: {dict(hist)}")
         logger.info(f"plate_timestamps keys: {list(self.plate_timestamps.keys())}")
 
-        # Summarize OCR results and persist
+        # Summarize OCR results - prioritize locked plates, fallback to best candidates
         rows, seen = [], set()
-        # Collect all locked plates first
+        
+        # First pass: Collect all locked plates (highest confidence)
+        for tid in self.locked_plate:
+            plate = self.locked_plate[tid]
+            ts = self.plate_timestamps[tid].get(plate, datetime.now())
+            if plate and plate not in seen:
+                seen.add(plate)
+                # Get count from history if available, otherwise default to 1
+                count = self.plate_history[tid].get(plate, 1) if tid in self.plate_history else 1
+                rows.append({
+                    "Plate Number": plate,
+                    "Detected At": ts.strftime("%Y-%m-%d %H:%M:%S"),
+                    "OCR Count": count,
+                    "Source": "locked"
+                })
+                logger.info(f"Added locked plate to summary: {plate}")
+        
+        # Second pass: Add best candidates from unlocked tracks
         for tid, hist in self.plate_history.items():
-            if tid in self.locked_plate:
-                plate = self.locked_plate[tid]
+            if tid not in self.locked_plate and hist:
+                # Get the most frequent plate for this track
+                plate, count = max(hist.items(), key=lambda x: x[1])
                 ts = self.plate_timestamps[tid].get(plate, datetime.now())
-                if plate and plate not in seen:
+                if plate and plate not in seen and count >= 2:  # Require at least 2 detections
                     seen.add(plate)
-                    count = hist.get(plate,1)
                     rows.append({
                         "Plate Number": plate,
                         "Detected At": ts.strftime("%Y-%m-%d %H:%M:%S"),
-                        "OCR Count": count
+                        "OCR Count": count,
+                        "Source": "candidate"
                     })
-        # Fallback: If no locked plates, include all plates above threshold
-        if not rows:
-            for tid, hist in self.plate_history.items():
-                for plate, count in hist.items():
-                    # Find the max confidence for this plate in this track
-                    # (Assume plate_timestamps was set when added)
-                    ts = self.plate_timestamps[tid].get(plate, datetime.now())
-                    # Only include if plate was ever seen with conf >= threshold
-                    # (We don't store conf per plate, so fallback to including all in hist)
-                    if plate and plate not in seen:
-                        seen.add(plate)
-                        rows.append({
-                            "Plate Number": plate,
-                            "Detected At": ts.strftime("%Y-%m-%d %H:%M:%S"),
-                            "OCR Count": count
-                        })
-        # --- PATCH: If no rows but plate_history has entries, add most frequent plate for each track ---
-        if not rows and self.plate_history:
-            logger.warning("[PATCH] No locked plates, but plate_history has entries. Adding most frequent plates for each track.")
-            for tid, hist in self.plate_history.items():
-                if hist:
-                    plate, _ = max(hist.items(), key=lambda x: x[1])
-                    ts = self.plate_timestamps[tid].get(plate, datetime.now())
-                    if plate and plate not in seen:
-                        seen.add(plate)
-                        count = hist.get(plate,1)
-                        rows.append({
-                            "Plate Number": plate,
-                            "Detected At": ts.strftime("%Y-%m-%d %H:%M:%S"),
-                            "OCR Count": count
-                        })
-            logger.debug(f"[PATCH] plate_history: {dict(self.plate_history)}")
-            logger.debug(f"[PATCH] locked_plate: {self.locked_plate}")
+                    logger.info(f"Added candidate plate to summary: {plate} (count={count})")
+        
+        logger.info(f"Summary generation complete: {len(rows)} plates, {len(self.locked_plate)} locked, {len(self.plate_history)} tracked")
 
         # Create CSV report only (removed Excel functionality)
         try:
@@ -473,18 +469,30 @@ class ANPRProcessor:
             logger.error(f"Failed to create CSV report: {str(e)}")
             csv_file = None
 
+        # Extract plate numbers for summary
+        plate_numbers = [r["Plate Number"] for r in rows]
+        locked_plates = [r["Plate Number"] for r in rows if r.get("Source") == "locked"]
+        candidate_plates = [r["Plate Number"] for r in rows if r.get("Source") == "candidate"]
+        
         summary = {
-            "plates_detected": df.get("Plate Number", []).tolist() if not df.empty else [],
-            "recognized_plates": df.get("Plate Number", []).tolist() if not df.empty else [],
-            "detected_plates": df.get("Plate Number", []).tolist() if not df.empty else [],  # alias for consistency
+            "plates_detected": plate_numbers,
+            "recognized_plates": plate_numbers,  # alias for compatibility
+            "detected_plates": plate_numbers,  # alias for consistency
+            "locked_plates": locked_plates,  # high-confidence detections
+            "candidate_plates": candidate_plates,  # lower-confidence but frequent detections
             "plate_detection_times": {r["Plate Number"]: r["Detected At"] for r in rows},
             "plate_count": len(rows),
             "vehicle_count": self.tracker.get_total_unique_ids(),
-            "total_frames": frame_idx,  # expected by car_count.py
-            "processing_fps": frame_idx / (time.time() - start_time) if (time.time() - start_time) > 0 else 0,  # expected by car_count.py
+            "total_frames": frame_idx,
+            "processing_fps": frame_idx / (time.time() - start_time) if (time.time() - start_time) > 0 else 0,
             "processed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "output_video": str(annotated_video),
             "csv_file": str(csv_file) if csv_file else None,
+            "detection_stats": {
+                "locked_count": len(self.locked_plate),
+                "tracked_vehicles": len(self.plate_history),
+                "total_unique_vehicles": self.tracker.get_total_unique_ids()
+            }
         }
         return str(annotated_video), summary
 
@@ -625,7 +633,7 @@ class ParkingProcessor:
             return False
         return True
 
-    def process_video(self, video_path: str, progress_callback: callable = None) -> tuple:
+    def process_video(self, video_path: str, output_path: str = None, progress_callback: callable = None) -> tuple:
         """
         Process a video file for parking analysis
         Returns: (output_video_path, summary_dict)
@@ -637,7 +645,10 @@ class ParkingProcessor:
         tracker = VehicleTracker()
         # Prepare output path
         video_path = Path(video_path)
-        output_path = OUTPUT_DIR / f"parking_analysis_{int(time.time())}_{video_path.name}"
+        if output_path is None:
+            output_path = OUTPUT_DIR / f"parking_analysis_{int(time.time())}_{video_path.name}"
+        else:
+            output_path = Path(output_path)
         cap = cv2.VideoCapture(str(video_path))
         if not cap.isOpened():
             raise IOError(f"Cannot open video: {video_path}")
@@ -649,7 +660,13 @@ class ParkingProcessor:
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
         frame_idx = 0
-        plate_history = {}
+        plate_history = {}  # plate -> last_seen_frame (for occupancy tracking)
+        all_detected_plates = set()  # all unique plates ever detected (for vehicle count)
+        confirmed_entries = set()  # plates that have confirmed entry (prevents duplicate entries)
+        confirmed_exits = set()  # plates that have confirmed exit
+        entry_frames = {}  # plate -> frame when first detected (for entry validation)
+        exit_threshold = 30  # frames absent before considering exit
+        
         summary = {
             'entries': 0,
             'exits': 0,
@@ -660,6 +677,7 @@ class ParkingProcessor:
             'processing_time': 0
         }
         start_time = time.time()
+        
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
@@ -670,6 +688,8 @@ class ParkingProcessor:
                 elapsed = time.time() - start_time
                 current_fps = frame_idx / elapsed
                 progress_callback(progress, f"Frame {frame_idx}/{total_frames} | FPS: {current_fps:.1f}")
+            
+            # Detect vehicles
             car_dets = self.car_detector.detect_plates(frame, classes=[2])
             tracker_input = []
             for (x1, y1, x2, y2, conf) in car_dets:
@@ -677,58 +697,110 @@ class ParkingProcessor:
                 h = y2 - y1
                 if w > 0 and h > 0:
                     tracker_input.append(([x1, y1, w, h], conf, 0))
+            
             tracks = tracker.update(tracker_input, frame)
             current_plates = set()
+            
+            # Process each tracked vehicle
             for tr in tracks:
                 tid = tr['track_id']
                 x1, y1, x2, y2 = tr['bbox']
                 x1, y1, x2, y2 = self.clamp_bbox(x1, y1, x2, y2, width, height)
                 if (x2 - x1) < self.MIN_ROI_SIZE or (y2 - y1) < self.MIN_ROI_SIZE:
                     continue
+                    
                 vehicle_roi = frame[int(y1):int(y2), int(x1):int(x2)]
                 if not self.validate_roi(vehicle_roi, (x1, y1, x2, y2)):
                     continue
+                    
                 plates = self.plate_detector.detect_plates(vehicle_roi)
                 if not plates:
                     continue
+                    
                 best_plate = max(plates, key=lambda x: x[4])
                 px1, py1, px2, py2, _ = best_plate
                 plate_img = vehicle_roi[int(py1):int(py2), int(px1):int(px2)]
                 if not self.validate_roi(plate_img, (px1, py1, px2, py2)):
                     continue
+                    
                 plate_text, conf = self.ocr.read_plate(plate_img)
                 if plate_text and conf > 0.7:
                     current_plates.add(plate_text)
+                    all_detected_plates.add(plate_text)  # Track all unique plates
+                    
+                    # Handle new vehicle entry (only count true first entries)
                     if plate_text not in plate_history:
+                        # First time seeing this plate
                         plate_history[plate_text] = frame_idx
-                        summary['entries'] += 1
-                        summary['recognized_plates'].append(plate_text)
-                        cv2.putText(frame, "ENTRY", (int(x1), int(y1-30)),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,0), 2)
-                        logger.info(f"Entry detected: {plate_text}")
+                        entry_frames[plate_text] = frame_idx
+                        
+                        # Count as entry only if not previously exited and re-entered quickly
+                        if plate_text not in confirmed_entries:
+                            confirmed_entries.add(plate_text)
+                            summary['entries'] += 1
+                            summary['recognized_plates'].append(plate_text)
+                            cv2.putText(frame, "ENTRY", (int(x1), int(y1-30)),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,0), 2)
+                            logger.info(f"Entry detected: {plate_text}")
+                    else:
+                        # Update last seen frame for existing plate
+                        plate_history[plate_text] = frame_idx
+            
+            # Check for exits (vehicles absent for more than threshold frames)
             exited_plates = []
-            for plate, last_seen in plate_history.items():
-                if plate not in current_plates and (frame_idx - last_seen) > 30:
+            for plate, last_seen in list(plate_history.items()):
+                if plate not in current_plates and (frame_idx - last_seen) > exit_threshold:
+                    # Only count as exit if we haven't already counted this exit
+                    if plate not in confirmed_exits:
+                        confirmed_exits.add(plate)
+                        summary['exits'] += 1
+                        logger.info(f"Exit detected: {plate}")
+                        
+                        # Add exit annotation on frame if possible
+                        cv2.putText(frame, f"EXIT: {plate}", (10, 110 + len(exited_plates) * 25),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,255), 2)
+                    
                     exited_plates.append(plate)
-                    summary['exits'] += 1
-                    logger.info(f"Exit detected: {plate}")
+            
+            # Remove exited plates from current occupancy tracking
             for plate in exited_plates:
-                plate_history.pop(plate)
-            for plate in current_plates:
-                plate_history[plate] = frame_idx
+                plate_history.pop(plate, None)
+            
+            # Update occupancy stats
             current_occupancy = len(plate_history)
             summary['max_occupancy'] = max(summary['max_occupancy'], current_occupancy)
+            
+            # Draw UI elements
             cv2.putText(frame, f"Occupancy: {current_occupancy}/{self.total_slots}",
                         (10,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
             cv2.putText(frame, f"Entries: {summary['entries']} | Exits: {summary['exits']}",
                         (10,70), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,255), 2)
+            
             out.write(frame)
+        
         cap.release()
         out.release()
         elapsed = time.time() - start_time
         summary['processing_fps'] = frame_idx / elapsed if elapsed > 0 else 0
         summary['processing_time'] = elapsed
         summary['final_occupancy'] = len(plate_history)
-        summary['vehicle_count'] = len(plate_history)
+        summary['vehicle_count'] = len(all_detected_plates)  # Fixed: total unique vehicles detected
+        
+        # Add ANPR-style detection statistics for consistency with car-count jobs
+        high_confidence_plates = []  # In parking analysis, all recognized plates are considered high-confidence
+        candidate_plates = []
+        
+        # Since parking analysis uses confidence threshold of 0.7, treat all recognized plates as "locked"
+        high_confidence_plates = list(all_detected_plates)
+        
+        # Add detection statistics
+        summary['locked_plates'] = high_confidence_plates
+        summary['candidate_plates'] = candidate_plates  # Empty for parking analysis
+        summary['detection_stats'] = {
+            'locked_count': len(high_confidence_plates),
+            'tracked_vehicles': len(plate_history),  # Current occupancy 
+            'total_unique_vehicles': len(all_detected_plates)  # Total unique vehicles detected
+        }
+        
         logger.info(f"Parking analysis complete: {summary}")
         return str(output_path), summary

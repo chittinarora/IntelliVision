@@ -296,11 +296,11 @@ def process_video_job(self, job_id: int) -> None:
                 from .analytics.people_count import tracking_video
                 return tracking_video
             elif job_type == "car-count":
-                from .analytics.car_count import tracking_video
-                return tracking_video
+                from .analytics.car_count import tracking_video_plate
+                return tracking_video_plate
             elif job_type == "parking-analysis":
-                from .analytics.car_count import analyze_parking_video
-                return analyze_parking_video
+                from .analytics.car_count import tracking_video_parking
+                return tracking_video_parking
             elif job_type == "wildlife-detection":
                 from .analytics.pest_monitoring import tracking_video
                 return tracking_video
