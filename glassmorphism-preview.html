@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Glassmorphism Border Comparison</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        /* Current Styles - Shows the PROBLEM: CSS --border variable overrides */
+        .current-card {
+            /* glass-intense from index.css + glassmorphism.ts border */
+            background: rgba(255, 255, 255, 0.12);
+            backdrop-filter: blur(20px);
+            border: 1px solid hsl(194, 50%, 90%); /* THIS IS THE PROBLEM - CSS --border variable */
+            box-shadow: 0 25px 70px rgba(0, 0, 0, 0.12), 0 5px 25px rgba(255, 255, 255, 0.08) inset;
+        }
+        
+        .current-metric {
+            /* glass-stack (undefined) + glassmorphism.ts but overridden by CSS */
+            backdrop-filter: blur(24px);
+            border: 1px solid hsl(194, 50%, 90%); /* OVERRIDDEN - should be white/5 but CSS wins */
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            /* No background since glass-stack is undefined */
+        }
+        
+        .current-alert {
+            /* glass-stack (undefined) + glassmorphism.ts but overridden by CSS */
+            backdrop-filter: blur(24px);
+            border: 1px solid hsl(194, 50%, 90%); /* OVERRIDDEN - should be white/5 but CSS wins */
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            /* No background since glass-stack is undefined */
+        }
+        
+        /* Fixed Styles - Using !important to override CSS variables */
+        .improved-card {
+            /* glass-intense + fixed border with !important */
+            background: rgba(255, 255, 255, 0.12);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.15) !important; /* FIXED with !important */
+            box-shadow: 0 25px 70px rgba(0, 0, 0, 0.12), 0 5px 25px rgba(255, 255, 255, 0.08) inset;
+        }
+        
+        .improved-metric {
+            /* glass-stack + fixed border with !important */
+            backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.05) !important; /* FIXED - very subtle */
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            /* Still no background since glass-stack is undefined */
+        }
+        
+        .improved-alert {
+            /* glass-stack + fixed border with !important */
+            backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.05) !important; /* FIXED - very subtle */
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            /* Still no background since glass-stack is undefined */
+        }
+
+        /* Job Type Icons */
+        .icon-bg {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(8px);
+        }
+    </style>
+</head>
+<body class="p-8">
+    <div class="max-w-7xl mx-auto">
+        <h1 class="text-4xl font-bold text-white text-center mb-8">
+            Glassmorphism Border Comparison
+        </h1>
+        
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <!-- CURRENT STYLES - SOLID BORDERS -->
+            <div class="space-y-6">
+                <h2 class="text-2xl font-bold text-white mb-4 text-center">
+                    Current: CSS --border Variable Override (Problem)
+                </h2>
+                
+                <!-- Main Card Container -->
+                <div class="current-card p-6 rounded-3xl">
+                    <h3 class="text-xl font-bold text-white mb-6">Car Count Analysis Results</h3>
+                    
+                    <!-- Metric Cards Grid -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                        <div class="current-metric rounded-2xl p-4 text-center">
+                            <div class="flex items-center justify-center gap-2 text-lg font-bold text-white mb-2">
+                                🚗 Total Vehicles
+                            </div>
+                            <span class="text-3xl font-bold text-white">24</span>
+                        </div>
+                        
+                        <div class="current-metric rounded-2xl p-4 text-center">
+                            <div class="flex items-center justify-center gap-2 text-lg font-bold text-white mb-2">
+                                📥 Entries
+                            </div>
+                            <span class="text-3xl font-bold text-white">18</span>
+                        </div>
+                        
+                        <div class="current-metric rounded-2xl p-4 text-center">
+                            <div class="flex items-center justify-center gap-2 text-lg font-bold text-white mb-2">
+                                📤 Exits  
+                            </div>
+                            <span class="text-3xl font-bold text-white">12</span>
+                        </div>
+                        
+                        <div class="current-metric rounded-2xl p-4 text-center">
+                            <div class="flex items-center justify-center gap-2 text-lg font-bold text-white mb-2">
+                                🅿️ License Plates
+                            </div>
+                            <span class="text-3xl font-bold text-white">8</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Alert Cards -->
+                    <div class="space-y-3">
+                        <h4 class="text-lg font-bold text-white">Recent Alerts</h4>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div class="current-alert rounded-2xl p-4 text-center min-h-[120px] flex flex-col justify-between">
+                                <div>
+                                    <div class="text-base font-semibold text-red-200 mb-2">HIGH TRAFFIC</div>
+                                    <div class="text-white text-base">Vehicle count exceeded threshold at entrance</div>
+                                </div>
+                                <div class="text-sm text-white/60 mt-3">2 minutes ago</div>
+                            </div>
+                            
+                            <div class="current-alert rounded-2xl p-4 text-center min-h-[120px] flex flex-col justify-between">
+                                <div>
+                                    <div class="text-base font-semibold text-yellow-200 mb-2">DETECTION</div>
+                                    <div class="text-white text-base">New license plate: ABC-1234</div>
+                                </div>
+                                <div class="text-sm text-white/60 mt-3">5 minutes ago</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- IMPROVED STYLES - ETHEREAL BORDERS -->
+            <div class="space-y-6">
+                <h2 class="text-2xl font-bold text-white mb-4 text-center">
+                    Fixed: !important Override (Proper Glassmorphism)
+                </h2>
+                
+                <!-- Main Card Container -->
+                <div class="improved-card p-6 rounded-3xl">
+                    <h3 class="text-xl font-bold text-white mb-6">Car Count Analysis Results</h3>
+                    
+                    <!-- Metric Cards Grid -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                        <div class="improved-metric rounded-2xl p-4 text-center">
+                            <div class="flex items-center justify-center gap-2 text-lg font-bold text-white mb-2">
+                                🚗 Total Vehicles
+                            </div>
+                            <span class="text-3xl font-bold text-white">24</span>
+                        </div>
+                        
+                        <div class="improved-metric rounded-2xl p-4 text-center">
+                            <div class="flex items-center justify-center gap-2 text-lg font-bold text-white mb-2">
+                                📥 Entries
+                            </div>
+                            <span class="text-3xl font-bold text-white">18</span>
+                        </div>
+                        
+                        <div class="improved-metric rounded-2xl p-4 text-center">
+                            <div class="flex items-center justify-center gap-2 text-lg font-bold text-white mb-2">
+                                📤 Exits  
+                            </div>
+                            <span class="text-3xl font-bold text-white">12</span>
+                        </div>
+                        
+                        <div class="improved-metric rounded-2xl p-4 text-center">
+                            <div class="flex items-center justify-center gap-2 text-lg font-bold text-white mb-2">
+                                🅿️ License Plates
+                            </div>
+                            <span class="text-3xl font-bold text-white">8</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Alert Cards -->
+                    <div class="space-y-3">
+                        <h4 class="text-lg font-bold text-white">Recent Alerts</h4>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div class="improved-alert rounded-2xl p-4 text-center min-h-[120px] flex flex-col justify-between">
+                                <div>
+                                    <div class="text-base font-semibold text-red-200 mb-2">HIGH TRAFFIC</div>
+                                    <div class="text-white text-base">Vehicle count exceeded threshold at entrance</div>
+                                </div>
+                                <div class="text-sm text-white/60 mt-3">2 minutes ago</div>
+                            </div>
+                            
+                            <div class="improved-alert rounded-2xl p-4 text-center min-h-[120px] flex flex-col justify-between">
+                                <div>
+                                    <div class="text-base font-semibold text-yellow-200 mb-2">DETECTION</div>
+                                    <div class="text-white text-base">New license plate: ABC-1234</div>
+                                </div>
+                                <div class="text-sm text-white/60 mt-3">5 minutes ago</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Comparison Summary -->
+        <div class="mt-12 p-6 rounded-3xl" style="backdrop-filter: blur(24px); background: rgba(255, 255, 255, 0.08);">
+            <h3 class="text-2xl font-bold text-white mb-4 text-center">Key Differences</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <h4 class="text-lg font-semibold text-red-300 mb-3">❌ Current Issues:</h4>
+                    <ul class="text-white/80 space-y-2">
+                        <li>• Sharp, defined border lines</li>
+                        <li>• Cards look "cut out" from background</li>
+                        <li>• Harsh separation between elements</li>
+                        <li>• Less ethereal, more "boxy" appearance</li>
+                        <li>• Solid white borders at 15% & 3% opacity</li>
+                    </ul>
+                </div>
+                <div>
+                    <h4 class="text-lg font-semibold text-green-300 mb-3">✅ Improved Benefits:</h4>
+                    <ul class="text-white/80 space-y-2">
+                        <li>• Soft, gradient-based edges</li>
+                        <li>• Cards appear to "float" naturally</li>
+                        <li>• Subtle outline hints for definition</li>
+                        <li>• True glassmorphism aesthetic</li>
+                        <li>• Better depth and layering perception</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

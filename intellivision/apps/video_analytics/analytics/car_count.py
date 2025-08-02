@@ -45,16 +45,19 @@ def create_progress_logger(job_id, total_items, job_type, logger_name=None):
             self.job_type = job_type
             self.logger = logging.getLogger(logger_name or job_type)
 
-        def update_progress(self, processed_count, status=None, force_log=False):
+        def update_progress(self, processed_count, status=None, force_log=False, processed_frames=None, total_frames=None):
             if self.job_id:
                 try:
-                    update_job_progress(self.job_id, processed_count, self.total_items)
+                    # Use frame progress if provided, otherwise use processed_count
+                    frames_processed = processed_frames if processed_frames is not None else processed_count
+                    frames_total = total_frames if total_frames is not None else self.total_items
+                    update_job_progress(self.job_id, frames_processed, frames_total, processed_frames=frames_processed, total_frames=frames_total)
                 except Exception as e:
                     self.logger.warning(f"Failed to update job progress: {e}")
             
             if force_log or processed_count % max(1, self.total_items // 10) == 0:
                 progress_pct = (processed_count / self.total_items * 100) if self.total_items > 0 else 0
-                self.logger.info(f"🎯 Job {self.job_id}: Progress {processed_count}/{self.total_items} ({progress_pct:.1f}%)")
+                self.logger.info(f"Job {self.job_id}: Progress {processed_count}/{self.total_items} ({progress_pct:.1f}%)")
 
         def log_completion(self, final_count=None):
             if self.job_id:
@@ -62,7 +65,7 @@ def create_progress_logger(job_id, total_items, job_type, logger_name=None):
                     update_job_progress(self.job_id, final_count or self.total_items, self.total_items)
                 except Exception as e:
                     self.logger.warning(f"Failed to update final job progress: {e}")
-            self.logger.info(f"✅ Job {self.job_id}: Completed {self.job_type}")
+            self.logger.info(f"Job {self.job_id}: Completed {self.job_type}")
 
     return SimpleProgressLogger(job_id, total_items, job_type, logger_name)
 
@@ -85,11 +88,11 @@ try:
     PLATE_MODEL = str(get_model_with_fallback("best_car"))
     CAR_MODEL = str(get_model_with_fallback("yolo11m_car"))
 
-    logger.info(f"✅ Resolved plate model: {PLATE_MODEL}")
-    logger.info(f"✅ Resolved car model: {CAR_MODEL}")
+    logger.info(f"Resolved plate model: {PLATE_MODEL}")
+    logger.info(f"Resolved car model: {CAR_MODEL}")
 
 except Exception as e:
-    logger.error(f"❌ Failed to resolve models with fallback: {e}")
+    logger.error(f"Failed to resolve models with fallback: {e}")
     # Fallback to old hardcoded paths as last resort
     BASE_DIR = Path(__file__).resolve().parent.parent.parent
     MODELS_DIR = BASE_DIR / 'video_analytics' / 'models'
@@ -132,22 +135,22 @@ try:
     sync_parking_processor = ParkingProcessor(str(PLATE_MODEL), str(CAR_MODEL), total_slots=total_slots)
     logger.info("Parking processor initialized successfully")
 
-    logger.info("✅ All ANPR processors initialized successfully")
+    logger.info("All ANPR processors initialized successfully")
 except FileNotFoundError as e:
-    logger.error(f"❌ Model files not found: {e}")
+    logger.error(f"Model files not found: {e}")
     sync_anpr_processor = None
     sync_parking_processor = None
-    logger.warning("⚠️ ANPR functionality disabled - model files missing")
+    logger.warning("ANPR functionality disabled - model files missing")
 except ImportError as e:
-    logger.error(f"❌ Required dependencies missing: {e}")
+    logger.error(f"Required dependencies missing: {e}")
     sync_anpr_processor = None
     sync_parking_processor = None
-    logger.warning("⚠️ ANPR functionality disabled - dependencies missing")
+    logger.warning("ANPR functionality disabled - dependencies missing")
 except Exception as e:
-    logger.error(f"❌ Failed to initialize ANPR processors: {e}")
+    logger.error(f"Failed to initialize ANPR processors: {e}")
     sync_anpr_processor = None
     sync_parking_processor = None
-    logger.warning("⚠️ ANPR functionality disabled - initialization failed")
+    logger.warning("ANPR functionality disabled - initialization failed")
     # Continue loading the module even if processors fail
 
 anpr_lock = Lock()
@@ -218,9 +221,15 @@ def recognize_number_plates(video_path: str, output_path: str = None, job_id: st
             output, summary = sync_anpr_processor.process_video(video_path, output_path)
 
         if output and os.path.exists(output):
-            # The processor has created the output file, use it directly
-            final_output_path = output
-            logger.info(f"✅ Plate recognition output created: {final_output_path}")
+            # The processor has created the output file, convert to web format
+            web_output_path = output.replace('.mp4', '_web.mp4')
+            if convert_to_web_mp4(output, web_output_path):
+                final_output_path = web_output_path
+                logger.info(f"Plate recognition output converted to web format: {final_output_path}")
+            else:
+                final_output_path = output
+                logger.warning(f"Web conversion failed, using original: {final_output_path}")
+            logger.info(f"Plate recognition output created: {final_output_path}")
         else:
             logger.error(f"Output video not created: {output}")
             return {
@@ -249,6 +258,8 @@ def recognize_number_plates(video_path: str, output_path: str = None, job_id: st
                 'fps': summary.get('processing_fps', 0),
                 'frame_count': summary.get('total_frames', 0)
             },
+            'processed_frames': summary.get('total_frames', 0),
+            'total_frames': summary.get('total_frames', 0),
             'error': None
         }
 
@@ -293,7 +304,7 @@ def analyze_parking_video(video_path: str, output_path: str = None, job_id: str 
 
     # Add job_id logging for progress tracking
     if job_id:
-        logger.info(f"🚀 Starting parking analysis video job {job_id}")
+        logger.info(f"Starting parking analysis video job {job_id}")
 
     is_valid, error_msg = validate_input_file(video_path)
     if not is_valid:
@@ -324,9 +335,15 @@ def analyze_parking_video(video_path: str, output_path: str = None, job_id: str 
             output, summary = sync_parking_processor.process_video(video_path, output_path)
 
         if output and os.path.exists(output):
-            # The processor has created the output file, use it directly
-            final_output_path = output
-            logger.info(f"✅ Parking analysis output created: {final_output_path}")
+            # The processor has created the output file, convert to web format
+            web_output_path = output.replace('.mp4', '_web.mp4')
+            if convert_to_web_mp4(output, web_output_path):
+                final_output_path = web_output_path
+                logger.info(f"Parking analysis output converted to web format: {final_output_path}")
+            else:
+                final_output_path = output
+                logger.warning(f"Web conversion failed, using original: {final_output_path}")
+            logger.info(f"Parking analysis output created: {final_output_path}")
         else:
             logger.error(f"Output video not created: {output}")
             return {
@@ -374,6 +391,8 @@ def analyze_parking_video(video_path: str, output_path: str = None, job_id: str 
                 'fps': summary.get('processing_fps', 0),
                 'frame_count': summary.get('total_frames', 0)
             },
+            'processed_frames': summary.get('total_frames', 0),
+            'total_frames': summary.get('total_frames', 0),
             'error': None
         }
 
@@ -418,7 +437,7 @@ def process_image_file(image_path: str, output_path: str = None, job_id: str = N
 
     # Add job_id logging for progress tracking
     if job_id:
-        logger.info(f"🚀 Starting car detection job {job_id}")
+        logger.info(f"Starting car detection job {job_id}")
 
     is_valid, error_msg = validate_input_file(image_path)
     if not is_valid:
@@ -450,7 +469,7 @@ def process_image_file(image_path: str, output_path: str = None, job_id: str = N
 
         if output and os.path.exists(output):
             final_output_path = output
-            logger.info(f"✅ Car detection completed, output saved to {final_output_path}")
+            logger.info(f"Car detection completed, output saved to {final_output_path}")
         else:
             logger.error(f"Output image not created: {output}")
             return {
@@ -480,6 +499,8 @@ def process_image_file(image_path: str, output_path: str = None, job_id: str = N
                 'fps': None,
                 'frame_count': 1
             },
+            'processed_frames': 1,
+            'total_frames': 1,
             'error': None
         }
 
@@ -1156,7 +1177,7 @@ def tracking_video_plate(input_path: str, output_path: str = None, job_id: str =
         Standardized response dictionary
     """
     start_time = time.time()
-    logger.info(f"🚀 Starting number plate recognition job {job_id}")
+    logger.info(f"Starting number plate recognition job {job_id}")
 
     ext = os.path.splitext(input_path)[1].lower()
     image_exts = ['.jpg', '.jpeg', '.png']
@@ -1169,9 +1190,9 @@ def tracking_video_plate(input_path: str, output_path: str = None, job_id: str =
             job_type="car-count"
         )
 
-        progress_logger.update_progress(0, status="Processing image...", force_log=True)
+        progress_logger.update_progress(0, status="Processing image...", processed_frames=0, total_frames=1, force_log=True)
         result = process_image_file(input_path, output_path, job_id)
-        progress_logger.update_progress(1, status="Analysis completed", force_log=True)
+        progress_logger.update_progress(1, status="Analysis completed", processed_frames=1, total_frames=1, force_log=True)
         progress_logger.log_completion(1)
     else:
         # Initialize progress logger for video processing
@@ -1181,9 +1202,9 @@ def tracking_video_plate(input_path: str, output_path: str = None, job_id: str =
             job_type="car-count"
         )
 
-        progress_logger.update_progress(0, status="Starting number plate recognition...", force_log=True)
+        progress_logger.update_progress(0, status="Starting number plate recognition...", processed_frames=0, total_frames=100, force_log=True)
         result = recognize_number_plates(input_path, output_path, job_id)
-        progress_logger.update_progress(100, status="Number plate recognition completed", force_log=True)
+        progress_logger.update_progress(100, status="Number plate recognition completed", processed_frames=100, total_frames=100, force_log=True)
         progress_logger.log_completion(100)
 
     processing_time = time.time() - start_time
@@ -1205,7 +1226,7 @@ def tracking_video_parking(input_path: str, output_path: str = None, job_id: str
         Standardized response dictionary
     """
     start_time = time.time()
-    logger.info(f"🚀 Starting parking analysis job {job_id}")
+    logger.info(f"Starting parking analysis job {job_id}")
 
     ext = os.path.splitext(input_path)[1].lower()
     image_exts = ['.jpg', '.jpeg', '.png']
@@ -1219,9 +1240,9 @@ def tracking_video_parking(input_path: str, output_path: str = None, job_id: str
             job_type="parking-analysis"
         )
 
-        progress_logger.update_progress(0, status="Processing image...", force_log=True)
+        progress_logger.update_progress(0, status="Processing image...", processed_frames=0, total_frames=1, force_log=True)
         result = process_image_file(input_path, output_path, job_id)
-        progress_logger.update_progress(1, status="Analysis completed", force_log=True)
+        progress_logger.update_progress(1, status="Analysis completed", processed_frames=1, total_frames=1, force_log=True)
         progress_logger.log_completion(1)
     else:
         # Initialize progress logger for video processing
@@ -1231,9 +1252,9 @@ def tracking_video_parking(input_path: str, output_path: str = None, job_id: str
             job_type="parking-analysis"
         )
 
-        progress_logger.update_progress(0, status="Starting parking analysis...", force_log=True)
+        progress_logger.update_progress(0, status="Starting parking analysis...", processed_frames=0, total_frames=100, force_log=True)
         result = analyze_parking_video(input_path, output_path, job_id)
-        progress_logger.update_progress(100, status="Parking analysis completed", force_log=True)
+        progress_logger.update_progress(100, status="Parking analysis completed", processed_frames=100, total_frames=100, force_log=True)
         progress_logger.log_completion(100)
 
     processing_time = time.time() - start_time

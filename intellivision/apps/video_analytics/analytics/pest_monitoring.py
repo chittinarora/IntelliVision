@@ -70,10 +70,10 @@ except ImportError:
                 self.logger = logging.getLogger(logger_name or job_type)
 
             def update_progress(self, processed_count, status=None, force_log=False):
-                self.logger.info(f"**Job {self.job_id}**: Progress {processed_count}/{self.total_items}")
+                self.logger.info(f"Job {self.job_id}: Progress {processed_count}/{self.total_items}")
 
             def log_completion(self, final_count=None):
-                self.logger.info(f"**Job {self.job_id}**: Completed {self.job_type}")
+                self.logger.info(f"Job {self.job_id}: Completed {self.job_type}")
 
         return DummyLogger(job_id, total_items, job_type, logger_name)
 
@@ -90,11 +90,11 @@ try:
     YOLO_MODEL_PATH = str(get_model_with_fallback("best_animal"))  # Use best_animal for wildlife detection
     REID_MODEL_PATH = str(get_model_with_fallback("osnet_reid"))
 
-    logger.info(f"✅ Resolved YOLO model: {YOLO_MODEL_PATH}")
-    logger.info(f"✅ Resolved Re-ID model: {REID_MODEL_PATH}")
+    logger.info(f"Resolved YOLO model: {YOLO_MODEL_PATH}")
+    logger.info(f"Resolved Re-ID model: {REID_MODEL_PATH}")
 
 except Exception as e:
-    logger.error(f"❌ Failed to resolve models with fallback: {e}")
+    logger.error(f"Failed to resolve models with fallback: {e}")
     # Fallback to old hardcoded paths as last resort
     BASE_DIR = Path(__file__).resolve().parent.parent.parent
     MODELS_DIR = BASE_DIR / 'video_analytics' / 'models'
@@ -129,9 +129,9 @@ if MONGODB_AVAILABLE:
         snake_collection = db["snake_detections"]
         # Test connection
         mongo_client.admin.command('ping')
-        logger.info("✅ MongoDB connection established")
+        logger.info("MongoDB connection established")
     except Exception as e:
-        logger.error(f"❌ MongoDB connection failed: {e}")
+        logger.error(f"MongoDB connection failed: {e}")
         MONGODB_AVAILABLE = False
         mongo_client = None
         db = None
@@ -158,9 +158,9 @@ def get_cached_model(model_type: str):
                 from .model_manager import get_model_with_fallback
                 model_path = str(get_model_with_fallback(model_type))
                 _model_cache[model_type] = YOLO(model_path)
-                logger.info(f"✅ Loaded and cached {model_type} model: {model_path}")
+                logger.info(f"Loaded and cached {model_type} model: {model_path}")
             except Exception as e:
-                logger.error(f"❌ Failed to load {model_type} model: {e}")
+                logger.error(f"Failed to load {model_type} model: {e}")
                 raise
         return _model_cache[model_type]
 
@@ -340,6 +340,8 @@ def detect_snakes_in_image(image_path: str, output_path: str = None, job_id: str
                 'fps': None,
                 'frame_count': 1
             },
+            'processed_frames': 1,
+            'total_frames': 1,
             'error': None
         }
     except Exception as e:
@@ -362,7 +364,7 @@ def detect_snakes_in_image(image_path: str, output_path: str = None, job_id: str
                 except Exception as e:
                     logger.warning(f"Failed to clean up temporary file {temp_file}: {e}")
 
-def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str = None) -> Dict:
+def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str = None, progress_logger=None) -> Dict:
     """
     Detect snakes in a video using YOLO and BotSort.
 
@@ -426,6 +428,7 @@ def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str
             frame_number = 0
             last_log_time = start_time
             alerts = []
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
             while cap.isOpened():
                 ret, frame = cap.read()
@@ -460,16 +463,24 @@ def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str
                 out.write(frame)
                 total_detected += len(tracks)
 
-                # Periodic logging with safe division
+                # Update progress logger with database fields for frontend
                 current_time = time.time()
-                total_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
-                if current_time - last_log_time >= 5 or frame_number == int(total_frames):
-                    # Safe progress calculation
+                if progress_logger and (current_time - last_log_time >= 5 or frame_number == total_frames):
+                    progress_logger.update_progress(
+                        frame_number, 
+                        status=f"Processing frame {frame_number}/{total_frames}",
+                        processed_frames=frame_number,
+                        total_frames=total_frames,
+                        force_log=True
+                    )
+                    last_log_time = current_time
+                elif current_time - last_log_time >= 5 or frame_number == total_frames:
+                    # Fallback logging when no progress_logger
                     progress = (frame_number / total_frames) * 100 if total_frames > 0 else 0
                     elapsed_time = current_time - start_time
                     time_remaining = (elapsed_time / frame_number) * (total_frames - frame_number) if frame_number > 0 and total_frames > 0 else 0
                     avg_fps = frame_number / elapsed_time if elapsed_time > 0 else 0
-                    logger.info(f"**Job {output_job_id}**: Progress **{progress:.1f}%** ({frame_number}/{int(total_frames)}), Status: Processing...")
+                    logger.info(f"**Job {output_job_id}**: Progress **{progress:.1f}%** ({frame_number}/{total_frames}), Status: Processing...")
                     logger.info(f"[{'#' * int(progress // 10)}{'-' * (10 - int(progress // 10))}] Done: {int(elapsed_time // 60):02d}:{int(elapsed_time % 60):02d} | Left: {int(time_remaining // 60):02d}:{int(time_remaining % 60):02d} | Avg FPS: {avg_fps:.1f}")
                     last_log_time = current_time
 
@@ -523,6 +534,8 @@ def detect_snakes_in_video(video_path: str, output_path: str = None, job_id: str
                     'fps': fps,
                     'frame_count': frame_number
                 },
+                'processed_frames': frame_number,
+                'total_frames': total_frames,
                 'error': None
             }
     except Exception as e:
@@ -616,17 +629,17 @@ def tracking_video(input_path: str, output_path: str = None, job_id: str = None)
         # Initialize progress logger for image processing
         progress_logger = initialize_progress_logger(job_id, "pest_monitoring", 1)
 
-        progress_logger.update_progress(0, status="Processing image for pest monitoring...", force_log=True)
+        progress_logger.update_progress(0, status="Processing image for pest monitoring...", processed_frames=0, total_frames=1, force_log=True)
         result = detect_snakes_in_image(input_path, output_path, job_id)
-        progress_logger.update_progress(1, status="Pest monitoring completed", force_log=True)
+        progress_logger.update_progress(1, status="Pest monitoring completed", processed_frames=1, total_frames=1, force_log=True)
         progress_logger.log_completion(1)
     else:
         # Initialize progress logger for video processing
         progress_logger = initialize_progress_logger(job_id, "pest_monitoring", 100)
 
-        progress_logger.update_progress(0, status="Starting video processing for pest monitoring...", force_log=True)
-        result = detect_snakes_in_video(input_path, output_path, job_id)
-        progress_logger.update_progress(100, status="Video processing completed", force_log=True)
+        progress_logger.update_progress(0, status="Starting video processing for pest monitoring...", processed_frames=0, total_frames=100, force_log=True)
+        result = detect_snakes_in_video(input_path, output_path, job_id, progress_logger)
+        progress_logger.update_progress(100, status="Video processing completed", processed_frames=100, total_frames=100, force_log=True)
         progress_logger.log_completion(100)
 
     processing_time = time.time() - start_time

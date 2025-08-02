@@ -50,7 +50,7 @@ try:
 except ImportError:
     MIDAS_AVAILABLE = False
 
-logger = logging.getLogger("dubs_people_counting_comprehensive")
+logger = logging.getLogger(__name__)
 
 # Import progress logger
 try:
@@ -136,13 +136,13 @@ class DepthEstimator:
         if device == 'auto':
             if torch.backends.mps.is_available():
                 self.device = torch.device('mps')
-                logger.info("🍎 Using MPS (Apple Silicon GPU) for acceleration")
+                logger.info("Using MPS (Apple Silicon GPU) for acceleration")
             elif torch.cuda.is_available():
                 self.device = torch.device('cuda:0')
-                logger.info("🚀 Using CUDA GPU for acceleration")
+                logger.info("Using CUDA GPU for acceleration")
             else:
                 self.device = torch.device('cpu')
-                logger.info("💻 Using CPU")
+                logger.info("Using CPU")
         else:
             self.device = torch.device(device)
 
@@ -159,7 +159,7 @@ class DepthEstimator:
             return
         if self._try_load_glpn():
             return
-        logger.warning("⚠️ All depth models failed. Using geometric fallback.")
+        logger.warning("All depth models failed. Using geometric fallback.")
         self.method = "geometric"
 
     def _try_load_midas(self):
@@ -407,13 +407,13 @@ class SmartAdaptiveDetector:
             logger.info("SUCCESS IN LOADING - YOLO")
         except Exception as e:
             self.yolo = None
-            logger.error(f"❌ Failed to load YOLO: {e}")
+            logger.error(f"Failed to load YOLO: {e}")
         try:
             self.rtdetr = RTDETR(RTDETR_MODEL_PATH)
             logger.info("SUCCESS IN LOADING - RT-DETR")
         except Exception as e:
             self.rtdetr = None
-            logger.error(f"❌ Failed to load RT-DETR: {e}")
+            logger.error(f"Failed to load RT-DETR: {e}")
 
     def choose_detection_strategy(self, depth_map):
         """Intelligently choose optimal detection strategy based on depth characteristics."""
@@ -446,7 +446,7 @@ class SmartAdaptiveDetector:
             strategy = "zone_based"
             reason = f"Mixed depths detected (std={depth_std:.2f}, range={depth_range:.2f})"
 
-        logger.info(f"🎯 Detection strategy: {strategy.upper()} - {reason}")
+        logger.info(f"Detection strategy: {strategy.upper()} - {reason}")
         return strategy
 
     def _extract_detections(self, results, conf_thresh):
@@ -725,7 +725,7 @@ class PostProcessingEngine:
         Returns:
             Tuple of (final_id_map, final_person_count)
         """
-        logger.info("🚀 Enhanced Post-Processing: Applying Lifetime Filter + Merging...")
+        logger.info("Enhanced Post-Processing: Applying Lifetime Filter + Merging...")
 
         if not track_history:
             return {}, 0
@@ -761,7 +761,7 @@ class PostProcessingEngine:
         # Phase 4: Apply merges and generate final IDs
         final_id_map, final_count = self._apply_merges_and_generate_ids(track_history, merge_map)
 
-        logger.info(f"✅ Enhanced post-processing complete: {len(track_history)} → {final_count} tracks after merging.")
+        logger.info(f"Enhanced post-processing complete: {len(track_history)} → {final_count} tracks after merging.")
         return final_id_map, final_count
 
     def _extract_and_average_features(self, track_history, tracker):
@@ -1053,13 +1053,13 @@ class DubsComprehensivePeopleCounting:
         if device == 'auto':
             if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
                 self.device = 'mps'
-                logger.info("🍎 Using MPS (Apple Silicon GPU) for acceleration")
+                logger.info("Using MPS (Apple Silicon GPU) for acceleration")
             elif torch.cuda.is_available():
                 self.device = 'cuda:0'  # Use proper CUDA device string
-                logger.info("🚀 Using CUDA GPU for acceleration")
+                logger.info("Using CUDA GPU for acceleration")
             else:
                 self.device = 'cpu'
-                logger.info("💻 Using CPU")
+                logger.info("Using CPU")
         else:
             self.device = str(device)
         logger.info(f"Using device: {self.device}")
@@ -1070,7 +1070,7 @@ class DubsComprehensivePeopleCounting:
 
         try:
             if use_reid:
-                logger.info("✅ Initializing BoTSORT with Re-ID enabled...")
+                logger.info("Initializing BoTSORT with Re-ID enabled...")
                 self.tracker = BotSort(
                     reid_weights=REID_MODEL_PATH,
                     device=self.device,
@@ -1080,7 +1080,7 @@ class DubsComprehensivePeopleCounting:
                 )
                 logger.info("SUCCESS IN LOADING - OSNET RE-ID")
             else:
-                logger.info("✅ Initializing ByteTrack (Re-ID disabled)...")
+                logger.info("Initializing ByteTrack (Re-ID disabled)...")
                 self.tracker = ByteTrack(
                     track_buffer=150,
                     match_thresh=0.65,
@@ -1088,7 +1088,7 @@ class DubsComprehensivePeopleCounting:
                 )
         except Exception as e:
             self.tracker = None
-            logger.error(f"❌ Failed to initialize tracker: {e}", exc_info=True)
+            logger.error(f"Failed to initialize tracker: {e}", exc_info=True)
 
     def process_video(self, video_path, output_path=None, results_path=None, use_post_process=False):
         # Handle both video files and image directories (MOT dataset support)
@@ -1101,7 +1101,7 @@ class DubsComprehensivePeopleCounting:
             frame = cv2.imread(image_files[0])
             height, width, _ = frame.shape
             fps = 25
-            logger.info(f"📂 Processing image sequence: {len(image_files)} images")
+            logger.info(f"Processing image sequence: {len(image_files)} images")
         else:
             cap = cv2.VideoCapture(video_path)
             if not cap.isOpened(): raise ValueError(f"Cannot open video: {video_path}")
@@ -1109,7 +1109,7 @@ class DubsComprehensivePeopleCounting:
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             fps = cap.get(cv2.CAP_PROP_FPS) or 25
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            logger.info(f"🎥 Processing video: {total_frames} frames at {fps} FPS")
+            logger.info(f"Processing video: {total_frames} frames at {fps} FPS")
 
         # PASS 1: ANALYSIS with Smart Adaptive Detection
         logger.info("--- Pass 1: Smart Adaptive Analysis ---")
@@ -1135,7 +1135,7 @@ class DubsComprehensivePeopleCounting:
             # Log depth method on first frame
             if depth_method_used is None:
                 depth_method_used = self.depth_estimator.method
-                logger.info(f"🎯 Using depth estimation method: {depth_method_used}")
+                logger.info(f"Using depth estimation method: {depth_method_used}")
 
             # Smart adaptive detection
             detections = self.detector.detect_smart_adaptive(frame, depth_map)
@@ -1235,9 +1235,9 @@ class DubsComprehensivePeopleCounting:
             final_id_map, final_count = processing_engine.process_tracks(
                 track_history_for_merge, fps, self.tracker
             )
-            logger.info(f"✅ Enhanced post-processing enabled: {len(track_history_for_merge)} → {final_count} tracks")
+            logger.info(f"Enhanced post-processing enabled: {len(track_history_for_merge)} → {final_count} tracks")
         else:
-            logger.info("⚠️ Skipping post-process merging.")
+            logger.info("Skipping post-process merging.")
             final_count = len(set(track['id'] for frame_data in all_tracks_by_frame.values() for track in frame_data))
             final_id_map = {i: i for i in range(1, final_count + 100)}
 
@@ -1338,18 +1338,18 @@ def main():
     if not args.results_output:
         output_path = next_sequential_name(args.output_dir)
 
-    print(f"🚀 Starting Dubs Comprehensive People Counting V1.0")
-    print(f"📹 Input: {args.video}")
-    if output_path: print(f"💾 Video Output: {output_path}")
-    if args.results_output: print(f"📝 MOT Results Output: {args.results_output}")
-    print(f"🔧 Device: {args.device}")
+    print(f"Starting Dubs Comprehensive People Counting V1.0")
+    print(f"Input: {args.video}")
+    if output_path: print(f"Video Output: {output_path}")
+    if args.results_output: print(f"MOT Results Output: {args.results_output}")
+    print(f"Device: {args.device}")
 
     reid_enabled = not args.disable_reid
-    if reid_enabled: print(f"🏃 Re-ID Mode: ON")
-    if args.post_process: print(f"🔄 Enhanced Post-Processing: ON")
-    if args.fast_mode: print(f"⚡ Fast Mode: ON (geometric depth)")
-    if args.debug: print(f"🐛 Debug Mode: ON")
-    print(f"🧠 Strategy: Smart Adaptive Detection + Enhanced Post-Processing")
+    if reid_enabled: print(f"Re-ID Mode: ON")
+    if args.post_process: print(f"Enhanced Post-Processing: ON")
+    if args.fast_mode: print(f"Fast Mode: ON (geometric depth)")
+    if args.debug: print(f"Debug Mode: ON")
+    print(f"Strategy: Smart Adaptive Detection + Enhanced Post-Processing")
     print("-" * 50)
 
     start_time = time.time()
@@ -1359,7 +1359,7 @@ def main():
         # Override depth method if fast mode requested
         if args.fast_mode:
             counter.depth_estimator.method = "geometric"
-            logger.info("⚡ Fast mode enabled - using geometric depth")
+            logger.info("Fast mode enabled - using geometric depth")
 
         results = counter.process_video(
             video_path=args.video,
@@ -1370,22 +1370,22 @@ def main():
         processing_time = time.time() - start_time
 
         print("-" * 50)
-        print(f"✅ SUCCESS! Processing completed in {processing_time:.2f} seconds")
-        print(f"🎯 Depth estimation method: {results['depth_method']}")
-        print(f"🧠 Detection strategies used: {', '.join(results.get('detection_strategies', ['unknown']))}")
-        print(f"👥 Final unique people count: {results['person_count']}")
-        print(f"📊 Raw detections (before post-processing): {results['raw_track_count']}")
-        print(f"🚀 Processing speed: {results['total_frames'] / processing_time:.1f} FPS")
-        if output_path: print(f"📁 Video saved to: {results['output_path']}")
-        if args.results_output: print(f"📝 MOT results saved to: {args.results_output}")
+        print(f"SUCCESS! Processing completed in {processing_time:.2f} seconds")
+        print(f"Depth estimation method: {results['depth_method']}")
+        print(f"Detection strategies used: {', '.join(results.get('detection_strategies', ['unknown']))}")
+        print(f"Final unique people count: {results['person_count']}")
+        print(f"Raw detections (before post-processing): {results['raw_track_count']}")
+        print(f"Processing speed: {results['total_frames'] / processing_time:.1f} FPS")
+        if output_path: print(f"Video saved to: {results['output_path']}")
+        if args.results_output: print(f"MOT results saved to: {args.results_output}")
 
         if results['depth_method'] == 'midas':
-            print(f"✅ MiDaS depth analysis: ACTIVE")
+            print(f"MiDaS depth analysis: ACTIVE")
         else:
-            print(f"⚡ Depth analysis: {results['depth_method'].upper()} FALLBACK")
+            print(f"Depth analysis: {results['depth_method'].upper()} FALLBACK")
 
     except Exception as e:
-        logger.error(f"❌ Processing failed: {e}", exc_info=True)
+        logger.error(f"Processing failed: {e}", exc_info=True)
         return 1
     return 0
 
@@ -1400,7 +1400,7 @@ PYTORCH_ENABLE_MPS_FALLBACK=1
 '''
 
 # --- INTEGRATION WRAPPER FOR CELERY TASKS ---
-def tracking_video(input_path: str, output_path: str) -> dict:
+def tracking_video(input_path: str, output_path: str, job_id: str = None) -> dict:
     """
     Wrapper for Celery integration. Uses Django storage pattern: input via default_storage, output to temp file.
     Args:
@@ -1411,7 +1411,19 @@ def tracking_video(input_path: str, output_path: str) -> dict:
     """
     import torch
     import tempfile
+    import time
     from django.core.files.storage import default_storage
+    from django.utils import timezone
+
+    start_time = time.time()
+    logger.info(f"Starting people count job {job_id}")
+
+    # Initialize progress logger
+    progress_logger = create_progress_logger(
+        job_id=str(job_id) if job_id else "0",
+        total_items=100,  # Estimate for video frames
+        job_type="people-count"
+    )
 
     # Device selection: prefer cuda > mps > cpu
     if torch.cuda.is_available():
@@ -1428,12 +1440,15 @@ def tracking_video(input_path: str, output_path: str) -> dict:
             tmp_input_path = tmp.name
 
     try:
+        progress_logger.update_progress(10, status="Starting people counting...", processed_frames=10, total_frames=100, force_log=True)
         counter = DubsComprehensivePeopleCounting(device=device, use_reid=DEFAULT_USE_REID)
+        progress_logger.update_progress(50, status="Processing video...", processed_frames=50, total_frames=100, force_log=True)
         results = counter.process_video(
             video_path=tmp_input_path,
             output_path=output_path,  # This is already a /tmp/ path from tasks.py
             use_post_process=DEFAULT_POST_PROCESS
         )
+        progress_logger.update_progress(90, status="Converting to web format...", processed_frames=90, total_frames=100, force_log=True)
 
         # Convert to web format if possible
         web_output_path = output_path.replace('.mp4', '_web.mp4')
@@ -1442,6 +1457,12 @@ def tracking_video(input_path: str, output_path: str) -> dict:
         else:
             final_output_path = results.get('output_path', output_path)
 
+        progress_logger.update_progress(100, status="People counting completed", processed_frames=100, total_frames=100, force_log=True)
+        progress_logger.log_completion(100)
+
+        # Add processing time and metadata
+        processing_time = time.time() - start_time
+        
         return {
             'status': 'completed',
             'job_type': 'people-count',
@@ -1454,8 +1475,27 @@ def tracking_video(input_path: str, output_path: str) -> dict:
                 'detection_strategies': results.get('detection_strategies', []),
                 'alerts': []
             },
-            'meta': {},
+            'meta': {
+                'timestamp': timezone.now().isoformat(),
+                'processing_time_seconds': processing_time,
+                'fps': results.get('fps', 0),
+                'frame_count': results.get('total_frames', 100)
+            },
+            'processed_frames': results.get('total_frames', 100),
+            'total_frames': results.get('total_frames', 100),
             'error': None
+        }
+
+    except Exception as e:
+        logger.exception(f"People counting failed: {str(e)}")
+        progress_logger.log_error(str(e))
+        return {
+            'status': 'failed',
+            'job_type': 'people-count',
+            'output_video': None,
+            'data': {'error': str(e), 'alerts': []},
+            'meta': {'timestamp': timezone.now().isoformat(), 'processing_time_seconds': time.time() - start_time},
+            'error': {'message': str(e), 'code': 'PROCESSING_ERROR'}
         }
 
     finally:

@@ -39,16 +39,19 @@ def create_progress_logger(job_id, total_items, job_type, logger_name=None):
             self.job_type = job_type
             self.logger = logging.getLogger(logger_name or job_type)
 
-        def update_progress(self, processed_count, status=None, force_log=False):
+        def update_progress(self, processed_count, status=None, force_log=False, processed_frames=None, total_frames=None):
             if self.job_id:
                 try:
-                    update_job_progress(self.job_id, processed_count, self.total_items)
+                    # Use frame progress if provided, otherwise use processed_count
+                    frames_processed = processed_frames if processed_frames is not None else processed_count
+                    frames_total = total_frames if total_frames is not None else self.total_items
+                    update_job_progress(self.job_id, frames_processed, frames_total, processed_frames=frames_processed, total_frames=frames_total)
                 except Exception as e:
                     self.logger.warning(f"Failed to update job progress: {e}")
             
             if force_log or processed_count % max(1, self.total_items // 10) == 0:
                 progress_pct = (processed_count / self.total_items * 100) if self.total_items > 0 else 0
-                self.logger.info(f"🚨 Job {self.job_id}: Progress {processed_count}/{self.total_items} ({progress_pct:.1f}%)")
+                self.logger.info(f"Job {self.job_id}: Progress {processed_count}/{self.total_items} ({progress_pct:.1f}%)")
 
         def log_completion(self, final_count=None):
             if self.job_id:
@@ -56,10 +59,10 @@ def create_progress_logger(job_id, total_items, job_type, logger_name=None):
                     update_job_progress(self.job_id, final_count or self.total_items, self.total_items)
                 except Exception as e:
                     self.logger.warning(f"Failed to update final job progress: {e}")
-            self.logger.info(f"✅ Job {self.job_id}: Completed {self.job_type}")
+            self.logger.info(f"Job {self.job_id}: Completed {self.job_type}")
 
         def log_error(self, error_message):
-            self.logger.error(f"❌ Job {self.job_id}: Error - {error_message}")
+            self.logger.error(f"Job {self.job_id}: Error - {error_message}")
 
     return SimpleProgressLogger(job_id, total_items, job_type, logger_name)
 
@@ -121,7 +124,7 @@ class EnhancedCleanAnalyzer:
             orientation = self._determine_line_orientation(coords[0], coords[1])
             self.line_orientations[line_name] = orientation
             self.line_in_directions[line_name] = line_data.get('inDirection', 'UP')
-            logger.info(f"📏 {line_name}: {orientation} line detected, in_direction={self.line_in_directions[line_name]}")
+            logger.info(f"{line_name}: {orientation} line detected, in_direction={self.line_in_directions[line_name]}")
 
     def _determine_line_orientation(self, start_point, end_point):
         """
@@ -204,11 +207,11 @@ class EnhancedCleanAnalyzer:
                 if travel_direction == self.line_in_directions[line_name]:
                     self.clean_in_count += 1
                     logger.info(
-                        f"✅ CLEAN IN count: Track {track_id} (moved {crossing_dist:.1f}px). Total: {self.clean_in_count}")
+                        f"CLEAN IN count: Track {track_id} (moved {crossing_dist:.1f}px). Total: {self.clean_in_count}")
                 else:
                     self.clean_out_count += 1
                     logger.info(
-                        f"❌ CLEAN OUT count: Track {track_id} (moved {crossing_dist:.1f}px). Total: {self.clean_out_count}")
+                        f"CLEAN OUT count: Track {track_id} (moved {crossing_dist:.1f}px). Total: {self.clean_out_count}")
                 crossing_made = True
                 break
 
@@ -221,10 +224,10 @@ class EnhancedCleanAnalyzer:
 
                 if travel_direction == self.line_in_directions[line_name]:
                     self.clean_in_count += 1
-                    logger.info(f"✅ CLEAN IN count (Lenient): Track {track_id}. Total: {self.clean_in_count}")
+                    logger.info(f"CLEAN IN count (Lenient): Track {track_id}. Total: {self.clean_in_count}")
                 else:
                     self.clean_out_count += 1
-                    logger.info(f"❌ CLEAN OUT count (Lenient): Track {track_id}. Total: {self.clean_out_count}")
+                    logger.info(f"CLEAN OUT count (Lenient): Track {track_id}. Total: {self.clean_out_count}")
                 crossing_made = True
                 break
 
@@ -241,19 +244,19 @@ class EnhancedCleanAnalyzer:
                         in_direction = self.line_in_directions[line_name]
                         if in_direction in ["UP", "DOWN", "LR", "RL"]:
                             self.clean_in_count += 1
-                            logger.info(f"✅ CLEAN IN count (Proximity): Track {track_id}. Total: {self.clean_in_count}")
+                            logger.info(f"CLEAN IN count (Proximity): Track {track_id}. Total: {self.clean_in_count}")
                         else:
                             self.clean_out_count += 1
-                            logger.info(f"❌ CLEAN OUT count (Proximity): Track {track_id}. Total: {self.clean_out_count}")
+                            logger.info(f"CLEAN OUT count (Proximity): Track {track_id}. Total: {self.clean_out_count}")
                     else:
                         # For proximity rule, use the inDirection to determine if movement is "in"
                         in_direction = self.line_in_directions[line_name]
                         if in_direction in ["UP", "DOWN", "LR", "RL"]:
                             self.clean_in_count += 1
-                            logger.info(f"✅ CLEAN IN count (Proximity): Track {track_id}. Total: {self.clean_in_count}")
+                            logger.info(f"CLEAN IN count (Proximity): Track {track_id}. Total: {self.clean_in_count}")
                         else:
                             self.clean_out_count += 1
-                            logger.info(f"❌ CLEAN OUT count (Proximity): Track {track_id}. Total: {self.clean_out_count}")
+                            logger.info(f"CLEAN OUT count (Proximity): Track {track_id}. Total: {self.clean_out_count}")
                     crossing_made = True
                     break
 
@@ -362,16 +365,16 @@ def run_optimal_yolov11x_counting(video_path: str, line_definitions: dict, outpu
 
     params = custom_params if custom_params else OptimalParams()
 
-    logger.info("🚀 RUNNING OPTIMAL YOLOv11x PEOPLE COUNTING")
+    logger.info("RUNNING OPTIMAL YOLOv11x PEOPLE COUNTING")
     params.log_params()
 
     # Debug: Validate line_definitions parameter
-    logger.info(f"🔍 Received line_definitions: type={type(line_definitions)}, count={len(line_definitions) if line_definitions else 0}")
+    logger.info(f"Received line_definitions: type={type(line_definitions)}, count={len(line_definitions) if line_definitions else 0}")
     if line_definitions:
         for name, data in line_definitions.items():
             logger.info(f"   {name}: {data}")
     else:
-        logger.error("❌ line_definitions is None or empty!")
+        logger.error("line_definitions is None or empty!")
         return {
             'status': 'failed',
             'job_type': 'emergency_count',
@@ -384,7 +387,7 @@ def run_optimal_yolov11x_counting(video_path: str, line_definitions: dict, outpu
     # Load YOLOv11x model using model manager for proper path resolution
     from .model_manager import get_model_with_fallback
     model = load_yolo_model(str(get_model_with_fallback("yolov11x")))
-    logger.info("🔧 Using YOLOv11x (Optimal Configuration)")
+    logger.info("Using YOLOv11x (Optimal Configuration)")
 
     # Device for YOLO model
     device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
@@ -448,7 +451,7 @@ def run_optimal_yolov11x_counting(video_path: str, line_definitions: dict, outpu
 
     # Debug: Check if video writer was initialized successfully
     if not writer.isOpened():
-        logger.error(f"❌ Failed to initialize video writer for {output_name}")
+        logger.error(f"Failed to initialize video writer for {output_name}")
         return {
             'status': 'failed',
             'job_type': 'emergency_count',
@@ -458,7 +461,7 @@ def run_optimal_yolov11x_counting(video_path: str, line_definitions: dict, outpu
             'error': {'message': 'Failed to initialize video writer', 'code': 'VIDEO_WRITER_ERROR'}
         }
     else:
-        logger.info(f"✅ Video writer initialized successfully: {output_name}")
+        logger.info(f"Video writer initialized successfully: {output_name}")
         logger.info(f"   Resolution: {video_info.resolution_wh}")
         logger.info(f"   FPS: {video_info.fps}")
         logger.info(f"   Total frames: {video_info.total_frames}")
@@ -521,7 +524,7 @@ def run_optimal_yolov11x_counting(video_path: str, line_definitions: dict, outpu
 
             # Debug: Log line definitions for first frame only
             if frame_number == 1:
-                logger.info(f"🔍 Drawing lines - line_definitions count: {len(line_definitions)}")
+                logger.info(f"Drawing lines - line_definitions count: {len(line_definitions)}")
                 for name, data in line_definitions.items():
                     logger.info(f"   {name}: {data}")
 
@@ -529,7 +532,7 @@ def run_optimal_yolov11x_counting(video_path: str, line_definitions: dict, outpu
                 try:
                     # Validate data structure
                     if 'coords' not in data or len(data['coords']) != 2:
-                        logger.warning(f"⚠️ Invalid line data for {name}: {data}")
+                        logger.warning(f"Invalid line data for {name}: {data}")
                         continue
 
                     pt1 = list(map(int, data['coords'][0]))
@@ -537,12 +540,12 @@ def run_optimal_yolov11x_counting(video_path: str, line_definitions: dict, outpu
 
                     # Validate coordinate format
                     if len(pt1) != 2 or len(pt2) != 2:
-                        logger.warning(f"⚠️ Invalid coordinates for {name}: pt1={pt1}, pt2={pt2}")
+                        logger.warning(f"Invalid coordinates for {name}: pt1={pt1}, pt2={pt2}")
                         continue
 
                     # Validate coordinates are reasonable (not negative or extremely large)
                     if any(coord < -1000 or coord > 10000 for coord in pt1 + pt2):
-                        logger.warning(f"⚠️ Coordinates out of reasonable range for {name}: pt1={pt1}, pt2={pt2}")
+                        logger.warning(f"Coordinates out of reasonable range for {name}: pt1={pt1}, pt2={pt2}")
                         continue
 
                     # Clamp coordinates to frame bounds
@@ -582,15 +585,15 @@ def run_optimal_yolov11x_counting(video_path: str, line_definitions: dict, outpu
 
                     # Debug: Log successful line drawing for first frame
                     if frame_number == 1:
-                        logger.info(f"✅ Drew line {name}: {pt1} -> {pt2}, color={color}")
+                        logger.info(f"Drew line {name}: {pt1} -> {pt2}, color={color}")
 
                 except Exception as e:
-                    logger.error(f"❌ Error drawing line {name}: {e}")
+                    logger.error(f"Error drawing line {name}: {e}")
                     continue
 
             # Debug: If no lines were drawn, draw a fallback line
             if frame_number == 1 and not any('coords' in data for data in line_definitions.values()):
-                logger.warning("⚠️ No valid lines found, drawing fallback line")
+                logger.warning("No valid lines found, drawing fallback line")
                 cv2.line(annotated_frame, (50, 50), (250, 50), (255, 0, 0), 5)  # Blue horizontal line
                 cv2.putText(annotated_frame, "FALLBACK LINE", (100, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 0, 0), 2)
 
@@ -608,7 +611,7 @@ def run_optimal_yolov11x_counting(video_path: str, line_definitions: dict, outpu
 
             # Debug: Draw a test line to verify drawing functionality
             if frame_number == 1:
-                logger.info("🔍 Drawing test line to verify functionality")
+                logger.info("Drawing test line to verify functionality")
                 cv2.line(annotated_frame, (100, 100), (300, 100), (0, 255, 0), 5)  # Green horizontal line
                 cv2.putText(annotated_frame, "TEST LINE", (150, 80), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
 
@@ -633,7 +636,7 @@ def run_optimal_yolov11x_counting(video_path: str, line_definitions: dict, outpu
     # Results logging with safe handling for possible None values and detailed comments
 
     # Log the results of the optimal YOLOv11x analysis
-    logger.info("\n📊 OPTIMAL YOLOV11x RESULTS:")
+    logger.info("\nOPTIMAL YOLOV11x RESULTS:")
 
     # Safely compute totals, treating None as 0 to avoid TypeError
     safe_fast_in = fast_in if fast_in is not None else 0
@@ -641,7 +644,7 @@ def run_optimal_yolov11x_counting(video_path: str, line_definitions: dict, outpu
     total_fast = safe_fast_in + safe_fast_out
 
     logger.info(
-        f"🚀 Real-time Counter -> IN: {safe_fast_in} | OUT: {safe_fast_out} | Total: {total_fast}"
+        f"Real-time Counter -> IN: {safe_fast_in} | OUT: {safe_fast_out} | Total: {total_fast}"
     )
 
     # Safely compute clean counter totals
@@ -650,11 +653,11 @@ def run_optimal_yolov11x_counting(video_path: str, line_definitions: dict, outpu
     total_clean = safe_clean_in + safe_clean_out
 
     logger.info(
-        f"✨ Clean Counter    -> IN: {safe_clean_in} | OUT: {safe_clean_out} | Total: {total_clean}"
+        f"Clean Counter    -> IN: {safe_clean_in} | OUT: {safe_clean_out} | Total: {total_clean}"
     )
 
     # Log the final output video path
-    logger.info(f"📹 Output video saved to: {final_output_path}")
+    logger.info(f"Output video saved to: {final_output_path}")
 
     # Return a unified result dictionary
     return {
@@ -668,7 +671,13 @@ def run_optimal_yolov11x_counting(video_path: str, line_definitions: dict, outpu
             'fast_out_count': fast_out,
             'alerts': [],
         },
-        'meta': {},
+        'meta': {
+            'frame_count': frame_count,
+            'total_frames': video_info.total_frames,
+            'fps': video_info.fps
+        },
+        'processed_frames': frame_count,
+        'total_frames': video_info.total_frames,
         'error': None
     }
 
@@ -784,11 +793,11 @@ def tracking_video(input_path: str, output_path: str, emergency_lines: dict = No
             tmp_input_path = tmp.name
 
     try:
-        progress_logger.update_progress(0, status="Starting emergency counting...", force_log=True)
+        progress_logger.update_progress(0, status="Starting emergency counting...", processed_frames=0, total_frames=100, force_log=True)
 
         # Validate emergency_lines parameter
         if not emergency_lines:
-            logger.error("❌ No emergency_lines provided")
+            logger.error("No emergency_lines provided")
             return {
                 'status': 'failed',
                 'job_type': 'emergency_count',
@@ -804,7 +813,7 @@ def tracking_video(input_path: str, output_path: str, emergency_lines: dict = No
         if isinstance(emergency_lines, list):
             # Validate list has exactly 2 lines
             if len(emergency_lines) != 2:
-                logger.error(f"❌ Expected exactly 2 emergency lines, got {len(emergency_lines)}")
+                logger.error(f"Expected exactly 2 emergency lines, got {len(emergency_lines)}")
                 return {
                     'status': 'failed',
                     'job_type': 'emergency_count',
@@ -887,13 +896,13 @@ def tracking_video(input_path: str, output_path: str, emergency_lines: dict = No
             }
 
         # Log the converted line definitions for debugging
-        logger.info(f"✅ Converted line_definitions:")
+        logger.info(f"Converted line_definitions:")
         for line_name, line_data in line_definitions.items():
             logger.info(f"   {line_name}: coords={line_data['coords']}, inDirection={line_data['inDirection']}")
 
         # Validate line_definitions before passing to main function
         if not line_definitions:
-            logger.error("❌ line_definitions is empty after conversion")
+            logger.error("line_definitions is empty after conversion")
             return {
                 'status': 'failed',
                 'job_type': 'emergency_count',
@@ -903,23 +912,27 @@ def tracking_video(input_path: str, output_path: str, emergency_lines: dict = No
                 'error': {'message': 'No valid line definitions found', 'code': 'EMPTY_LINE_DEFINITIONS'}
             }
 
-        progress_logger.update_progress(50, status="Processing video frames...", force_log=True)
+        progress_logger.update_progress(50, status="Processing video frames...", processed_frames=50, total_frames=100, force_log=True)
 
         # Pass all arguments to the main function
-        logger.info(f"🚀 Calling run_optimal_yolov11x_counting with {len(line_definitions)} line definitions")
+        logger.info(f"Calling run_optimal_yolov11x_counting with {len(line_definitions)} line definitions")
         result = run_optimal_yolov11x_counting(
             video_path=tmp_input_path,  # Use temporary file path
             line_definitions=line_definitions,
             output_path=output_path,  # Pass output path for consistency
         )
 
-        progress_logger.update_progress(100, status="Emergency counting completed", force_log=True)
+        progress_logger.update_progress(100, status="Emergency counting completed", processed_frames=100, total_frames=100, force_log=True)
         progress_logger.log_completion(100)
 
         # Add processing time to meta
         processing_time = time.time() - start_time
         result['meta']['processing_time_seconds'] = processing_time
         result['meta']['timestamp'] = timezone.now().isoformat()
+        
+        # Add progress fields for frontend compatibility
+        result['processed_frames'] = result.get('meta', {}).get('frame_count', 100)
+        result['total_frames'] = result.get('meta', {}).get('frame_count', 100)
 
         return result
 
