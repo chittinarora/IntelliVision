@@ -40,7 +40,7 @@ from .rate_limiting import check_resource_availability, acquire_job_slot, releas
 logger = logging.getLogger(__name__)
 
 # Valid file extensions and size limit (now handled by job-type-specific validation)
-VALID_EXTENSIONS = {'.mp4', '.jpg', '.jpeg', '.png'}  # Legacy - job-specific validation in utils.py
+VALID_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.m4v', '.wmv', '.mpg', '.mpeg', '.3gp', '.jpg', '.jpeg', '.png'}  # Legacy - job-specific validation in utils.py
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
 
 """

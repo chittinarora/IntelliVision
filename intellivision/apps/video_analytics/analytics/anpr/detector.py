@@ -20,7 +20,7 @@ except ImportError:
         pass
 
 # Configure logging
-logger = logging.getLogger("anpr.detector")
+logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 handler = logging.StreamHandler()
 formatter = logging.Formatter('%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d - %(message)s')

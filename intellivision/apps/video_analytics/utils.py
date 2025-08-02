@@ -177,7 +177,7 @@ def validate_file_upload(file_obj, max_size: int = 500 * 1024 * 1024, valid_exte
 
 # Define job-type-specific file requirements
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
-VIDEO_EXTENSIONS = {'.mp4'}
+VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.m4v', '.wmv', '.mpg', '.mpeg', '.3gp'}
 ALL_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
 
 JOB_TYPE_FILE_REQUIREMENTS = {
@@ -191,40 +191,40 @@ JOB_TYPE_FILE_REQUIREMENTS = {
     },
     'room-readiness': {
         'allowed_extensions': ALL_EXTENSIONS,
-        'description': 'videos (MP4) or images (JPG, JPEG, PNG)'
+        'description': 'videos (MP4, AVI, MOV, MKV, WebM, etc.) or images (JPG, JPEG, PNG)'
     },
     'wildlife-detection': {
         'allowed_extensions': ALL_EXTENSIONS,
-        'description': 'videos (MP4) or images (JPG, JPEG, PNG)'
+        'description': 'videos (MP4, AVI, MOV, MKV, WebM, etc.) or images (JPG, JPEG, PNG)'
     },
     'people_count': {
         'allowed_extensions': ALL_EXTENSIONS,
-        'description': 'videos (MP4) or images (JPG, JPEG, PNG)'
+        'description': 'videos (MP4, AVI, MOV, MKV, WebM, etc.) or images (JPG, JPEG, PNG)'
     },
     'emergency_count': {
         'allowed_extensions': VIDEO_EXTENSIONS,
-        'description': 'videos (MP4)'
+        'description': 'videos (MP4, AVI, MOV, MKV, WebM, etc.)'
     },
     'car-count': {
         'allowed_extensions': ALL_EXTENSIONS,
-        'description': 'videos (MP4) or images (JPG, JPEG, PNG)'
+        'description': 'videos (MP4, AVI, MOV, MKV, WebM, etc.) or images (JPG, JPEG, PNG)'
     },
     'parking-analysis': {
         'allowed_extensions': VIDEO_EXTENSIONS,
-        'description': 'videos (MP4)'
+        'description': 'videos (MP4, AVI, MOV, MKV, WebM, etc.)'
     },
     'pest_monitoring': {
         'allowed_extensions': ALL_EXTENSIONS,
-        'description': 'videos (MP4) or images (JPG, JPEG, PNG)'
+        'description': 'videos (MP4, AVI, MOV, MKV, WebM, etc.) or images (JPG, JPEG, PNG)'
     },
     'lobby_detection': {
         'allowed_extensions': VIDEO_EXTENSIONS,
-        'description': 'videos (MP4)'
+        'description': 'videos (MP4, AVI, MOV, MKV, WebM, etc.)'
     },
     # Default for other job types (video-only)
     'default': {
         'allowed_extensions': VIDEO_EXTENSIONS,
-        'description': 'videos (MP4)'
+        'description': 'videos (MP4, AVI, MOV, MKV, WebM, etc.)'
     }
 }
 

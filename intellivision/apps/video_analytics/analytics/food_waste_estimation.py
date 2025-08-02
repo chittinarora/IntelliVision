@@ -51,7 +51,7 @@ except ImportError:
                 self.logger.info(f"**Job {self.job_id}**: Completed {self.job_type}")
 
         return DummyLogger(job_id, total_items, job_type, logger_name)
-VALID_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.mp4'}  # Added .mp4 for video support
+VALID_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.m4v', '.wmv', '.mpg', '.mpeg', '.3gp'}  # Added video support
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
 OUTPUT_DIR = Path(settings.JOB_OUTPUT_DIR)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

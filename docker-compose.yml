@@ -9,10 +9,16 @@ services:
       - POSTGRES_DB=${POSTGRES_DB:-intellivision}
       - POSTGRES_USER=${POSTGRES_USER:-adminvision}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_SHARED_BUFFERS=512MB
+      - POSTGRES_EFFECTIVE_CACHE_SIZE=1500MB
+      - POSTGRES_WORK_MEM=32MB
+      - POSTGRES_MAINTENANCE_WORK_MEM=128MB
+      - POSTGRES_WAL_BUFFERS=16MB
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    shm_size: 1G
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -22,8 +28,12 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.4"
-          memory: 512M
+          cpus: "0.5"
+          memory: 2.5G
+        reservations:
+          cpus: "0.25"
+          memory: 1.5G
+    restart: unless-stopped
 
   redis:
     image: redis:7
@@ -38,8 +48,12 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.3"
+          cpus: "0.5"
+          memory: 1G
+        reservations:
+          cpus: "0.25"
           memory: 512M
+    restart: unless-stopped
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -56,8 +70,12 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.1"
+          cpus: "0.5"
+          memory: 500M
+        reservations:
+          cpus: "0.25"
           memory: 256M
+    restart: unless-stopped
 
   web:
     build:
@@ -83,9 +101,10 @@ services:
       resources:
         limits:
           cpus: "1.5"
-          memory: 6G
+          memory: 5G
         reservations:
-          memory: 2G
+          cpus: "1"
+          memory: 3G
     command: sh -c "/usr/local/bin/gunicorn intellivision.wsgi:application --bind 0.0.0.0:8001 --workers 2 --max-requests 100 --max-requests-jitter 10 --timeout 120 --keep-alive 5"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health/"]
@@ -117,7 +136,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: celery -A intellivision worker --loglevel=warning --concurrency=3
+    command: celery -A intellivision worker --loglevel=warning --concurrency=5
     volumes:
       - shared-tmp:/tmp
       - ./intellivision/media:/app/intellivision/media # Mount to where Apache expects files
@@ -159,9 +178,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2.8"
-          memory: 16G
+          cpus: "4"
+          memory: 17G
         reservations:
+          cpus: "3"
+          memory: 12G
           devices:
             - driver: nvidia
               count: all

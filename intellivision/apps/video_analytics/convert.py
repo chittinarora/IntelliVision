@@ -12,7 +12,7 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
-VALID_EXTENSIONS = {'.mp4', '.avi', '.mov', '.webm', '.jpg', '.jpeg', '.png'}
+VALID_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.m4v', '.wmv', '.mpg', '.mpeg', '.3gp', '.jpg', '.jpeg', '.png'}
 
 
 def convert_to_web_mp4(input_file: str, output_file: str) -> bool:

@@ -77,7 +77,7 @@ except ImportError:
 
         return DummyLogger(job_id, total_items, job_type, logger_name)
 
-VALID_EXTENSIONS = {'.mp4', '.jpg', '.jpeg', '.png'}
+VALID_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.m4v', '.wmv', '.mpg', '.mpeg', '.3gp', '.jpg', '.jpeg', '.png'}
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
 
 # ======================================

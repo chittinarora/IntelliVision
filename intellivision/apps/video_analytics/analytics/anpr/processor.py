@@ -20,7 +20,7 @@ from django.conf import settings
 load_dotenv()
 
 # Configure logging
-logger = logging.getLogger("anpr.processor")
+logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 handler = logging.StreamHandler()
 formatter = logging.Formatter('%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d - %(message)s')
@@ -64,8 +64,8 @@ class ANPRProcessor:
             logger.error(f"Car model not found: {car_model_path}")
             raise FileNotFoundError(f"Car model not found: {car_model_path}")
 
-        logger.info(f"✅ Initializing ANPR processor with plate model: {plate_model_path}")
-        logger.info(f"✅ Initializing ANPR processor with car model: {car_model_path}")
+        logger.info(f"Initializing ANPR processor with plate model: {plate_model_path}")
+        logger.info(f"Initializing ANPR processor with car model: {car_model_path}")
 
         # Initialize detectors, OCR, and tracker
         self.plate_detector = LicensePlateDetector(plate_model_path, freeze_conf=self.LOCK_CONF_THRESHOLD)
@@ -597,8 +597,8 @@ class ParkingProcessor:
             logger.error(f"Car model not found: {car_model_path}")
             raise FileNotFoundError(f"Car model not found: {car_model_path}")
 
-        logger.info(f"✅ Initializing parking processor with plate model: {plate_model_path}")
-        logger.info(f"✅ Initializing parking processor with car model: {car_model_path}")
+        logger.info(f"Initializing parking processor with plate model: {plate_model_path}")
+        logger.info(f"Initializing parking processor with car model: {car_model_path}")
 
         # Initialize detectors
         self.plate_detector = LicensePlateDetector(plate_model_path)

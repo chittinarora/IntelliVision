@@ -266,13 +266,13 @@ Configures Celery for task processing, optimized for Tesla P100 GPU, 6 vCPUs, 27
 
 CELERY_BROKER_URL = os.environ.get('REDIS_URL', 'redis://redis:6379/0')
 CELERY_RESULT_BACKEND = os.environ.get('REDIS_URL', 'redis://redis:6379/0')
-CELERY_WORKER_PREFETCH_MULTIPLIER = 2  # Reduced for GPU memory management
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # Prevent memory hoarding
 CELERY_TASK_ACKS_LATE = True
 CELERY_WORKER_MAX_TASKS_PER_CHILD = 50  # Lower for GPU memory cleanup
-CELERY_WORKER_MAX_MEMORY_PER_CHILD = 5000000  # 5GB per worker (3 workers * 5GB = 15GB)
+CELERY_WORKER_MAX_MEMORY_PER_CHILD = 3400000  # 3.4GB per worker (5 workers * 3.4GB = 17GB)
 CELERY_TASK_TIME_LIMIT = 7200  # 2 hours for complex GPU processing
 CELERY_TASK_SOFT_TIME_LIMIT = 6600  # 110 minutes soft limit
-CELERY_WORKER_CONCURRENCY = 3  # 3 concurrent jobs for 3 vCPUs
+CELERY_WORKER_CONCURRENCY = 5  # 5 concurrent jobs for 6 vCPUs with new memory allocation
 CELERY_TASK_ALWAYS_EAGER = False
 CELERY_WORKER_DISABLE_RATE_LIMITS = True
 CELERY_TASK_ROUTES = {
@@ -533,7 +533,7 @@ FRAME_SKIP_THRESHOLD = 1  # Process every frame for Tesla P100 performance
 GPU_MEMORY_FRACTION = 0.8  # Use 80% of GPU memory
 
 # Resource management
-MAX_CONCURRENT_JOBS = 6  # Reduced from 10 to 6 for better memory management
+MAX_CONCURRENT_JOBS = 5  # Aligned with 5 Celery workers and 17GB memory limit
 
 # Memory management for web workers
 import gc

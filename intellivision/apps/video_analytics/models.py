@@ -505,12 +505,12 @@ class VideoJob(models.Model):
     )
     input_video = models.FileField(
         upload_to='uploads/',
-        validators=[FileExtensionValidator(['mp4', 'jpg', 'jpeg', 'png'])],
+        validators=[FileExtensionValidator(['mp4', 'avi', 'mov', 'mkv', 'webm', 'flv', 'm4v', 'wmv', 'mpg', 'mpeg', '3gp', 'jpg', 'jpeg', 'png'])],
         help_text="Input video or image file."
     )
     output_video = models.FileField(
         upload_to='outputs/', null=True, blank=True,
-        validators=[FileExtensionValidator(['mp4', 'webm', 'mov'])],
+        validators=[FileExtensionValidator(['mp4', 'avi', 'mov', 'mkv', 'webm', 'flv', 'm4v', 'wmv', 'mpg', 'mpeg', '3gp'])],
         help_text="Output video file."
     )
     output_image = models.ImageField(

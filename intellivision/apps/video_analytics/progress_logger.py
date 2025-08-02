@@ -31,7 +31,7 @@ class ProgressLogger:
         self.status = "Initializing..."
         self.log_section("Job started")
 
-    def update_progress(self, processed_count: int, status: str = None, force_log: bool = False):
+    def update_progress(self, processed_count: int, status: str = None, force_log: bool = False, processed_frames: int = None, total_frames: int = None):
         """
         Update progress (frequent calls) and log pretty bar.
         """
@@ -47,7 +47,7 @@ class ProgressLogger:
 
         # Log sectioned milestone at every 25% (including 100%)
         if current_milestone > last_milestone and current_milestone > 0:
-            milestone_msg = "Job completed ✔️" if current_milestone == 100 else f"Milestone: {current_milestone}% complete"
+            milestone_msg = "Job completed" if current_milestone == 100 else f"Milestone: {current_milestone}% complete"
             self.log_section(milestone_msg)
 
         # Log pretty bar at regular intervals
@@ -64,13 +64,13 @@ class ProgressLogger:
 
         if should_log:
             self.log_pretty_bar()
-            # Optionally update database/Redis for UI tracking
+            # Update database/Redis for UI tracking with proper frame counts
             try:
                 avg_rate = self._calc_avg_rate()
                 update_job_progress(
                     job_id=int(self.job_id),
-                    processed_frames=processed_count,
-                    total_frames=self.total_items,
+                    processed_frames=processed_frames if processed_frames is not None else processed_count,
+                    total_frames=total_frames if total_frames is not None else self.total_items,
                     fps=avg_rate if avg_rate > 0 else None
                 )
             except Exception as e:
@@ -89,7 +89,7 @@ class ProgressLogger:
         self.logger.info(
             f"Job #{self.job_id} | {self.job_type} | "
             f"{progress_bar} {progress_percent:3.0f}% | "
-            f"⏱️[ {self._format_time(elapsed)} : {self._format_time(remaining)} ] | "
+            f"[ {self._format_time(elapsed)} : {self._format_time(remaining)} ] | "
             f"{avg_rate:.1f} FPS"
         )
 
@@ -114,7 +114,7 @@ class ProgressLogger:
         if final_count is not None:
             self.processed_items = final_count
         self.log_pretty_bar()
-        self.log_section("Job completed ✔️")
+        self.log_section("Job completed")
 
     def log_error(self, error_message: str):
         """Log error with both bar and section block."""

@@ -54,7 +54,7 @@ from .exception_handlers import GPUError, ModelLoadingError
 logger = logging.getLogger(__name__)
 
 # Valid file extensions
-VALID_EXTENSIONS = {'.mp4', '.jpg', '.jpeg', '.png'}
+VALID_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.m4v', '.wmv', '.mpg', '.mpeg', '.3gp', '.jpg', '.jpeg', '.png'}
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
 
 """
