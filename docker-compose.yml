@@ -143,6 +143,9 @@ services:
 
   celery:
     image: intellivision-app:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     command: celery -A intellivision worker --loglevel=warning --concurrency=5
     volumes:
       - shared-tmp:/tmp

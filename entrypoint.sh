@@ -142,7 +142,7 @@ case $SERVICE_TYPE in
         echo "🌐 Starting Django web server..."
         exec /usr/local/bin/gunicorn intellivision.wsgi:application \
             --bind 0.0.0.0:8001 \
-            --workers 4 \
+            --workers 1 \
             --timeout 300 \
             --keep-alive 2 \
             --max-requests 1000 \

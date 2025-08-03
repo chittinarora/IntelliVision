@@ -4,8 +4,19 @@ import cv2
 import numpy as np
 from insightface.app import FaceAnalysis
 
-app = FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider'])  # use CUDAExecutionProvider for GPU
-app.prepare(ctx_id=0, det_size=(640, 640))
+# Lazy loading: Only initialize ONNX models when actually needed (Celery tasks)
+# This prevents OOM during Django startup in web workers
+import os
+
+app = None
+
+def get_face_analysis_app():
+    """Lazy initialize face analysis app only when needed"""
+    global app
+    if app is None:
+        app = FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider'])
+        app.prepare(ctx_id=0, det_size=(640, 640))
+    return app
 
 def enhance_image_lighting(img):
     """Apply multiple lighting enhancement techniques to improve face detection."""
@@ -58,6 +69,9 @@ def get_embedding_from_image(image_path):
     img = cv2.imread(image_path)
     if img is None:
         return None
+
+    # Get face analysis app (lazy loaded)
+    app = get_face_analysis_app()
 
     # Strategy 1: Try with original image first (maintains performance for good lighting)
     faces = app.get(img)

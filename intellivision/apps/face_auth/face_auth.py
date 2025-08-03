@@ -11,13 +11,17 @@ import tempfile
 import numpy as np
 from django.contrib.auth.models import User
 from .jwt_utils import get_tokens_for_user
-from .db import db, qdrant, COLLECTION_NAME
+from .db import get_mongo_connection, get_qdrant_connection, COLLECTION_NAME
 from .cloudinary_utils import upload_face_image as upload_image
 from .utils import match_face, normalize
 
 
 def face_exists(new_encoding, tolerance=0.5):
     """Check if a similar face encoding exists in Qdrant."""
+    qdrant = get_qdrant_connection()
+    if not qdrant:
+        return False
+    
     encoding = normalize(new_encoding)
     response = qdrant.search(
         collection_name=COLLECTION_NAME,
@@ -32,6 +36,13 @@ def register_user(name, encoding, image_path):
     """Register a new user with a face encoding and image."""
     if encoding is None:
         return {"success": False, "message": "❌ No face detected. Try again."}
+
+    # Get database connections
+    _, db, _ = get_mongo_connection()
+    qdrant = get_qdrant_connection()
+    
+    if not db or not qdrant:
+        return {"success": False, "message": "❌ Database connections not available."}
 
     # Create a UUID for Qdrant point_id
     point_id = str(uuid.uuid4())
@@ -88,6 +99,13 @@ def login_user(encoding):
     """Authenticate a user by matching their face encoding."""
     if encoding is None:
         return {"success": False, "message": "❌ No face detected. Try again."}
+
+    # Get database connections
+    _, db, _ = get_mongo_connection()
+    qdrant = get_qdrant_connection()
+    
+    if not db or not qdrant:
+        return {"success": False, "message": "❌ Database connections not available."}
 
     # Normalize encoding
     encoding = normalize(encoding)
