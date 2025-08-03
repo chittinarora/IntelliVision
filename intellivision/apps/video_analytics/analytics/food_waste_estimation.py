@@ -312,11 +312,11 @@ def get_mock_response() -> Dict:
 )
 def analyze_food_image(image_path: Union[str, List[str]], output_path: str = None, job_id: str = None) -> Dict:
     """
-    Analyze food image(s) to identify items, estimate portions, calories, and waste.
-    NOW SUPPORTS BOTH SINGLE IMAGES AND MULTIPLE IMAGES (from video frames).
+    Analyze food image(s) or video to identify items, estimate portions, calories, and waste.
+    Auto-detects video files and routes to video analysis.
 
     Args:
-        image_path: Path to input image OR list of image paths
+        image_path: Path to input image, video, OR list of image paths
         output_path: Path to save output image (for tasks.py integration)
         job_id: VideoJob ID for progress tracking
 
@@ -328,6 +328,15 @@ def analyze_food_image(image_path: Union[str, List[str]], output_path: str = Non
     # Add job_id logging for progress tracking
     if job_id:
         logger.info(f"🚀 Starting food waste estimation job {job_id}")
+
+    # Check if input is a video file and route to video analysis
+    if isinstance(image_path, str):
+        ext = os.path.splitext(image_path)[1].lower()
+        video_extensions = {'.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.m4v', '.wmv', '.mpg', '.mpeg', '.3gp'}
+        
+        if ext in video_extensions:
+            logger.info(f"Video file detected ({ext}), routing to video analysis")
+            return analyze_food_video(image_path, OUTPUT_DIR, job_id)
 
     # Handle both single image and multiple images
     if isinstance(image_path, str):

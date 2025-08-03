@@ -75,6 +75,10 @@ def get_qdrant_connection():
     
     return qdrant
 
-# Legacy compatibility - these will be None during Django startup but available when actually needed
-_, db, users_collection = get_mongo_connection()
-qdrant = get_qdrant_connection()
+# All database connections are now lazy-loaded through functions
+# Legacy compatibility - provide None values to prevent import errors
+db = None
+users_collection = None  
+qdrant = None
+
+# Use get_mongo_connection() and get_qdrant_connection() instead of these globals

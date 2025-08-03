@@ -737,10 +737,10 @@ def lobby_detection_view(request):
 @permission_classes([IsAuthenticated])
 def food_waste_estimation_view(request):
     """
-    Submit food waste estimation job for an image.
+    Submit food waste estimation job for an image or video.
 
     Args:
-        request: HTTP request with image file
+        request: HTTP request with image or video file
 
     Returns:
         Response with standardized format:
@@ -755,8 +755,9 @@ def food_waste_estimation_view(request):
         }
     """
     start_time = time.time()
-    image_file = request.FILES.get('image')
-    if not image_file:
+    file_obj = request.FILES.get('video') or request.FILES.get('image')
+    
+    if not file_obj:
         return Response({
             'status': 'failed',
             'job_type': 'food-waste-estimation',
@@ -764,11 +765,14 @@ def food_waste_estimation_view(request):
             'output_video': None,
             'data': {},
             'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
-            'error': {'message': 'No image file provided', 'code': 'MISSING_IMAGE'}
+            'error': {'message': 'No image or video file provided', 'code': 'MISSING_FILE'}
         }, status=status.HTTP_400_BAD_REQUEST)
 
-    ext = os.path.splitext(image_file.name)[1].lower()
-    if ext not in {'.jpg', '.jpeg', '.png'}:
+    ext = os.path.splitext(file_obj.name)[1].lower()
+    allowed_image_exts = {'.jpg', '.jpeg', '.png'}
+    allowed_video_exts = {'.mp4', '.avi', '.mov', '.mkv', '.webm'}
+    
+    if ext not in allowed_image_exts and ext not in allowed_video_exts:
         return Response({
             'status': 'failed',
             'job_type': 'food-waste-estimation',
@@ -776,9 +780,10 @@ def food_waste_estimation_view(request):
             'output_video': None,
             'data': {},
             'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
-            'error': {'message': f"Invalid file type: {ext}. Allowed: .jpg, .jpeg, .png", 'code': 'INVALID_FILE_TYPE'}
+            'error': {'message': f"Invalid file type: {ext}. Allowed: {', '.join(sorted(allowed_image_exts | allowed_video_exts))}", 'code': 'INVALID_FILE_TYPE'}
         }, status=status.HTTP_400_BAD_REQUEST)
-    if image_file.size > MAX_FILE_SIZE:
+        
+    if file_obj.size > MAX_FILE_SIZE:
         return Response({
             'status': 'failed',
             'job_type': 'food-waste-estimation',
@@ -786,7 +791,7 @@ def food_waste_estimation_view(request):
             'output_video': None,
             'data': {},
             'meta': {'timestamp': timezone.now().isoformat(), 'request_time': time.time() - start_time},
-            'error': {'message': f"File size {image_file.size / (1024*1024):.2f}MB exceeds 500MB limit", 'code': 'FILE_TOO_LARGE'}
+            'error': {'message': f"File size {file_obj.size / (1024*1024):.2f}MB exceeds 500MB limit", 'code': 'FILE_TOO_LARGE'}
         }, status=status.HTTP_400_BAD_REQUEST)
 
     return _create_and_dispatch_job(request, 'food-waste-estimation')

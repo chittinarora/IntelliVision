@@ -2,11 +2,9 @@
 
 import cv2
 import numpy as np
-from insightface.app import FaceAnalysis
-
-# Lazy loading: Only initialize ONNX models when actually needed (Celery tasks)
-# This prevents OOM during Django startup in web workers
+import sys
 import os
+from insightface.app import FaceAnalysis
 
 app = None
 
@@ -17,6 +15,22 @@ def get_face_analysis_app():
         app = FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider'])
         app.prepare(ctx_id=0, det_size=(640, 640))
     return app
+
+def preload_face_models():
+    """Preload face analysis models during startup (Celery only)"""
+    # Only preload in Celery workers, not during Django migrations
+    if any(cmd in sys.argv for cmd in ['migrate', 'collectstatic', 'showmigrations', 'makemigrations']):
+        return
+    
+    # Only preload if we're in Celery worker environment
+    if os.environ.get('SERVICE_TYPE') == 'celery':
+        print("🔄 Preloading buffalo_l face models...")
+        try:
+            get_face_analysis_app()
+            print("✅ Face models preloaded successfully")
+        except Exception as e:
+            print(f"⚠️ Failed to preload face models: {e}")
+            # Don't fail startup, just log the warning
 
 def enhance_image_lighting(img):
     """Apply multiple lighting enhancement techniques to improve face detection."""
@@ -29,7 +43,7 @@ def enhance_image_lighting(img):
     # Apply CLAHE (Contrast Limited Adaptive Histogram Equalization) to L channel
     # CLAHE improves local contrast by working on small regions (tiles) of the image
     # This helps reveal facial features in shadowed areas or uneven lighting
-    # clipLimit=3.0 prevents over-amplification of noise
+    # clipLimit=3.0 prevents over-amplification of noise\
     # tileGridSize=(8,8) creates 64 regions for localized enhancement
     clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
     l = clahe.apply(l)

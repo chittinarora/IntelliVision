@@ -19,7 +19,7 @@ from .utils import match_face, normalize
 def face_exists(new_encoding, tolerance=0.5):
     """Check if a similar face encoding exists in Qdrant."""
     qdrant = get_qdrant_connection()
-    if not qdrant:
+    if qdrant is None:
         return False
     
     encoding = normalize(new_encoding)
@@ -41,7 +41,7 @@ def register_user(name, encoding, image_path):
     _, db, _ = get_mongo_connection()
     qdrant = get_qdrant_connection()
     
-    if not db or not qdrant:
+    if db is None or qdrant is None:
         return {"success": False, "message": "❌ Database connections not available."}
 
     # Create a UUID for Qdrant point_id
@@ -104,7 +104,7 @@ def login_user(encoding):
     _, db, _ = get_mongo_connection()
     qdrant = get_qdrant_connection()
     
-    if not db or not qdrant:
+    if db is None or qdrant is None:
         return {"success": False, "message": "❌ Database connections not available."}
 
     # Normalize encoding
