@@ -37,6 +37,7 @@ services:
 
   redis:
     image: redis:7
+    command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru --save ""
     ports:
       - "127.0.0.1:6379:6379"
     healthcheck:
@@ -49,10 +50,10 @@ services:
       resources:
         limits:
           cpus: "0.5"
-          memory: 1G
+          memory: 2.5G
         reservations:
           cpus: "0.25"
-          memory: 512M
+          memory: 1G
     restart: unless-stopped
 
   qdrant:
@@ -78,6 +79,7 @@ services:
     restart: unless-stopped
 
   web:
+    image: intellivision-app:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -101,11 +103,15 @@ services:
       resources:
         limits:
           cpus: "1.5"
-          memory: 5G
+          memory: 2G
         reservations:
           cpus: "1"
-          memory: 3G
-    command: sh -c "/usr/local/bin/gunicorn intellivision.wsgi:application --bind 0.0.0.0:8001 --workers 2 --max-requests 100 --max-requests-jitter 10 --timeout 120 --keep-alive 5"
+          memory: 1G
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command: sh -c "/usr/local/bin/gunicorn intellivision.wsgi:application --bind 0.0.0.0:8001 --workers 1 --max-requests 100 --max-requests-jitter 10 --timeout 120 --keep-alive 5"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health/"]
       interval: 30s
@@ -131,11 +137,12 @@ services:
       - JOB_OUTPUT_DIR=/app/intellivision/media/outputs
       - SERVICE_TYPE=web
       - ENVIRONMENT=production
+      - DJANGO_LAZY_LOADING=1
+      - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128,garbage_collection_threshold:0.9
+      - OMP_NUM_THREADS=2
 
   celery:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: intellivision-app:latest
     command: celery -A intellivision worker --loglevel=warning --concurrency=5
     volumes:
       - shared-tmp:/tmp
@@ -144,8 +151,8 @@ services:
       - ./logs:/app/intellivision/logs
     # runtime: nvidia  # Using --gpus flag instead (modern approach)
     environment:
-      # - NVIDIA_VISIBLE_DEVICES=all  # Not needed with --gpus flag
-      # - NVIDIA_DRIVER_CAPABILITIES=compute,utility  # Not needed with --gpus flag
+      - NVIDIA_VISIBLE_DEVICES=0
+      - CUDA_VISIBLE_DEVICES=0
       - PYTHONPATH=/app/intellivision:/app
       - POSTGRES_DB=${POSTGRES_DB:-intellivision}
       - POSTGRES_USER=${POSTGRES_USER:-adminvision}
@@ -160,6 +167,8 @@ services:
       - SERVICE_TYPE=celery
       - ENVIRONMENT=production
       - CUDA_LAUNCH_BLOCKING=1 # For debugging CUDA-related segfaults
+      - OMP_NUM_THREADS=4
+      - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:1024,garbage_collection_threshold:0.8
     env_file:
       - .env
     depends_on:
@@ -179,10 +188,10 @@ services:
       resources:
         limits:
           cpus: "4"
-          memory: 17G
+          memory: 16G
         reservations:
           cpus: "3"
-          memory: 12G
+          memory: 10G
           devices:
             - driver: nvidia
               count: all
